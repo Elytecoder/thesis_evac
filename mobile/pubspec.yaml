@@ -1,0 +1,42 @@
+name: mobile
+description: AI-Powered Evacuation Route Recommendation Mobile App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Map display
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  
+  # Location services
+  geolocator: ^12.0.0
+  permission_handler: ^11.3.1
+  
+  # API & Network
+  dio: ^5.4.0
+  http: ^1.2.0
+  
+  # Local storage (offline support)
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.0
+  
+  # State management & utilities
+  shared_preferences: ^2.2.0
+  
+  # Media picker
+  image_picker: ^1.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

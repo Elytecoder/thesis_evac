@@ -1,0 +1,13 @@
+{
+  "_comment": "TO REPLACE WITH REAL MDRRMO DATA: 1) Remove mock loader. 2) Import OSM or official road network. 3) Build graph. 4) Run Random Forest to fill predicted_risk_score. 5) Update cache for mobile.",
+  "segments": [
+    {"start_lat": 14.6000, "start_lng": 120.9830, "end_lat": 14.6010, "end_lng": 120.9840, "base_distance": 150},
+    {"start_lat": 14.6010, "start_lng": 120.9840, "end_lat": 14.6020, "end_lng": 120.9850, "base_distance": 200},
+    {"start_lat": 14.6000, "start_lng": 120.9830, "end_lat": 14.5990, "end_lng": 120.9820, "base_distance": 180},
+    {"start_lat": 14.5990, "start_lng": 120.9820, "end_lat": 14.5980, "end_lng": 120.9810, "base_distance": 120},
+    {"start_lat": 14.6020, "start_lng": 120.9850, "end_lat": 14.6030, "end_lng": 120.9860, "base_distance": 100},
+    {"start_lat": 14.5980, "start_lng": 120.9810, "end_lat": 14.5970, "end_lng": 120.9800, "base_distance": 130},
+    {"start_lat": 14.5970, "start_lng": 120.9800, "end_lat": 14.5960, "end_lng": 120.9790, "base_distance": 140},
+    {"start_lat": 14.6030, "start_lng": 120.9860, "end_lat": 14.6040, "end_lng": 120.9870, "base_distance": 160}
+  ]
+}

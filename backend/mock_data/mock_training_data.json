@@ -1,0 +1,23 @@
+{
+  "_comment": "TO REPLACE WITH REAL MDRRMO DATA: 1) Remove mock loader. 2) Use historical MDRRMO hazard + verification data. 3) Normalize features. 4) Re-train Naive Bayes and Random Forest.",
+  "naive_bayes_training": [
+    {"hazard_type": "flood", "lat": 14.599, "lng": 120.984, "description_length": 50, "valid": true},
+    {"hazard_type": "flood", "lat": 14.598, "lng": 120.982, "description_length": 20, "valid": true},
+    {"hazard_type": "landslide", "lat": 14.601, "lng": 120.985, "description_length": 80, "valid": true},
+    {"hazard_type": "fire", "lat": 14.602, "lng": 120.986, "description_length": 30, "valid": false},
+    {"hazard_type": "flood", "lat": 14.500, "lng": 120.900, "description_length": 5, "valid": false},
+    {"hazard_type": "landslide", "lat": 14.600, "lng": 120.983, "description_length": 60, "valid": true},
+    {"hazard_type": "flood", "lat": 14.597, "lng": 120.981, "description_length": 40, "valid": true},
+    {"hazard_type": "earthquake_damage", "lat": 14.596, "lng": 120.980, "description_length": 90, "valid": true}
+  ],
+  "road_risk_training": [
+    {"segment_id": 1, "nearby_hazard_count": 2, "avg_severity": 0.7, "risk_score": 0.75},
+    {"segment_id": 2, "nearby_hazard_count": 1, "avg_severity": 0.5, "risk_score": 0.45},
+    {"segment_id": 3, "nearby_hazard_count": 0, "avg_severity": 0, "risk_score": 0.1},
+    {"segment_id": 4, "nearby_hazard_count": 3, "avg_severity": 0.6, "risk_score": 0.65},
+    {"segment_id": 5, "nearby_hazard_count": 1, "avg_severity": 0.3, "risk_score": 0.25},
+    {"segment_id": 6, "nearby_hazard_count": 2, "avg_severity": 0.4, "risk_score": 0.5},
+    {"segment_id": 7, "nearby_hazard_count": 0, "avg_severity": 0, "risk_score": 0.15},
+    {"segment_id": 8, "nearby_hazard_count": 1, "avg_severity": 0.2, "risk_score": 0.2}
+  ]
+}

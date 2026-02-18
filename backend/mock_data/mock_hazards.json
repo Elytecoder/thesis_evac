@@ -1,0 +1,35 @@
+{
+  "_comment": "TO REPLACE WITH REAL MDRRMO DATA: 1) Remove this file and mock loader. 2) Import official MDRRMO CSV/JSON. 3) Validate coordinates. 4) Normalize hazard types. 5) Re-run model training.",
+  "baseline_hazards": [
+    {
+      "hazard_type": "flood",
+      "latitude": 14.5995,
+      "longitude": 120.9842,
+      "severity": 0.8
+    },
+    {
+      "hazard_type": "landslide",
+      "latitude": 14.6010,
+      "longitude": 120.9850,
+      "severity": 0.6
+    },
+    {
+      "hazard_type": "flood",
+      "latitude": 14.5980,
+      "longitude": 120.9820,
+      "severity": 0.5
+    },
+    {
+      "hazard_type": "fire",
+      "latitude": 14.6020,
+      "longitude": 120.9860,
+      "severity": 0.3
+    },
+    {
+      "hazard_type": "earthquake_damage",
+      "latitude": 14.5970,
+      "longitude": 120.9810,
+      "severity": 0.4
+    }
+  ]
+}
