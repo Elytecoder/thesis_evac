@@ -39,16 +39,4 @@ python manage.py test --verbosity=2
 python manage.py test apps.validation
 ```
 
-See **TEST_SUMMARY.md** and **TESTING_GUIDE.md** for complete testing documentation.
-
----
-
-## Project structure
-
-See **FOLDER_STRUCTURE.md** (or the final summary below) for the full tree, models, services, and endpoints.
-
----
-
-## Replacing mock data
-
-See **REAL_DATA_INTEGRATION_GUIDE.md** for step-by-step instructions to replace mock data with real MDRRMO data.
+Run `python manage.py test` for app-specific tests (e.g. `python manage.py test apps.validation`).
