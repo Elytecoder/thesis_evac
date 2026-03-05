@@ -33,8 +33,8 @@ dependencies:
   # Media picker
   image_picker: ^1.0.7
   
-  # Voice guidance
-  flutter_tts: ^4.0.2
+  # Voice guidance - Temporarily disabled for build compatibility
+  # flutter_tts: ^4.0.2
   
   # Collections utilities
   collection: ^1.18.0
