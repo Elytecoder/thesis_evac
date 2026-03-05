@@ -41,6 +41,8 @@ def report_hazard(request):
         longitude=data['longitude'],
         description=data.get('description', ''),
         photo_url=data.get('photo_url', ''),
+        user_latitude=data.get('user_latitude'),
+        user_longitude=data.get('user_longitude'),
     )
     return Response(
         HazardReportSerializer(report).data,

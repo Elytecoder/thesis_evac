@@ -59,6 +59,7 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
         title: const Text('Map Monitor'),
         backgroundColor: const Color(0xFF1E3A8A),
         foregroundColor: Colors.white,
+        automaticallyImplyLeading: false, // Remove back button - main tab
         actions: [
           IconButton(
             icon: const Icon(Icons.layers),

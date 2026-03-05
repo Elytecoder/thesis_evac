@@ -4,6 +4,7 @@ import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
 import '../../features/routing/routing_service.dart';
 import 'route_danger_details_screen.dart';
+import 'live_navigation_screen.dart';
 
 /// Screen showing 3 calculated routes with risk levels
 class RoutesSelectionScreen extends StatefulWidget {
@@ -64,8 +65,16 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
 
   void _onRouteSelected(app_route.Route route) {
     if (route.riskLevel == app_route.RiskLevel.green) {
-      // Safe route - start navigation
-      Navigator.pop(context, route);
+      // Safe route - launch live navigation
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LiveNavigationScreen(
+            startLocation: widget.userLocation,
+            destination: widget.evacuationCenter,
+          ),
+        ),
+      );
     } else {
       // Dangerous route - show warning
       Navigator.push(
@@ -79,7 +88,16 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
         ),
       ).then((result) {
         if (result != null) {
-          Navigator.pop(context, result);
+          // If user accepts the risky route, start navigation
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => LiveNavigationScreen(
+                startLocation: widget.userLocation,
+                destination: widget.evacuationCenter,
+              ),
+            ),
+          );
         }
       });
     }

@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import '../../core/config/api_config.dart';
 import '../../core/config/storage_config.dart';
 import '../../core/network/api_client.dart';
@@ -26,6 +27,10 @@ class AuthService {
         throw Exception('Username and password required');
       }
       
+      // Save username to SharedPreferences for profile identification
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_username', username);
+      
       // Return mock user based on username
       if (username.toLowerCase().contains('mdrrmo') || 
           username.toLowerCase().contains('admin')) {
@@ -46,6 +51,10 @@ class AuthService {
       );
 
       final user = User.fromJson(response.data);
+      
+      // Save username for profile identification
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_username', username);
       
       // Save auth token
       if (user.authToken != null) {
@@ -114,6 +123,11 @@ class AuthService {
   Future<void> logout() async {
     await clearAuthToken();
     _apiClient.clearAuthToken();
+    
+    // Clear saved username and profile
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('current_username');
+    await prefs.remove('user_profile');
   }
 
   /// Save auth token to local storage.
@@ -142,18 +156,46 @@ class AuthService {
 
   /// Get current user profile.
   /// 
-  /// MOCK: Returns mock user data.
+  /// MOCK: Returns mock user data based on saved login.
   /// REAL: GET /api/user/profile/
   Future<Map<String, dynamic>> getCurrentUser() async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 300));
       
-      // Return mock profile (you can customize based on actual logged in user)
+      // Check if there's a saved user profile first
+      final prefs = await SharedPreferences.getInstance();
+      final savedProfileJson = prefs.getString('user_profile');
+      
+      if (savedProfileJson != null && savedProfileJson.isNotEmpty) {
+        try {
+          return json.decode(savedProfileJson);
+        } catch (e) {
+          print('Error parsing saved profile: $e');
+        }
+      }
+      
+      // Check saved username to determine role
+      final savedUsername = prefs.getString('current_username');
+      
+      // If username contains mdrrmo or admin, return MDRRMO profile
+      if (savedUsername != null && 
+          (savedUsername.toLowerCase().contains('mdrrmo') || 
+           savedUsername.toLowerCase().contains('admin'))) {
+        return {
+          'username': 'mdrrmo_admin',
+          'email': 'admin@mdrrmo.bulan.gov.ph',
+          'role': 'mdrrmo',
+          'full_name': 'MDRRMO Administrator',
+        };
+      }
+      
+      // Otherwise return resident profile
       return {
-        'username': 'mdrrmo_admin',
-        'email': 'admin@mdrrmo.bulan.gov.ph',
-        'role': 'mdrrmo',
-        'full_name': 'MDRRMO Administrator',
+        'username': savedUsername ?? 'resident1',
+        'email': 'resident1@gmail.com',
+        'role': 'resident',
+        'full_name': 'Juan Dela Cruz',
+        'phone': '0917-123-4567',
       };
     }
 

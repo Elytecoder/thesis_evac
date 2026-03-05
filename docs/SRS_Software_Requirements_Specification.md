@@ -438,6 +438,13 @@ Residents SHALL report hazards with location, type, description, and optional me
   - Media file size <= 10 MB
 - **Errors:** Display clear error messages for failed validation
 
+**REQ-018:** Proximity Handling (Integrated into Validation)
+- **Description:** Proximity is used for extreme-misuse protection and as a **feature** for the single validation algorithm (Naive Bayes); there is no separate hard distance cutoff below 1 km.
+- **Step 1 — Extreme distance:** If user's current GPS distance to reported hazard location **> 1 km**, the report SHALL be **auto-rejected** (extreme misuse protection). Client and server SHALL use Haversine distance; backend rejects before running Naive Bayes.
+- **Step 2 — Distance as feature (≤ 1 km):** For distance ≤ 1 km, convert distance to **distance_category** and feed into Naive Bayes: 0–50 m → "very_near", 50–100 m → "near", 100–200 m → "moderate", 200 m–1 km → "far". No hard 200 m cutoff; validation is fully handled by Naive Bayes.
+- **Client-Side:** App SHALL send user_latitude, user_longitude (at submit time) when available so backend can compute distance and category.
+- **Override:** MDRRMO MAY accept or re-submit reports that were rejected for proximity per local policy.
+
 ---
 
 ### 3.5 AI Report Validation (Backend)
@@ -447,34 +454,26 @@ Residents SHALL report hazards with location, type, description, and optional me
 **Risk:** High
 
 **Description:**  
-Backend SHALL validate hazard reports using Naive Bayes classifier and Consensus scoring.
+Backend SHALL validate hazard reports using **one validation algorithm: Naive Bayes** (enhanced with proximity and nearby-report features). If distance > 1 km, report is auto-rejected; otherwise features are extracted and Naive Bayes returns a single probability; decision thresholds are applied. There is no separate consensus scoring formula.
 
 **Functional Requirements:**
 
-**REQ-018:** Naive Bayes Validation
-- **Description:** Calculate probability that report is authentic
-- **Algorithm:** Naive Bayes classifier
-- **Features:** Hazard type, description length
-- **Training Data:** Historical MDRRMO-verified reports
-- **Output:** Confidence score (0.0 to 1.0)
-- **Threshold:** Score >= 0.7 considered likely authentic
+**REQ-019:** Naive Bayes Validation (Single Algorithm)
+- **Description:** Calculate probability that report is authentic using a single classifier.
+- **Algorithm:** Naive Bayes classifier with Laplace smoothing.
+- **Features:** hazard_type; description_length (bucketed: short/medium/long); **distance_category** (very_near / near / moderate / far from REQ-018); **nearby_similar_report_count_category** (none / few / moderate / many, from count within 50 m and 1-hour time window); optional **time_of_report** (e.g. hour or day/night).
+- **Training Data:** Historical MDRRMO-verified reports with same feature schema.
+- **Output:** Single probability score (0.0 to 1.0). No combined_score or consensus formula.
+- **Decision thresholds (after Naive Bayes only):** If probability ≥ 0.8 → Auto-approve (status: Approved). If 0.5 ≤ probability < 0.8 → Pending (MDRRMO review). If probability < 0.5 → Reject.
 
-**REQ-019:** Consensus Scoring
-- **Description:** Boost confidence for reports with multiple submissions in same area
-- **Algorithm:** Count reports within 50m radius
-- **Boost:** +10% per nearby report (max +30%)
-- **Formula:** Final = 0.7 × NB_score + 0.3 × (0.5 + consensus_boost)
-- **Output:** Combined confidence score
+**REQ-020:** Nearby Report Count (Feature Only)
+- **Description:** Count similar hazard reports within **50 m** radius and **1-hour** time window. Convert count to category: 0 → "none", 1–2 → "few", 3–5 → "moderate", 6+ → "many". Pass as **nearby_similar_report_count_category** into Naive Bayes. Do **not** apply any manual percentage boost or combined score formula.
 
-**REQ-020:** Report Status Assignment
-- **Description:** Assign initial status based on AI confidence
-- **Rules:**
-  - Score >= 0.8: Auto-approve (status: Verified)
-  - 0.5 <= Score < 0.8: Pending review (status: Pending)
-  - Score < 0.5: Flag for rejection (status: Flagged)
-- **Override:** MDRRMO can manually approve/reject any report
+**REQ-021:** Report Status Assignment
+- **Description:** Assign initial status from Naive Bayes probability only (see REQ-019).
+- **Override:** MDRRMO can manually approve/reject any report.
 
-**REQ-021:** Model Training
+**REQ-022:** Model Training
 - **Description:** System shall support retraining AI models with new data
 - **Process:** 
   1. Export verified reports with labels
@@ -495,7 +494,7 @@ System SHALL predict risk scores for road segments using Random Forest algorithm
 
 **Functional Requirements:**
 
-**REQ-022:** Risk Score Calculation
+**REQ-023:** Risk Score Calculation
 - **Description:** Calculate risk score for each road segment
 - **Algorithm:** Random Forest Regressor
 - **Features:** 
@@ -505,7 +504,7 @@ System SHALL predict risk scores for road segments using Random Forest algorithm
   - Road elevation (if available)
 - **Output:** Risk score (0.0 = safe to 1.0 = very dangerous)
 
-**REQ-023:** Risk Level Classification
+**REQ-024:** Risk Level Classification
 - **Description:** Classify roads into risk levels
 - **Levels:**
   - Green (Low): 0.0 - 0.3
@@ -513,7 +512,7 @@ System SHALL predict risk scores for road segments using Random Forest algorithm
   - Red (High): 0.7 - 1.0
 - **Usage:** Applied in route calculation
 
-**REQ-024:** Risk Update Frequency
+**REQ-025:** Risk Update Frequency
 - **Description:** Road risk scores shall be updated when new hazards verified
 - **Triggers:**
   - New hazard approved by MDRRMO
@@ -521,7 +520,7 @@ System SHALL predict risk scores for road segments using Random Forest algorithm
   - Manual refresh by admin
 - **Process:** Recalculate risk for affected road segments
 
-**REQ-025:** Risk Visualization
+**REQ-026:** Risk Visualization
 - **Description:** Display road risk levels on admin map
 - **Colors:** Green/Yellow/Red overlay on road segments
 - **Toggle:** Admin can show/hide risk layer
@@ -539,7 +538,7 @@ MDRRMO personnel SHALL access administrative dashboard with overview statistics 
 
 **Functional Requirements:**
 
-**REQ-026:** Dashboard Statistics
+**REQ-027:** Dashboard Statistics
 - **Description:** Display key metrics on dashboard
 - **Metrics:**
   - Total reports (all time)
@@ -549,7 +548,7 @@ MDRRMO personnel SHALL access administrative dashboard with overview statistics 
   - Total evacuation centers
 - **Update:** Real-time refresh every 30 seconds
 
-**REQ-027:** Charts and Visualizations
+**REQ-028:** Charts and Visualizations
 - **Description:** Display data visualizations
 - **Charts:**
   - Reports by barangay (bar chart)
@@ -557,7 +556,7 @@ MDRRMO personnel SHALL access administrative dashboard with overview statistics 
   - Reports over time (line chart)
 - **Interaction:** Clickable for detailed view
 
-**REQ-028:** Recent Activity Feed
+**REQ-029:** Recent Activity Feed
 - **Description:** Show latest system activities
 - **Events:** New reports, approvals, rejections, system alerts
 - **Display:** Time, event type, user, action
@@ -576,7 +575,7 @@ MDRRMO SHALL review, approve, or reject hazard reports with filtering and search
 
 **Functional Requirements:**
 
-**REQ-029:** Report List View
+**REQ-030:** Report List View
 - **Description:** Display all hazard reports with filters
 - **Columns:** ID, hazard type, location, date, status, AI scores
 - **Filters:**
@@ -587,7 +586,7 @@ MDRRMO SHALL review, approve, or reject hazard reports with filtering and search
 - **Sort:** By date, AI score, status
 - **Search:** By description keywords
 
-**REQ-030:** Report Detail View
+**REQ-031:** Report Detail View
 - **Description:** Show full report information
 - **Sections:**
   1. Map Preview (location marker)
@@ -596,7 +595,7 @@ MDRRMO SHALL review, approve, or reject hazard reports with filtering and search
   4. Media (photos/videos if attached)
   5. Decision History (approval/rejection log)
 
-**REQ-031:** Approve Report
+**REQ-032:** Approve Report
 - **Description:** MDRRMO can approve valid reports
 - **Process:**
   1. Review report details and AI scores
@@ -606,7 +605,7 @@ MDRRMO SHALL review, approve, or reject hazard reports with filtering and search
 - **Effect:** Status → Verified, triggers road risk recalculation
 - **Notification:** Reporter notified (future feature)
 
-**REQ-032:** Reject Report
+**REQ-033:** Reject Report
 - **Description:** MDRRMO can reject invalid/duplicate reports
 - **Process:**
   1. Review report details
@@ -616,7 +615,7 @@ MDRRMO SHALL review, approve, or reject hazard reports with filtering and search
 - **Effect:** Status → Rejected, no impact on routing
 - **Notification:** Reporter notified with reason (future feature)
 
-**REQ-033:** Batch Actions
+**REQ-034:** Batch Actions
 - **Description:** MDRRMO can perform actions on multiple reports
 - **Actions:** Approve multiple, reject multiple, delete
 - **Safety:** Confirmation required for batch operations
@@ -634,13 +633,13 @@ MDRRMO SHALL view full-screen map with all hazards and evacuation centers with l
 
 **Functional Requirements:**
 
-**REQ-034:** Map Display
+**REQ-035:** Map Display
 - **Description:** Full-screen interactive map of Bulan area
 - **Base Map:** OpenStreetMap tiles
 - **Center:** Bulan, Sorsogon (12.6699, 123.8758)
 - **Zoom Levels:** 10 (municipality) to 18 (street)
 
-**REQ-035:** Layer Toggles
+**REQ-036:** Layer Toggles
 - **Description:** Admin can show/hide map layers
 - **Layers:**
   - Evacuation Centers (blue markers)
@@ -649,13 +648,13 @@ MDRRMO SHALL view full-screen map with all hazards and evacuation centers with l
   - Risk Overlay (colored road segments)
 - **Controls:** Toggle switches in bottom sheet
 
-**REQ-036:** Marker Interactions
+**REQ-037:** Marker Interactions
 - **Description:** Tapping markers shows details
 - **Evacuation Centers:** Name, address, capacity, contact
 - **Hazards:** Type, description, date, AI scores, status
 - **Actions:** View full report, approve/reject (for hazards)
 
-**REQ-037:** Map Legend
+**REQ-038:** Map Legend
 - **Description:** Display legend explaining map symbols
 - **Legend Items:**
   - 🔵 Blue = Evacuation Centers
@@ -676,14 +675,14 @@ MDRRMO SHALL manage evacuation centers (add, edit, deactivate).
 
 **Functional Requirements:**
 
-**REQ-038:** List Centers
+**REQ-039:** List Centers
 - **Description:** Display all evacuation centers
 - **Display:** Name, barangay, address, contact, coordinates, status
 - **Filters:** Barangay, status (Active/Inactive)
 - **Search:** By name or address
 - **Sort:** By name, barangay, distance from MDRRMO office
 
-**REQ-039:** Add Center
+**REQ-040:** Add Center
 - **Description:** MDRRMO can add new evacuation centers
 - **Form Fields:**
   - Name (required)
@@ -695,20 +694,20 @@ MDRRMO SHALL manage evacuation centers (add, edit, deactivate).
 - **Validation:** All fields required, coordinates within Bulan bounds
 - **Effect:** New center immediately available to residents
 
-**REQ-040:** Edit Center
+**REQ-041:** Edit Center
 - **Description:** MDRRMO can update center information
 - **Editable Fields:** All fields except ID
 - **Process:** Load current data, allow modifications, save changes
 - **Validation:** Same as add center
 - **Effect:** Updates reflected in real-time
 
-**REQ-041:** Deactivate Center
+**REQ-042:** Deactivate Center
 - **Description:** MDRRMO can deactivate centers (e.g., under repair)
 - **Process:** Set status to "Inactive"
 - **Effect:** Hidden from resident app, still visible in admin
 - **Reactivate:** Can change status back to "Active"
 
-**REQ-042:** View on Map
+**REQ-043:** View on Map
 - **Description:** Each center has "View on Map" button
 - **Action:** Opens map centered on center location
 - **Display:** Marker with center details
@@ -726,35 +725,35 @@ MDRRMO SHALL view statistical analysis and trends.
 
 **Functional Requirements:**
 
-**REQ-043:** Most Dangerous Barangays
+**REQ-044:** Most Dangerous Barangays
 - **Description:** List barangays ranked by risk score
 - **Display:** Barangay name, risk score, hazard count
 - **Calculation:** Average risk of road segments in barangay
 - **Limit:** Top 5 barangays
 
-**REQ-044:** Hazard Type Distribution
+**REQ-045:** Hazard Type Distribution
 - **Description:** Show breakdown of hazards by type
 - **Chart:** Bar or pie chart
 - **Data:** Count of each hazard type (all time and last 30 days)
 - **Export:** Download as CSV
 
-**REQ-045:** Road Risk Distribution
+**REQ-046:** Road Risk Distribution
 - **Description:** Show distribution of road risk levels
 - **Display:** Count of Green/Yellow/Red road segments
 - **Percentage:** Of total road network
 - **Trends:** Compare to previous month
 
-**REQ-046:** Model Statistics
+**REQ-047:** Model Statistics
 - **Description:** Display AI model performance metrics
 - **Metrics:**
   - Naive Bayes accuracy
-  - Consensus accuracy (reports with consensus vs without)
+  - Validation (Naive Bayes) accuracy
   - Random Forest accuracy
   - Model version
   - Last trained date
 - **Purpose:** Monitor model quality
 
-**REQ-047:** Reports Over Time
+**REQ-048:** Reports Over Time
 - **Description:** Line chart showing report trends
 - **X-Axis:** Date (last 30 days)
 - **Y-Axis:** Report count
@@ -774,18 +773,18 @@ MDRRMO SHALL access admin-specific settings and system controls.
 
 **Functional Requirements:**
 
-**REQ-048:** Admin Profile
+**REQ-049:** Admin Profile
 - **Description:** Display current admin user information
 - **Display:** Name, email, role, last login
 - **Edit:** Change name, phone number (not email or role)
 
-**REQ-049:** Change Password
+**REQ-050:** Change Password
 - **Description:** Admin can change account password
 - **Form:** Current password, new password, confirm password
 - **Validation:** Current password correct, new password meets requirements
 - **Security:** Force re-login after password change
 
-**REQ-050:** Retrain AI Models
+**REQ-051:** Retrain AI Models
 - **Description:** Manually trigger AI model retraining
 - **Process:** 
   1. Export latest verified reports
@@ -795,19 +794,19 @@ MDRRMO SHALL access admin-specific settings and system controls.
 - **Duration:** 30-60 seconds
 - **Frequency Limit:** Once per day
 
-**REQ-051:** Sync Baseline Data
+**REQ-052:** Sync Baseline Data
 - **Description:** Refresh baseline hazard data from MDRRMO database
 - **Process:** Import historical hazard data from CSV/Excel
 - **Effect:** Updates road risk calculations
 - **Confirmation:** Display sync status and record count
 
-**REQ-052:** Clear Cache
+**REQ-053:** Clear Cache
 - **Description:** Clear app cache to force data refresh
 - **Targets:** Route cache, map tiles, temporary files
 - **Warning:** Confirm action (data will be re-downloaded)
 - **Effect:** Forces fresh data load on next request
 
-**REQ-053:** System Information
+**REQ-054:** System Information
 - **Description:** Display system status information
 - **Info:**
   - App version
@@ -818,7 +817,7 @@ MDRRMO SHALL access admin-specific settings and system controls.
   - Last sync date
   - Total users, reports, centers
 
-**REQ-054:** Logout
+**REQ-055:** Logout
 - **Description:** Admin can securely logout
 - **Process:** Clear auth token, return to welcome screen
 - **Confirmation:** "Are you sure?" dialog
@@ -837,7 +836,7 @@ System SHALL provide core functionality without internet connection.
 
 **Functional Requirements:**
 
-**REQ-055:** Offline Data Storage
+**REQ-056:** Offline Data Storage
 - **Description:** System shall cache essential data locally
 - **Technology:** Hive NoSQL database
 - **Cached Data:**
@@ -847,7 +846,7 @@ System SHALL provide core functionality without internet connection.
   - User profile
 - **Storage Limit:** Max 50 MB
 
-**REQ-056:** Offline Route Access
+**REQ-057:** Offline Route Access
 - **Description:** Previously calculated routes available offline
 - **Process:** 
   1. User requests route
@@ -856,7 +855,7 @@ System SHALL provide core functionality without internet connection.
   4. If not found, show error requesting internet
 - **Cache Key:** "startLat,startLng-endLat,endLng"
 
-**REQ-057:** Offline Report Queue
+**REQ-058:** Offline Report Queue
 - **Description:** Hazard reports submitted offline shall be queued
 - **Process:**
   1. User submits report while offline
@@ -866,7 +865,7 @@ System SHALL provide core functionality without internet connection.
 - **Queue Limit:** 20 reports
 - **Persistence:** Survives app restart
 
-**REQ-058:** Auto-Sync
+**REQ-059:** Auto-Sync
 - **Description:** Queued data shall auto-sync when internet detected
 - **Triggers:**
   - App detects network connectivity
@@ -875,7 +874,7 @@ System SHALL provide core functionality without internet connection.
 - **Process:** Upload queued reports, refresh cached data
 - **Notification:** "Synced X reports" message
 
-**REQ-059:** Offline Indicators
+**REQ-060:** Offline Indicators
 - **Description:** System shall clearly indicate offline mode
 - **Indicators:**
   - "Offline" badge in app bar
@@ -899,33 +898,33 @@ System SHALL accurately determine user location using GPS.
 
 **Functional Requirements:**
 
-**REQ-060:** GPS Permission Request
+**REQ-061:** GPS Permission Request
 - **Description:** App shall request location permission on first launch
 - **Permission:** ACCESS_FINE_LOCATION (Android)
 - **Timing:** Before accessing GPS
 - **Message:** Clear explanation of why location is needed
 - **Options:** While using app, Only this time, Don't allow
 
-**REQ-061:** Location Accuracy
+**REQ-062:** Location Accuracy
 - **Description:** System shall use high-accuracy GPS
 - **Accuracy Level:** LocationAccuracy.high (±5-10 meters)
 - **Technology:** GPS + WiFi + Cell tower triangulation
 - **Timeout:** 30 seconds max wait time
 - **Fallback:** Use last known location if current unavailable
 
-**REQ-062:** Location Validation
+**REQ-063:** Location Validation
 - **Description:** System shall validate GPS coordinates
 - **Check:** Latitude between 4.0 and 21.0, Longitude between 116.0 and 127.0
 - **Fallback:** If outside Philippines (e.g., emulator), use Bulan default (12.6699, 123.8758)
 - **Logging:** Log warning when using fallback
 
-**REQ-063:** Background Location (Future)
+**REQ-064:** Background Location (Future)
 - **Description:** System may track location in background for turn-by-turn navigation
 - **Permission:** ACCESS_BACKGROUND_LOCATION (Android 10+)
 - **Usage:** Only during active navigation
 - **Privacy:** Stop tracking when navigation ends
 
-**REQ-064:** Location Error Handling
+**REQ-065:** Location Error Handling
 - **Description:** System shall gracefully handle location errors
 - **Errors:**
   - Permission denied → Show settings prompt
@@ -941,13 +940,13 @@ System SHALL accurately determine user location using GPS.
 
 #### 4.1.1 General UI Requirements
 
-**REQ-065:** Mobile-First Design
+**REQ-066:** Mobile-First Design
 - **Screen Sizes:** 4.5" to 7" (320x568 to 768x1024 pixels)
 - **Orientation:** Portrait (primary), Landscape (supported)
 - **Navigation:** Bottom navigation bar for main screens
 - **Accessibility:** Minimum touch target size 44x44 points
 
-**REQ-066:** Visual Design
+**REQ-067:** Visual Design
 - **Color Scheme:**
   - Primary: Blue (#2196F3)
   - Accent: Amber (#FFC107) for warnings
@@ -958,7 +957,7 @@ System SHALL accurately determine user location using GPS.
 - **Icons:** Material Design Icons
 - **Contrast:** WCAG AA compliant (4.5:1 minimum)
 
-**REQ-067:** Responsive Layout
+**REQ-068:** Responsive Layout
 - **Adaptation:** Scale to different screen sizes
 - **Breakpoints:** Phone (<600dp), Tablet (≥600dp)
 - **Grid:** 8dp baseline grid
@@ -966,38 +965,38 @@ System SHALL accurately determine user location using GPS.
 
 #### 4.1.2 Resident App Screens
 
-**REQ-068:** Welcome Screen
+**REQ-069:** Welcome Screen
 - **Components:** App logo, tagline, features list, Login/Register button
 - **Animation:** Subtle fade-in on launch
 - **Duration:** Auto-advance to login if already logged in
 
-**REQ-069:** Login Screen
+**REQ-070:** Login Screen
 - **Fields:** Email, password
 - **Actions:** Login button, Register link, Forgot password (future)
 - **Validation:** Real-time error display
 - **Loading:** Progress indicator during authentication
 
-**REQ-070:** Register Screen
+**REQ-071:** Register Screen
 - **Fields:** Full name, email, phone number, password, confirm password
 - **Actions:** Register button, Back to login link
 - **Validation:** Real-time with clear error messages
 - **Success:** Auto-login after registration
 
-**REQ-071:** Map Screen (Main)
+**REQ-072:** Map Screen (Main)
 - **Layout:** Full-screen map with overlays
 - **Markers:** Blue (centers), Red (hazards), Blue dot (user)
 - **Controls:** Center on user, zoom in/out, layers
 - **Top Bar:** Logo, settings button, profile button
 - **Bottom Sheet:** Selected center details or search
 
-**REQ-072:** Evacuation Centers List
+**REQ-073:** Evacuation Centers List
 - **Layout:** Scrollable list of cards
 - **Card Content:** Name, distance, address, capacity, "Get Directions" button
 - **Search:** Search bar at top
 - **Sort:** Distance (default), Name
 - **Empty State:** "No evacuation centers found"
 
-**REQ-073:** Route Selection Screen
+**REQ-074:** Route Selection Screen
 - **Header:** Destination center info
 - **Route Cards:** 3 routes, each showing:
   - Risk level indicator (Green/Yellow/Red)
@@ -1007,14 +1006,14 @@ System SHALL accurately determine user location using GPS.
   - "Start Navigation" / "View Details" button
 - **Safest Route:** Highlighted, marked as "Recommended"
 
-**REQ-074:** Navigation Screen
+**REQ-075:** Navigation Screen
 - **Layout:** Map with route polyline, user location dot
 - **Top Bar:** Destination name, distance remaining, ETA
 - **Instructions:** Next turn, distance to turn
 - **Actions:** Center on user, cancel navigation
 - **Audio:** Toggle voice guidance
 
-**REQ-075:** Report Hazard Screen
+**REQ-076:** Report Hazard Screen
 - **Form Layout:** Vertical scroll
 - **Fields:**
   - Hazard type dropdown with icons
@@ -1025,7 +1024,7 @@ System SHALL accurately determine user location using GPS.
 - **Actions:** Submit, Cancel
 - **Success:** Confirmation message with report ID
 
-**REQ-076:** Settings Screen
+**REQ-077:** Settings Screen
 - **Sections:**
   1. Profile (name, email, avatar)
   2. Emergency Hotlines (7 numbers, tap to call)
@@ -1036,12 +1035,12 @@ System SHALL accurately determine user location using GPS.
 
 #### 4.1.3 Admin App Screens
 
-**REQ-077:** Admin Home Screen
+**REQ-078:** Admin Home Screen
 - **Bottom Nav:** 6 tabs (Dashboard, Reports, Map Monitor, Centers, Analytics, Settings)
 - **Theme:** Navy blue header with white/gray content
 - **Logo:** MDRRMO emblem
 
-**REQ-078:** Dashboard Tab
+**REQ-079:** Dashboard Tab
 - **Layout:** Scrollable, 3 sections
 - **Section 1:** Summary cards (2x3 grid)
   - Total Reports, Pending Reports, Verified Hazards, High Risk Roads, Evacuation Centers
@@ -1051,34 +1050,34 @@ System SHALL accurately determine user location using GPS.
   - Hazard Distribution (pie chart)
 - **Section 3:** Recent Activity (list, last 10 events)
 
-**REQ-079:** Reports Tab
+**REQ-080:** Reports Tab
 - **Header:** Filter controls (status, barangay), search bar
 - **Body:** Scrollable list of report cards
 - **Card Content:**
   - Hazard type icon and name
   - Location (barangay)
   - Date/time
-  - AI scores (NB %, Consensus %)
+  - AI score (Validation % from Naive Bayes)
   - Status badge (color-coded)
   - "View Details" button
 - **Empty State:** "No reports found"
 
-**REQ-080:** Report Detail Screen
+**REQ-081:** Report Detail Screen
 - **Sections (scrollable):**
   1. Map preview (small map with location marker)
   2. Report info (type, description, date, reporter ID)
   3. Media (if attached)
-  4. AI Analysis panel (NB, Consensus, RF, Recommendation)
+  4. AI Analysis panel (Validation score, RF risk, Recommendation)
   5. Decision controls (Approve button, Reject button, Comment field)
 - **Navigation:** Back arrow, share button
 
-**REQ-081:** Map Monitor Tab
+**REQ-082:** Map Monitor Tab
 - **Layout:** Full-screen map
 - **Top Bar:** Title, layers button, legend button
 - **Layers Button:** Opens bottom sheet with toggles
 - **Legend:** Floating card, bottom-left, collapsible
 
-**REQ-082:** Centers Tab
+**REQ-083:** Centers Tab
 - **Header:** Search bar, filter (barangay), Add Center FAB
 - **Body:** List of center cards
 - **Card Content:**
@@ -1088,13 +1087,13 @@ System SHALL accurately determine user location using GPS.
   - Status badge
   - Action buttons (Map icon, Edit, Deactivate)
 
-**REQ-083:** Add/Edit Center Screen
+**REQ-084:** Add/Edit Center Screen
 - **Form:** Vertical layout
 - **Fields:** All center fields with validation
 - **Actions:** Save, Cancel
 - **Success:** Return to list with success message
 
-**REQ-084:** Analytics Tab
+**REQ-085:** Analytics Tab
 - **Layout:** Scrollable, 4 sections
 - **Sections:**
   1. Most Dangerous Barangays (ranked list)
@@ -1102,7 +1101,7 @@ System SHALL accurately determine user location using GPS.
   3. Road Risk Distribution (pie chart)
   4. Model Statistics (info cards)
 
-**REQ-085:** Admin Settings Tab
+**REQ-086:** Admin Settings Tab
 - **Sections:**
   1. Admin Profile
   2. Admin Actions (4 buttons with confirmation)
@@ -1111,19 +1110,19 @@ System SHALL accurately determine user location using GPS.
 
 ### 4.2 Hardware Interfaces
 
-**REQ-086:** GPS Receiver
+**REQ-087:** GPS Receiver
 - **Interface:** Platform GPS API (geolocator package)
 - **Data:** Latitude, longitude, altitude, accuracy, timestamp
 - **Frequency:** On-demand or continuous (during navigation)
 - **Power:** Managed by OS
 
-**REQ-087:** Camera (Optional)
+**REQ-088:** Camera (Optional)
 - **Interface:** Platform Camera API (image_picker package)
 - **Purpose:** Capture photos/videos for hazard reports
 - **Resolution:** Default camera resolution, compressed to max 10 MB
 - **Permissions:** CAMERA, READ_EXTERNAL_STORAGE
 
-**REQ-088:** Network Interface
+**REQ-089:** Network Interface
 - **Types:** WiFi, Mobile data (3G/4G/5G)
 - **Protocol:** HTTP/HTTPS
 - **Usage:** API calls, map tiles, OSRM routing
@@ -1133,7 +1132,7 @@ System SHALL accurately determine user location using GPS.
 
 #### 4.3.1 OpenStreetMap Tile Server
 
-**REQ-089:** OSM Integration
+**REQ-090:** OSM Integration
 - **Service:** OpenStreetMap tile server
 - **URL:** `https://tile.openstreetmap.org/{z}/{x}/{y}.png`
 - **Protocol:** HTTPS
@@ -1146,7 +1145,7 @@ System SHALL accurately determine user location using GPS.
 
 #### 4.3.2 OSRM Routing API
 
-**REQ-090:** OSRM Integration
+**REQ-091:** OSRM Integration
 - **Service:** OpenStreetMap Routing Machine
 - **URL:** `https://router.project-osrm.org/route/v1/driving/{coordinates}`
 - **Protocol:** HTTPS GET
@@ -1164,7 +1163,7 @@ System SHALL accurately determine user location using GPS.
 
 #### 4.3.3 Backend REST API
 
-**REQ-091:** API Communication
+**REQ-092:** API Communication
 - **Protocol:** RESTful HTTP/HTTPS
 - **Base URL:** `http://10.0.2.2:8000/api` (emulator), `https://api.domain.com` (production)
 - **Format:** JSON
@@ -1174,7 +1173,7 @@ System SHALL accurately determine user location using GPS.
   - Accept: application/json
   - Authorization: Bearer {token}
 
-**REQ-092:** API Endpoints
+**REQ-093:** API Endpoints
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
@@ -1193,7 +1192,7 @@ System SHALL accurately determine user location using GPS.
 | POST | /evacuation-centers/ | Add center (admin) | Yes (MDRRMO) |
 | PUT | /evacuation-centers/{id}/ | Update center | Yes (MDRRMO) |
 
-**REQ-093:** Error Responses
+**REQ-094:** Error Responses
 - **Format:** JSON with error message
 - **Status Codes:**
   - 200: Success
@@ -1207,19 +1206,19 @@ System SHALL accurately determine user location using GPS.
 
 ### 4.4 Communication Interfaces
 
-**REQ-094:** Network Protocols
+**REQ-095:** Network Protocols
 - **HTTP/HTTPS:** All API communication
 - **TLS 1.2+:** Encrypted communication required in production
 - **JSON:** Data exchange format
 - **WebSocket:** Future real-time updates (not in v1.0)
 
-**REQ-095:** Data Transfer
+**REQ-096:** Data Transfer
 - **Request Size:** Max 10 MB (for media uploads)
 - **Response Size:** Max 5 MB (typical < 100 KB)
 - **Compression:** gzip compression for responses
 - **Timeout:** 30 seconds for API calls
 
-**REQ-096:** Bandwidth Optimization
+**REQ-097:** Bandwidth Optimization
 - **Image Compression:** Max 1 MB per photo
 - **Video Compression:** Max 10 MB per video
 - **Map Tiles:** Cached after first load
@@ -1262,7 +1261,7 @@ System SHALL accurately determine user location using GPS.
 │                    AI/ML Layer                               │
 ├──────────────────────────────────────────────────────────────┤
 │  • Naive Bayes Classifier (Report validation)               │
-│  • Consensus Scoring (Multi-report confidence)              │
+│  • Naive Bayes (validation; proximity & nearby count as features) │
 │  • Random Forest (Road risk prediction)                     │
 │  • Modified Dijkstra (Safest routing)                       │
 └──────────────────────────────────────────────────────────────┘
@@ -1278,7 +1277,7 @@ System SHALL accurately determine user location using GPS.
 
 ### 5.2 Component Diagram
 
-**REQ-097:** System shall follow modular architecture with clear separation of concerns
+**REQ-098:** System shall follow modular architecture with clear separation of concerns
 - **Presentation Layer:** Mobile app UI
 - **Application Layer:** Backend API and business logic
 - **Data Layer:** Database persistence
@@ -1325,11 +1324,12 @@ This section summarizes the functional requirements organized by priority.
 |----|-------------|---------|
 | REQ-009 | Calculate risk-aware evacuation routes | Route Calculation |
 | REQ-014 | Submit hazard reports | Hazard Reporting |
-| REQ-018 | Validate reports with Naive Bayes | AI Validation |
-| REQ-022 | Predict road risk with Random Forest | Risk Prediction |
-| REQ-029 | Manage hazard reports (approve/reject) | MDRRMO Dashboard |
-| REQ-055 | Offline data caching | Offline Mode |
-| REQ-060 | GPS location access | Location Services |
+| REQ-018 | Proximity validation (user near hazard) | Report Hazards |
+| REQ-019 | Validate reports with Naive Bayes | AI Validation |
+| REQ-023 | Predict road risk with Random Forest | Risk Prediction |
+| REQ-030 | Manage hazard reports (approve/reject) | MDRRMO Dashboard |
+| REQ-056 | Offline data caching | Offline Mode |
+| REQ-061 | GPS location access | Location Services |
 
 ### 6.2 High Priority Requirements (Should Have)
 
@@ -1337,19 +1337,19 @@ This section summarizes the functional requirements organized by priority.
 |----|-------------|---------|
 | REQ-001 | User registration | Authentication |
 | REQ-005 | List evacuation centers | Evacuation Centers |
-| REQ-019 | Consensus scoring | AI Validation |
-| REQ-026 | Dashboard statistics | MDRRMO Dashboard |
-| REQ-038 | Manage evacuation centers | Center Management |
-| REQ-056 | Offline route access | Offline Mode |
+| REQ-020 | Nearby report count (feature for NB) | AI Validation |
+| REQ-027 | Dashboard statistics | MDRRMO Dashboard |
+| REQ-039 | Manage evacuation centers | Center Management |
+| REQ-057 | Offline route access | Offline Mode |
 
 ### 6.3 Medium Priority Requirements (Could Have)
 
 | ID | Requirement | Feature |
 |----|-------------|---------|
-| REQ-043 | Most dangerous barangays analytics | Analytics |
-| REQ-048 | Admin profile management | Admin Settings |
-| REQ-050 | Manual AI model retraining | Admin Settings |
-| REQ-063 | Background location (future) | Location Services |
+| REQ-044 | Most dangerous barangays analytics | Analytics |
+| REQ-049 | Admin profile management | Admin Settings |
+| REQ-051 | Manual AI model retraining | Admin Settings |
+| REQ-064 | Background location (future) | Location Services |
 
 ### 6.4 Low Priority Requirements (Nice to Have)
 
@@ -1364,19 +1364,19 @@ This section summarizes the functional requirements organized by priority.
 
 ### 7.1 Performance Requirements
 
-**REQ-098:** Response Time
+**REQ-099:** Response Time
 - **API Calls:** Maximum 2 seconds for 95% of requests
 - **Map Load:** Initial map display within 3 seconds
 - **Route Calculation:** Maximum 5 seconds (online), <1 second (cached)
 - **Database Queries:** Maximum 500ms
 - **App Launch:** <2 seconds from icon tap to main screen
 
-**REQ-099:** Throughput
+**REQ-100:** Throughput
 - **Concurrent Users:** Support minimum 100 simultaneous users
 - **API Requests:** Handle 50 requests per second
 - **Database:** Support 100 transactions per second
 
-**REQ-100:** Resource Usage
+**REQ-101:** Resource Usage
 - **App Size:** Maximum 50 MB installed
 - **RAM:** Maximum 200 MB memory usage
 - **Battery:** Maximum 5% battery drain per hour during active use
@@ -1385,19 +1385,19 @@ This section summarizes the functional requirements organized by priority.
 
 ### 7.2 Safety Requirements
 
-**REQ-101:** Data Integrity
+**REQ-102:** Data Integrity
 - **Hazard Reports:** Validate all data before storage
 - **GPS Coordinates:** Validate within valid ranges
 - **Database:** Use transactions for atomic operations
 - **Backups:** Daily automated database backups
 
-**REQ-102:** Fail-Safe Operation
+**REQ-103:** Fail-Safe Operation
 - **Critical Features:** Evacuation center list and cached routes must work offline
 - **Graceful Degradation:** App continues with limited features if backend unavailable
 - **Data Loss Prevention:** Queue unsent reports, prevent data loss on crash
 - **Error Recovery:** Auto-retry failed API calls (max 3 attempts)
 
-**REQ-103:** User Safety
+**REQ-104:** User Safety
 - **Route Verification:** Display risk levels clearly with color coding
 - **Warning Messages:** Alert users selecting high-risk routes
 - **Emergency Info:** Prominent display of emergency hotlines
@@ -1405,7 +1405,7 @@ This section summarizes the functional requirements organized by priority.
 
 ### 7.3 Security Requirements
 
-**REQ-104:** Authentication and Authorization
+**REQ-105:** Authentication and Authorization
 - **Password Policy:**
   - Minimum 8 characters
   - Must include letters and numbers
@@ -1414,20 +1414,20 @@ This section summarizes the functional requirements organized by priority.
 - **Role-Based Access:** Enforce RBAC (Resident vs MDRRMO)
 - **Permission Checks:** Validate permissions on every request
 
-**REQ-105:** Data Protection
+**REQ-106:** Data Protection
 - **Encryption in Transit:** TLS 1.2+ for all API communication (production)
 - **Encryption at Rest:** Database encryption (production)
 - **Personal Data:** Minimize collection, hash sensitive fields
 - **Media Files:** Sanitize uploads, check file types
 
-**REQ-106:** Application Security
+**REQ-107:** Application Security
 - **Input Validation:** Validate all user inputs (client and server)
 - **SQL Injection:** Use ORM parameterized queries only
 - **XSS Protection:** Sanitize displayed content
 - **CSRF Protection:** CSRF tokens for state-changing operations
 - **Rate Limiting:** Limit API calls to prevent abuse (10 req/min per user)
 
-**REQ-107:** Privacy Requirements
+**REQ-108:** Privacy Requirements
 - **Data Minimization:** Only collect necessary information
 - **User Consent:** Clear privacy policy, user acceptance required
 - **Data Retention:** Delete rejected reports after 30 days
@@ -1438,25 +1438,25 @@ This section summarizes the functional requirements organized by priority.
 
 #### 7.4.1 Reliability
 
-**REQ-108:** Availability
+**REQ-109:** Availability
 - **Uptime:** 99% availability (87.6 hours downtime per year)
 - **Maintenance Windows:** Scheduled during low-usage times (2-4 AM)
 - **Disaster Recovery:** Restore from backup within 4 hours
 
-**REQ-109:** Fault Tolerance
+**REQ-110:** Fault Tolerance
 - **Offline Mode:** Core features work without backend
 - **Graceful Failures:** User-friendly error messages, no crashes
 - **Data Consistency:** Eventual consistency for offline-online sync
 
 #### 7.4.2 Usability
 
-**REQ-110:** Ease of Use
+**REQ-111:** Ease of Use
 - **Learning Curve:** New users productive within 5 minutes
 - **Help Documentation:** In-app help for key features
 - **Error Messages:** Clear, actionable error descriptions
 - **Feedback:** Visual feedback for all actions (loading, success, error)
 
-**REQ-111:** Accessibility
+**REQ-112:** Accessibility
 - **Screen Readers:** Compatible with TalkBack (Android)
 - **Text Scaling:** Support system text size preferences
 - **Color Contrast:** WCAG AA compliant (4.5:1)
@@ -1464,13 +1464,13 @@ This section summarizes the functional requirements organized by priority.
 
 #### 7.4.3 Maintainability
 
-**REQ-112:** Code Quality
+**REQ-113:** Code Quality
 - **Documentation:** Inline comments for complex logic
 - **Naming:** Clear, descriptive variable/function names
 - **Architecture:** Clean separation of concerns (MVC/MVVM)
 - **Version Control:** Git with meaningful commit messages
 
-**REQ-113:** Testability
+**REQ-114:** Testability
 - **Unit Tests:** Minimum 60% code coverage
 - **Integration Tests:** Test all API endpoints
 - **UI Tests:** Test critical user flows
@@ -1478,24 +1478,24 @@ This section summarizes the functional requirements organized by priority.
 
 #### 7.4.4 Portability
 
-**REQ-114:** Platform Support
+**REQ-115:** Platform Support
 - **Android:** Version 5.0 (API 21) to latest
 - **iOS:** Version 11.0 to latest (future)
 - **Backend:** Linux, macOS, Windows (development)
 
-**REQ-115:** Data Portability
+**REQ-116:** Data Portability
 - **Export:** MDRRMO can export reports as CSV/JSON
 - **Import:** Support import of historical MDRRMO data
 - **Migration:** Support database migration between SQLite and PostgreSQL
 
 #### 7.4.5 Scalability
 
-**REQ-116:** Performance Scalability
+**REQ-117:** Performance Scalability
 - **User Growth:** Support 500 users with current architecture
 - **Data Growth:** Efficiently handle 10,000+ reports
 - **Route Calculation:** Optimize for 500+ road segments
 
-**REQ-117:** Architectural Scalability
+**REQ-118:** Architectural Scalability
 - **Horizontal Scaling:** Design allows adding server instances (future)
 - **Database:** Can migrate to PostgreSQL for better performance
 - **Caching:** Implement Redis caching layer (future)
@@ -1550,7 +1550,7 @@ This section summarizes the functional requirements organized by priority.
 | video_url | String(500) | Optional | Video file path |
 | status | Enum | Required | 'pending', 'approved', 'rejected' |
 | naive_bayes_score | Decimal(3,2) | Optional | AI confidence (0.00-1.00) |
-| consensus_score | Decimal(3,2) | Optional | Consensus boost (0.00-1.00) |
+| consensus_score | Decimal(3,2) | Optional | Deprecated; validation is NB only. Kept for backward compatibility. |
 | random_forest_risk | Decimal(3,2) | Optional | Road risk prediction |
 | admin_comment | Text | Optional | MDRRMO notes |
 | created_at | DateTime | Auto | Report timestamp |
@@ -1620,19 +1620,23 @@ This section summarizes the functional requirements organized by priority.
 ```
 User → Submit Report (mobile) → Backend API
                                      ↓
-                               Naive Bayes Validation
+                    Compute distance (user location ↔ hazard location)
                                      ↓
-                               Consensus Scoring
+                    If distance > 1 km → Auto Reject (extreme misuse)
+                                     ↓
+                    Else: Extract features (distance_category, nearby count category, etc.)
+                                     ↓
+                    Run Naive Bayes (single validation algorithm)
+                                     ↓
+                    Apply threshold (≥0.8 approve, 0.5–0.8 pending, <0.5 reject)
                                      ↓
                                Save to Database
                                      ↓
-                               MDRRMO Reviews
-                                     ↓
-                            Approve or Reject
+                               MDRRMO Reviews (if pending)
                                      ↓
                      If Approved → Update Road Risk (Random Forest)
                                      ↓
-                               Update Route Calculations
+                               Update Route Calculations (Modified Dijkstra)
 ```
 
 #### 8.3.2 Route Calculation Flow
@@ -1659,7 +1663,7 @@ User → Request Route → Mobile App
 
 ### 8.4 Data Retention
 
-**REQ-118:** Data Retention Policy
+**REQ-119:** Data Retention Policy
 - **Approved Reports:** Indefinite (historical data for AI training)
 - **Pending Reports:** 30 days, then auto-archive
 - **Rejected Reports:** 30 days, then auto-delete
@@ -1668,7 +1672,7 @@ User → Request Route → Mobile App
 - **Center Cache:** 7 days, then expire
 - **Logs:** 90 days, then auto-delete
 
-**REQ-119:** Backup Policy
+**REQ-120:** Backup Policy
 - **Frequency:** Daily automated backups
 - **Retention:** Keep last 30 daily backups
 - **Location:** Separate storage from production database
@@ -1678,92 +1682,185 @@ User → Request Route → Mobile App
 
 ## 9. AI/ML Requirements
 
-### 9.1 Algorithm 1: Naive Bayes Classifier
+### 9.1 Algorithm 1: Naive Bayes Classifier (Single Validation Algorithm)
 
-**REQ-120:** Model Purpose
-- **Function:** Classify hazard reports as real or fake
-- **Features:** Hazard type, description length bucket (short/medium/long)
+**REQ-121:** Model Purpose
+- **Function:** Classify hazard reports as real or fake (single validation algorithm).
+- **Features:** hazard_type; description_length bucket (short/medium/long); **distance_category** (very_near / near / moderate / far); **nearby_similar_report_count_category** (none / few / moderate / many); optional **time_of_report** (e.g. day/night or hour).
 - **Labels:** Valid (1) or Invalid (0)
-- **Output:** Probability score (0.0 to 1.0)
+- **Output:** Single probability score (0.0 to 1.0). No separate consensus formula.
 
-**REQ-121:** Training Requirements
+**REQ-122:** Training Requirements
 - **Training Data:** Minimum 100 historical reports with verified labels
-- **Data Format:** JSON with keys: hazard_type, description_length, valid
-- **Feature Engineering:** Bucket description length (< 20 chars = short, 20-60 = medium, > 60 = long)
+- **Data Format:** JSON with keys: hazard_type, description_length, valid; optionally distance_category, nearby_similar_report_count_category, time_of_report
+- **Feature Engineering:** Bucket description length (< 20 = short, 20-60 = medium, > 60 = long); distance and nearby count as categories per REQ-018 and REQ-020
 - **Algorithm:** Naive Bayes with Laplace smoothing (k=0.5)
 
-**REQ-122:** Performance Metrics
+**REQ-123:** Performance Metrics
 - **Accuracy:** Minimum 75% on test set
 - **Precision:** Minimum 70% (minimize false positives)
 - **Recall:** Minimum 80% (minimize false negatives)
 - **F1-Score:** Minimum 0.75
 
-**REQ-123:** Model Update
+**REQ-124:** Model Update
 - **Retraining:** After every 100 new verified reports or monthly
 - **Versioning:** Track model version and accuracy
 - **A/B Testing:** Test new model alongside current before deploying
 
-### 9.2 Algorithm 2: Consensus Scoring
+### 9.2 Nearby Report Count (Feature for Naive Bayes)
 
-**REQ-124:** Algorithm Purpose
-- **Function:** Boost confidence when multiple reports in same location
-- **Radius:** 50 meters
-- **Boost:** +10% per nearby report (max +30%)
-- **Combination:** 0.7 × NB_score + 0.3 × (0.5 + consensus_boost)
+**REQ-125:** Purpose
+- **Function:** Provide **nearby_similar_report_count_category** as an input feature to Naive Bayes only. No separate scoring formula or percentage boost.
+- **Radius:** 50 meters. **Time window:** e.g. 1 hour (reports within 50 m and within last hour).
+- **Categories:** 0 → "none", 1–2 → "few", 3–5 → "moderate", 6+ → "many".
 
-**REQ-125:** Implementation
-- **Query:** Find reports within radius using Haversine distance
-- **Exclusion:** Exclude rejected reports from consensus count
-- **Real-Time:** Calculate on report submission
-- **Threshold:** Score >= 0.8 auto-approve, 0.5-0.8 pending, < 0.5 flag
+**REQ-126:** Implementation
+- **Query:** Find reports within radius and time window (Haversine distance, created_at filter).
+- **Exclusion:** Exclude current report from count. Optionally exclude rejected reports.
+- **Output:** Category string passed to Naive Bayes; no combined_score or consensus_weight.
 
 ### 9.3 Algorithm 3: Random Forest
 
-**REQ-126:** Model Purpose
+**REQ-127:** Model Purpose
 - **Function:** Predict road segment risk scores
 - **Features:** Nearby hazard count (within 100m), average hazard severity
 - **Label:** Risk score (0.0 to 1.0)
 - **Output:** Predicted risk for each road segment
 
-**REQ-127:** Training Requirements
+**REQ-128:** Training Requirements
 - **Training Data:** Minimum 50 road segments with historical hazard data
 - **Data Format:** JSON with keys: segment_id, nearby_hazard_count, avg_severity, risk_score
 - **Algorithm:** Random Forest Regressor with 10 trees
 - **Library:** scikit-learn
 
-**REQ-128:** Performance Metrics
+**REQ-129:** Performance Metrics
 - **R² Score:** Minimum 0.70
 - **Mean Absolute Error:** Maximum 0.15
 - **Prediction Range:** Clamp outputs to [0.0, 1.0]
 
-**REQ-129:** Model Update
+**REQ-130:** Model Update
 - **Retraining:** When new hazards verified or weekly
 - **Feature Update:** Recalculate nearby hazards for affected segments
 - **Batch Processing:** Update all segments in nightly job
 
 ### 9.4 Algorithm 4: Modified Dijkstra
 
-**REQ-130:** Algorithm Purpose
+**REQ-131:** Algorithm Purpose
 - **Function:** Find safest path, not shortest
 - **Graph:** Road network with weighted edges
 - **Weight Formula:** distance + (predicted_risk × 500)
 - **Output:** Top 3 routes ranked by safety
 
-**REQ-131:** Implementation
+**REQ-132:** Implementation
 - **Data Structure:** Adjacency list graph
 - **Priority Queue:** Min-heap for efficient path finding
 - **Bidirectional:** Roads are bidirectional (add both directions)
 - **K-Paths:** Find 3 distinct paths (primary + 2 alternatives)
 
-**REQ-132:** Performance
+**REQ-133:** Performance
 - **Time Complexity:** O((V + E) log V) where V=nodes, E=edges
 - **Computation Time:** Maximum 2 seconds for 500 road segments
 - **Memory:** Maximum 10 MB for graph representation
 
-**REQ-133:** Risk Weighting
+**REQ-134:** Risk Weighting
 - **Risk Multiplier:** 500 (makes risk 500x more important than distance)
 - **Justification:** Prioritize safety over convenience
 - **Tuning:** Adjustable based on MDRRMO feedback
+
+### 9.5 AI Analysis Methodology and Basis
+
+This section documents the **sources** of the AI analysis, the **meaning of percentages** shown in the system, the **criteria** for ranking the most dangerous barangays (including hazard severity and overall computation), the **basis for multiple-report rules**, and the **rationale for the algorithms**.
+
+#### 9.5.1 Sources of the AI Analysis
+
+| Source | Description | Use in AI Analysis |
+|--------|-------------|--------------------|
+| **MDRRMO historical records** | Verified hazard reports and baseline hazards (type, location, severity, date) provided or approved by MDRRMO. | Training labels for Naive Bayes (valid/invalid); ground truth for Random Forest (segment risk); severity values for hazards. |
+| **Resident-submitted reports** | Hazard reports from the mobile app (type, location, description, optional media, user location). | Input to Naive Bayes (single validation algorithm); after approval, feed into Random Forest training and segment risk updates. |
+| **Baseline hazard data** | Pre-loaded hazards from MDRRMO (flood-prone areas, known landslide zones, etc.). | Stored in Baseline Hazard table; used in road segment risk calculation (nearby hazard count, average severity). |
+| **Road network (OSM/OSRM)** | OpenStreetMap-derived road segments and graph. | Segment boundaries for assigning risk; graph for Modified Dijkstra pathfinding. |
+| **Approved report outcomes** | MDRRMO approval/rejection decisions on past reports. | Labels for Naive Bayes retraining; influences which hazards count toward road risk. |
+
+**Proximity:** If distance (user ↔ hazard) > 1 km, the report is auto-rejected (extreme misuse). For distance ≤ 1 km, distance is converted to a category and fed into Naive Bayes as a feature; there is no hard 200 m cutoff.
+
+**Data flow summary:** Validation is a single algorithm (Naive Bayes with integrated proximity and nearby-report features). New reports are validated by NB only; when approved, they update road segment risk (Random Forest) and thus route safety (Modified Dijkstra).
+
+#### 9.5.2 Indication of Percentages
+
+All AI-derived scores are stored as decimals 0.00–1.00 and **displayed as percentages** (0–100%) in the UI for clarity.
+
+| Score / Metric | Stored Value | Display | Meaning |
+|----------------|--------------|---------|--------|
+| **Validation score (Naive Bayes)** | 0.00–1.00 | e.g. "75%" | Single probability that the report is authentic. No separate consensus formula. Used for auto-approve (≥80%), pending (50–80%), reject (<50%). |
+| **Road segment risk score** | 0.00–1.00 | e.g. "20%" (Low), "55%" (Moderate), "85%" (High) | Predicted danger for that segment. 0% = safe, 100% = very dangerous. Mapped to Green / Yellow / Red. |
+| **Barangay risk (most dangerous)** | 0.00–1.00 (average of segments) | e.g. "72%" | Average of predicted risk of all road segments in that barangay. Higher % = more dangerous barangay. |
+| **Route risk** | Aggregate of segment risks on route | e.g. "25% risk" | Summarized risk for the chosen route (e.g. average or max of segment risks). |
+
+**Risk level bands (same for segments and display):**
+- **Green (Low):** 0–30% (0.00–0.30)
+- **Yellow (Moderate):** 30–70% (0.30–0.70)
+- **Red (High):** 70–100% (0.70–1.00)
+
+#### 9.5.3 Criteria for Most Dangerous Barangays
+
+**Definition:** The "most dangerous barangays" list ranks barangays by **average predicted risk** of all road segments whose geometry falls within the barangay boundary.
+
+**Formula:**
+- For each barangay \( B \):  
+  **Barangay risk score** = (Sum of predicted_risk_score of all road segments in \( B \)) / (Number of road segments in \( B \)).
+- Barangays are sorted by this score **descending**; the **top 5** are shown as "Most Dangerous Barangays."
+- **Tie-breaker:** If averages are equal, higher hazard count (number of verified hazards in that barangay) ranks the barangay as more dangerous.
+
+**How hazard types and severity affect the score:**  
+Road segment risk is predicted by **Random Forest** using:
+1. **Nearby hazard count** (within 100 m of the segment),
+2. **Average hazard severity** of those nearby hazards,
+3. Other features (e.g. historical flooding frequency, elevation if available).
+
+**Severity** is a value 0.00–1.00 per hazard. It can be set by MDRRMO when recording baseline hazards or derived from hazard type when not provided. The following **default reference severity** by hazard type is used when severity is not explicitly stored (e.g. for resident reports before MDRRMO assigns severity). These reflect relative danger to life and evacuation safety and can be adjusted by MDRRMO:
+
+| Hazard Type | Default Severity (0.00–1.00) | Rationale (danger level) |
+|-------------|-----------------------------|---------------------------|
+| Fallen Electric Post / Wires | 0.90 | Very high: electrocution, fire, blocks passage. |
+| Storm Surge | 0.95 | Very high: life-threatening, large area impact. |
+| Bridge Damage | 0.85 | High: route cut, collapse risk. |
+| Landslide | 0.85 | High: burial, blockages, secondary slides. |
+| Flooded Road | 0.70 | High: depth-dependent; default moderate–high. |
+| Road Blocked | 0.65 | Moderate–high: no passage. |
+| Road Damage | 0.50 | Moderate: slow or risky passage. |
+| Fallen Tree | 0.45 | Moderate: can block or delay. |
+| Other | 0.40 | Default moderate until MDRRMO reclassifies. |
+
+**Overall computation (bridge damage, storm surge, etc.):**  
+There is no separate "overall computation" formula per hazard type. Each hazard contributes to **segment risk** via:
+- Being **counted** in "nearby hazard count" (within 100 m of the segment), and  
+- Its **severity** (from the table above or MDRRMO-assigned) used in **average hazard severity** for that segment.
+
+The **Random Forest model** then outputs a single **predicted_risk_score** (0.00–1.00) per segment. Barangay danger is the **average of these segment scores** in the barangay, so hazard types that have higher severity and/or more occurrences in a barangay will push that barangay higher in the "most dangerous" list.
+
+#### 9.5.4 Basis for Multiple Reports in Same Area (Feature Only)
+
+**Why count nearby reports:**  
+Multiple reports at the same location are treated as **corroboration** that the hazard is real. This signal is now integrated as a **feature** (nearby_similar_report_count_category) into Naive Bayes, not a separate formula.
+
+**50 m radius and 1-hour window:**  
+- 50 m indicates "same incident or same small area"; 1-hour window limits to recent, relevant reports.  
+- Count is converted to category (none / few / moderate / many) and passed to Naive Bayes.  
+- There is **no** manual percentage boost or combined_score formula; the model learns how much weight to give this feature from training data.
+
+#### 9.5.5 Basis for the Algorithms
+
+| Algorithm | Basis / Rationale |
+|-----------|--------------------|
+| **Naive Bayes** | Single validation algorithm. Well-suited for **binary classification** (valid vs invalid) with **categorical features**: hazard type, description length, **distance_category** (proximity), **nearby_similar_report_count_category** (corroboration), optional time. Works with limited training data, interpretable, low cost. Proximity and consensus are **integrated as features**, not separate formulas. |
+| **Random Forest** | **Ensemble** method that handles **mixed features** (counts, averages, optional continuous data), is **robust** to outliers and non-linearity, and provides **regression** outputs (risk score 0–1) for each segment. Requires moderate data (e.g. 50+ segments with hazard history). Standard in risk prediction and spatial risk modeling. |
+| **Modified Dijkstra** | **Shortest-path** algorithm on a graph; "modified" by using **edge weight = distance + (risk × 500)** so the path minimizes risk-weighted cost rather than pure distance. **Dijkstra** is standard for non-negative weights and gives the single optimal path; the system uses it (or k-shortest variants) to produce the top 3 safest routes. Basis: graph theory and routing literature; risk multiplier 500 is a design choice to heavily favor safety over distance. |
+
+**References (algorithm standards):**  
+- Naive Bayes: standard probabilistic classifier (e.g. scikit-learn documentation).  
+- Random Forest: Breiman (2001); implemented in scikit-learn.  
+- Dijkstra: classic shortest-path algorithm; see e.g. Cormen et al., *Introduction to Algorithms*.  
+- Nearby-report count as a feature (corroboration) is common in crowdsourced hazard systems; integrated into NB instead of a separate formula to reduce algorithm complexity.
 
 ---
 
@@ -1771,19 +1868,19 @@ User → Request Route → Mobile App
 
 ### 10.1 Authentication
 
-**REQ-134:** Password Requirements
+**REQ-135:** Password Requirements
 - Minimum 8 characters
 - Must contain: letters (a-z), numbers (0-9)
 - Cannot be common passwords (e.g., "password123")
 - Cannot match username or email
 
-**REQ-135:** Password Storage
+**REQ-136:** Password Storage
 - Hash algorithm: PBKDF2 with SHA256
 - Iterations: 100,000+
 - Salt: Unique per password
 - Never store plain text
 
-**REQ-136:** Session Management
+**REQ-137:** Session Management
 - Token type: JWT (JSON Web Token)
 - Expiry: 24 hours
 - Refresh: Require re-login after expiry
@@ -1791,13 +1888,13 @@ User → Request Route → Mobile App
 
 ### 10.2 Authorization
 
-**REQ-137:** Role-Based Access Control
+**REQ-138:** Role-Based Access Control
 - **Resident:** Can view centers, report hazards, get routes
 - **MDRRMO:** Full access including report management, analytics
 - **Permission Checks:** Server-side validation on every request
 - **Principle of Least Privilege:** Users have minimum necessary permissions
 
-**REQ-138:** API Authorization
+**REQ-139:** API Authorization
 - **Resident Endpoints:** Require valid JWT, role: resident or mdrrmo
 - **Admin Endpoints:** Require valid JWT, role: mdrrmo only
 - **Public Endpoints:** None (all require authentication)
@@ -1805,23 +1902,23 @@ User → Request Route → Mobile App
 
 ### 10.3 Data Security
 
-**REQ-139:** Encryption
+**REQ-140:** Encryption
 - **In Transit:** TLS 1.2+ for HTTPS (production)
 - **At Rest:** Database encryption (production)
 - **Sensitive Fields:** Hash passwords, encrypt PII if needed
 
-**REQ-140:** Input Validation
+**REQ-141:** Input Validation
 - **Client-Side:** Validate formats, ranges, required fields
 - **Server-Side:** Re-validate all inputs (never trust client)
 - **Sanitization:** Remove/escape special characters
 - **Length Limits:** Enforce maximum lengths on all text fields
 
-**REQ-141:** SQL Injection Prevention
+**REQ-142:** SQL Injection Prevention
 - Use ORM parameterized queries only
 - Never concatenate user input into SQL
 - Whitelist allowed characters for search queries
 
-**REQ-142:** File Upload Security
+**REQ-143:** File Upload Security
 - **Type Validation:** Allow only image/video MIME types
 - **Size Limit:** 10 MB maximum
 - **Virus Scan:** Scan uploads (if available)
@@ -1830,19 +1927,19 @@ User → Request Route → Mobile App
 
 ### 10.4 Privacy
 
-**REQ-143:** Data Minimization
+**REQ-144:** Data Minimization
 - Collect only necessary information
 - No geolocation tracking beyond current report
 - No social media integration or tracking pixels
 
-**REQ-144:** Anonymization
+**REQ-145:** Anonymization
 - Report author visible only to MDRRMO (not other residents)
 - Display "Reporter ID: #12345" instead of name
 - No public profile pages
 
-**REQ-145:** Data Retention (See REQ-118)
+**REQ-146:** Data Retention (See REQ-119)
 
-**REQ-146:** Privacy Policy
+**REQ-147:** Privacy Policy
 - Clear, accessible privacy policy
 - User accepts during registration
 - Explains: data collected, usage, retention, rights
@@ -1857,12 +1954,12 @@ User → Request Route → Mobile App
 
 ### 11.3 Capacity
 
-**REQ-147:** User Capacity
+**REQ-148:** User Capacity
 - **Concurrent Users:** 100 simultaneous users
 - **Registered Users:** 10,000 total user accounts
 - **Peak Load:** 20% of users active simultaneously
 
-**REQ-148:** Data Capacity
+**REQ-149:** Data Capacity
 - **Hazard Reports:** 50,000 reports
 - **Road Segments:** 1,000 segments
 - **Evacuation Centers:** 50 centers
@@ -1966,6 +2063,8 @@ User → Request Route → Mobile App
 5. scikit-learn: https://scikit-learn.org
 6. Philippine DRRM Act: RA 10121
 7. Data Privacy Act: RA 10173
+8. Breiman, L. (2001). Random Forests. *Machine Learning*, 45(1), 5–32.
+9. Cormen, T. H., et al. *Introduction to Algorithms* (e.g. 3rd ed.). Dijkstra's algorithm for shortest paths.
 
 ---
 
@@ -2001,6 +2100,6 @@ User → Request Route → Mobile App
 
 ---
 
-**Total Requirements:** 147 requirements (REQ-001 to REQ-147)
+**Total Requirements:** 149 requirements (REQ-001 to REQ-149)
 **Total Pages:** 80+
 **Total Words:** 15,000+

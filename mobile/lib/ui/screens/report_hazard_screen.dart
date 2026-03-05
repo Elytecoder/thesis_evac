@@ -231,7 +231,7 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       if (mounted) {
         Navigator.pop(context);
 
-        // Show success dialog
+        // Show simplified success dialog (no validation scores for residents)
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
@@ -246,9 +246,12 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Your hazard report has been submitted successfully.'),
+                const Text(
+                  'Your hazard report has been submitted successfully.',
+                  style: TextStyle(fontSize: 16),
+                ),
                 if (_selectedImage != null || _selectedVideo != null) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       if (_selectedImage != null) ...[
@@ -266,50 +269,38 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                     ],
                   ),
                 ],
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.blue[50],
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
                     children: [
-                      Text(
-                        'Validation Scores:',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Accuracy: ${(report.naiveBayesScore! * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        'Community Confirmation: ${(report.consensusScore! * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
+                      Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'The MDRRMO will review and verify your report.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.blue[900],
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'MDRRMO will review and verify your report.',
-                  style: TextStyle(fontSize: 12),
                 ),
               ],
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                child: const Text('OK', style: TextStyle(fontSize: 16)),
               ),
             ],
           ),

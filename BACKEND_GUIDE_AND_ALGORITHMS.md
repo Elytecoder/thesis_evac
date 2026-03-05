@@ -248,169 +248,53 @@ def within_radius(lat1, lng1, lat2, lng2, radius_m):
 
 ---
 
-## 🤖 The 4 Algorithms Explained
+## 🤖 The 3 Algorithms Explained (Validation Simplified)
 
-### **ALGORITHM 1: Naive Bayes Classifier** 🔵
+Validation uses **one algorithm** (Naive Bayes) with integrated proximity and nearby-report features. Random Forest and Modified Dijkstra are unchanged.
+
+### **ALGORITHM 1: Naive Bayes Classifier (Single Validation Algorithm)** 🔵
 
 **Location:** `apps/validation/services/naive_bayes.py`
 
-**Purpose:** Validate if a hazard report is REAL or FAKE
+**Purpose:** Validate if a hazard report is REAL or FAKE. **Single validation algorithm**; no separate consensus formula.
 
-**How it works (Simple explanation):**
+**Features (integrated):**
+- hazard_type
+- description length (short / medium / long)
+- **distance_category** (very_near / near / moderate / far) — from user-to-hazard distance (≤1 km)
+- **nearby_similar_report_count_category** (none / few / moderate / many) — from count within 50 m and 1-hour window
+- optional: time_of_report (e.g. day/night)
 
-Imagine you're a detective. You want to know if a report is real or fake by looking at clues:
+**Proximity:** If user is >1 km from hazard, report is auto-rejected. Otherwise distance is a **feature** only (no hard 200 m cutoff).
 
-```
-Clue 1: What type of hazard? (flooded_road, landslide, etc.)
-Clue 2: How long is the description? (short, medium, long)
-
-Based on PAST reports you know are real/fake, you learn patterns:
-- Real reports usually have medium/long descriptions
-- Fake reports usually have very short descriptions
-- Flooded road reports are more common (more likely real)
-- "Unknown" hazard types are suspicious (more likely fake)
-```
-
-**The Math (Simplified):**
-
-```
-P(Real | Clues) = P(Real) × P(Clues | Real) / P(All possibilities)
-
-Example:
-Report: "Flooded road, 45 characters"
-
-Step 1: Check history
-  - 70% of past reports were real
-  - 80% of "flooded_road" reports were real
-  - 85% of medium-length descriptions were real
-
-Step 2: Calculate
-  - Probability this is real = 0.7 × 0.8 × 0.85 = 0.476
-  - Probability this is fake = 0.3 × 0.2 × 0.15 = 0.009
-  
-Step 3: Final score
-  - Real score = 0.476 / (0.476 + 0.009) = 0.98 (98% confident it's real!)
-```
-
-**Code structure:**
-
-```python
-class NaiveBayesValidator:
-    def __init__(self):
-        # Initialize empty model
-        self._trained = False
-    
-    def train(self, training_data):
-        """Learn from past reports (real vs fake)"""
-        # Count how many reports of each type were real/fake
-        # Calculate probabilities
-        self._trained = True
-    
-    def validate_report(self, report_data):
-        """Score a new report (0.0 to 1.0)"""
-        # Extract features: hazard_type, description_length
-        # Calculate probability it's real
-        # Return score (e.g., 0.92 = 92% confident it's real)
-        return score
-```
+**Decision thresholds (Naive Bayes score only):**
+- ≥ 0.8 → Auto-approve
+- 0.5–0.8 → Pending (MDRRMO review)
+- < 0.5 → Reject
 
 **Input:**
 ```python
 {
   "hazard_type": "flooded_road",
-  "description": "Severe flooding on main highway near market"
+  "description": "Severe flooding on main highway",
+  "distance_category": "near",
+  "nearby_similar_report_count_category": "few"
 }
 ```
 
-**Output:**
-```python
-0.92  # 92% confidence this report is real
-```
+**Output:** Single probability (0.0–1.0). No combined_score.
 
 ---
 
-### **ALGORITHM 2: Consensus Scoring** 🟢
+### **Nearby report count (feature for Naive Bayes)**
 
 **Location:** `apps/validation/services/consensus.py`
 
-**Purpose:** Increase confidence when MULTIPLE people report the same hazard
-
-**How it works (Simple explanation):**
-
-```
-Scenario 1: One person reports flooding
-  → Confidence: Medium (maybe true, maybe false)
-
-Scenario 2: Five people report flooding in same area
-  → Confidence: Very High (probably true!)
-
-Think of it like: When multiple witnesses report the same crime,
-police trust it more than a single report.
-```
-
-**The Logic:**
-
-```
-1. New report comes in at GPS: (12.6700, 123.8755)
-
-2. Check: How many OTHER reports are within 50 meters?
-   - Found 3 other reports nearby
-   
-3. Boost the confidence:
-   - Each nearby report adds +10% confidence (max +30%)
-   - Base confidence from Naive Bayes: 70%
-   - Consensus boost: +30%
-   - Final confidence: 85%
-```
-
-**Code structure:**
-
-```python
-class ConsensusScoringService:
-    def __init__(self, radius_m=50):
-        self.radius_m = radius_m  # 50 meters
-    
-    def count_nearby_reports(self, lat, lng, all_reports):
-        """Count reports within 50m of this location"""
-        count = 0
-        for report in all_reports:
-            if distance_between(lat, lng, report.lat, report.lng) <= 50:
-                count += 1
-        return count
-    
-    def combined_score(self, naive_bayes_score, nearby_count):
-        """Combine NB score with consensus boost"""
-        # nearby_count = 3 → boost = 0.3
-        # nearby_count = 5 → boost = 0.3 (capped)
-        boost = min(0.3, nearby_count * 0.1)
-        
-        # Weight: 70% Naive Bayes + 30% Consensus
-        final = 0.7 * naive_bayes_score + 0.3 * (0.5 + boost)
-        return final
-```
-
-**Example:**
-
-```
-Report A: "Flooding at (12.6700, 123.8755)"
-  - Naive Bayes: 70%
-  - Nearby reports: 0
-  - Final: 70%
-
-Report B: "Flooding at (12.6702, 123.8756)" (30m from A)
-  - Naive Bayes: 75%
-  - Nearby reports: 1 (Report A)
-  - Final: 0.7 × 0.75 + 0.3 × 0.6 = 70.5%
-
-Report C: "Flooding at (12.6701, 123.8757)" (20m from A&B)
-  - Naive Bayes: 80%
-  - Nearby reports: 2 (A and B)
-  - Final: 0.7 × 0.80 + 0.3 × 0.7 = 77%
-```
+**Purpose:** Count reports within **50 m** and **1-hour** window; convert to category (none/few/moderate/many) and pass to Naive Bayes as a **feature**. There is **no** separate consensus scoring formula or percentage boost.
 
 ---
 
-### **ALGORITHM 3: Random Forest (Road Risk Prediction)** 🟡
+### **ALGORITHM 2: Random Forest (Road Risk Prediction)** 🟡
 
 **Location:** `apps/risk_prediction/services/random_forest.py`
 
@@ -489,7 +373,7 @@ Algorithm predicts:
 
 ---
 
-### **ALGORITHM 4: Modified Dijkstra** 🔴
+### **ALGORITHM 3: Modified Dijkstra** 🔴
 
 **Location:** `apps/routing/services/dijkstra.py`
 

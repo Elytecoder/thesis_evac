@@ -20,17 +20,29 @@ class RoutingService {
 
   /// Get all evacuation centers.
   /// 
-  /// MOCK: Returns mock centers.
-  /// REAL: GET from /api/evacuation-centers/
+  /// IMPORTANT: Only returns OPERATIONAL evacuation centers.
+  /// Deactivated centers (is_operational = false) are excluded from routing.
+  /// This ensures residents cannot navigate to closed/unavailable centers.
+  /// 
+  /// MOCK: Returns mock centers (filtered by operational status).
+  /// REAL: GET from /api/evacuation-centers/?operational_only=true
   Future<List<EvacuationCenter>> getEvacuationCenters() async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 300));
-      return getMockEvacuationCenters();
+      final allCenters = getMockEvacuationCenters();
+      
+      // FILTER: Only return operational centers for routing
+      final operationalCenters = allCenters.where((center) => center.isOperational).toList();
+      
+      print('🏢 Loaded ${operationalCenters.length} operational centers (${allCenters.length - operationalCenters.length} deactivated)');
+      
+      return operationalCenters;
     }
 
     // REAL API CALL:
     try {
-      final response = await _apiClient.get(ApiConfig.evacuationCentersEndpoint);
+      // Backend should filter by operational status
+      final response = await _apiClient.get('${ApiConfig.evacuationCentersEndpoint}?operational_only=true');
       
       final List<dynamic> centersJson = response.data;
       return centersJson
