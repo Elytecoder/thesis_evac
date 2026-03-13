@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../features/admin/admin_mock_service.dart';
 import '../../features/authentication/auth_service.dart';
 import '../../features/emergency_contacts/emergency_contacts_service.dart';
 import '../../features/system_logger/system_logger_service.dart';
+import '../../utils/input_validators.dart';
+import '../../utils/input_formatters.dart';
 import '../screens/welcome_screen.dart';
 import 'system_logs_screen.dart';
 
@@ -107,8 +110,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               children: [
                 TextField(
                   controller: nameController,
+                  inputFormatters: [
+                    NameInputFormatter(), // Only letters, spaces, hyphens
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Contact Name *',
+                    hintText: 'e.g., Police Hotline',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_outline),
                   ),
@@ -117,11 +124,14 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 TextField(
                   controller: numberController,
                   keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    PhoneNumberInputFormatter(), // 11 digits, starts with 09
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Contact Number *',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.phone_outlined),
-                    hintText: 'e.g., 0917-123-4567',
+                    hintText: '09XXXXXXXXX',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -164,10 +174,27 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameController.text.isEmpty || numberController.text.isEmpty) {
+                // Validate name
+                final nameError = InputValidators.validateName(
+                  nameController.text, 
+                  fieldName: 'Contact name',
+                );
+                if (nameError != null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please fill in required fields'),
+                    SnackBar(
+                      content: Text(nameError),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                
+                // Validate phone number
+                final phoneError = InputValidators.validatePhoneNumber(numberController.text);
+                if (phoneError != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(phoneError),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -231,8 +258,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               children: [
                 TextField(
                   controller: nameController,
+                  inputFormatters: [
+                    NameInputFormatter(), // Only letters, spaces, hyphens
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Contact Name *',
+                    hintText: 'e.g., Police Hotline',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_outline),
                   ),
@@ -241,8 +272,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 TextField(
                   controller: numberController,
                   keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    PhoneNumberInputFormatter(), // 11 digits, starts with 09
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'Contact Number *',
+                    hintText: '09XXXXXXXXX',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
@@ -287,10 +322,27 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                if (nameController.text.isEmpty || numberController.text.isEmpty) {
+                // Validate name
+                final nameError = InputValidators.validateName(
+                  nameController.text, 
+                  fieldName: 'Contact name',
+                );
+                if (nameError != null) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Please fill in required fields'),
+                    SnackBar(
+                      content: Text(nameError),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                
+                // Validate phone number
+                final phoneError = InputValidators.validatePhoneNumber(numberController.text);
+                if (phoneError != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(phoneError),
                       backgroundColor: Colors.red,
                     ),
                   );

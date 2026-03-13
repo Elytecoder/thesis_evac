@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import '../../features/admin/admin_mock_service.dart';
 import '../../features/admin/reverse_geocoding_service.dart';
 import '../../core/constants/philippine_address_data.dart';
+import '../../utils/input_validators.dart';
+import '../../utils/input_formatters.dart';
 import 'map_location_picker_screen.dart';
 
 /// Add Evacuation Center Screen - Form with structured address and auto-fill
@@ -259,21 +262,19 @@ class _AddEvacuationCenterScreenState extends State<AddEvacuationCenterScreen> {
             // Contact Number
             TextFormField(
               controller: _contactController,
+              inputFormatters: [
+                PhoneNumberInputFormatter(), // 11 digits, starts with 09
+              ],
               decoration: InputDecoration(
                 labelText: 'Contact Number *',
-                hintText: '0917-123-4567',
+                hintText: '09XXXXXXXXX',
                 prefixIcon: const Icon(Icons.phone),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
               keyboardType: TextInputType.phone,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter contact number';
-                }
-                return null;
-              },
+              validator: InputValidators.validatePhoneNumber,
             ),
             
             const SizedBox(height: 24),
