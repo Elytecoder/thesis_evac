@@ -647,6 +647,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
   /// Simplified AI Analysis for non-technical MDRRMO users.
   /// Validation is a single Naive Bayes score (no separate consensus formula).
+  /// 
+  /// FIXED: Responsive layout with proper spacing and overflow handling
   Widget _buildAIAnalysis() {
     final report = widget.report;
     final validationScore = report.naiveBayesScore ?? 0.0;
@@ -691,138 +693,171 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       recommendation = 'This hazard does not significantly affect evacuation routes.';
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Simplified AI Summary Card
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: riskColor.withOpacity(0.3), width: 2),
-          ),
-          child: Column(
-            children: [
-              // Risk Level (Large, prominent)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                decoration: BoxDecoration(
-                  color: riskColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(riskIcon, color: Colors.white, size: 32),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Risk Level: $riskLevel',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Determine if we're on a small screen
+        final isSmallScreen = constraints.maxWidth < 600;
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Simplified AI Summary Card with responsive layout
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: riskColor.withOpacity(0.3), width: 2),
               ),
-              
-              const SizedBox(height: 20),
-              
-              // Confidence Level
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    'Confidence: ',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.black87,
-                    ),
-                  ),
+                  // SECTION 1: Risk Level Banner (Always visible, responsive)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    width: double.infinity,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isSmallScreen ? 16 : 24, 
+                      vertical: isSmallScreen ? 12 : 16,
+                    ),
                     decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.green),
+                      color: riskColor,
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Text(
-                      '$confidenceLevel (${(validationScore * 100).toStringAsFixed(0)}%)',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 20),
-              
-              // Recommendation
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.withOpacity(0.2)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
+                    child: Wrap(
+                      alignment: WrapAlignment.center,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 8,
                       children: [
-                        Icon(Icons.lightbulb, color: Colors.blue, size: 20),
-                        SizedBox(width: 8),
+                        Icon(riskIcon, color: Colors.white, size: isSmallScreen ? 24 : 32),
                         Text(
-                          'Recommendation',
+                          'Risk Level: $riskLevel',
                           style: TextStyle(
-                            fontSize: 14,
+                            color: Colors.white,
+                            fontSize: isSmallScreen ? 20 : 28,
                             fontWeight: FontWeight.bold,
-                            color: Colors.blue,
                           ),
+                          textAlign: TextAlign.center,
+                          softWrap: true,
+                          overflow: TextOverflow.visible,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      recommendation,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.black87,
-                        height: 1.5,
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // SECTION 2: Confidence Score (Responsive wrapping)
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      Text(
+                        'Confidence: ',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 14 : 16,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 10 : 12, 
+                          vertical: isSmallScreen ? 4 : 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.green),
+                        ),
+                        child: Text(
+                          '$confidenceLevel (${(validationScore * 100).toStringAsFixed(0)}%)',
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 14 : 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // SECTION 3: Recommendation (Proper word wrapping)
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.lightbulb, color: Colors.blue, size: isSmallScreen ? 18 : 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Recommendation',
+                                style: TextStyle(
+                                  fontSize: isSmallScreen ? 13 : 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue,
+                                ),
+                                overflow: TextOverflow.visible,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          recommendation,
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 13 : 14,
+                            color: Colors.black87,
+                            height: 1.5,
+                          ),
+                          softWrap: true,
+                          overflow: TextOverflow.visible,
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // SECTION 4: Expandable Technical Details (Proper spacing)
+                  // Random Forest is used only for road segment risk prediction and not for report validation.
+                  ExpansionTile(
+                    title: Text(
+                      'View Technical Details',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 13 : 14,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF1E3A8A),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Expandable Technical Details — Naive Bayes validation only.
-              // Random Forest is used only for road segment risk prediction and not for report validation.
-              ExpansionTile(
-                title: const Text(
-                  'View Technical Details',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF1E3A8A),
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    maintainState: true,
+                    children: [
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                      ..._buildNaiveBayesTechnicalDetails(widget.report, validationScore),
+                    ],
                   ),
-                ),
-                tilePadding: EdgeInsets.zero,
-                children: [
-                  const Divider(),
-                  ..._buildNaiveBayesTechnicalDetails(widget.report, validationScore),
                 ],
               ),
-            ],
-          ),
-        ),
-      ],
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -908,8 +943,23 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 110, child: Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[700]))),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis)),
+          SizedBox(
+            width: 110, 
+            child: Text(
+              label, 
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+              softWrap: true,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value, 
+              style: const TextStyle(fontSize: 12),
+              softWrap: true,
+              overflow: TextOverflow.visible,
+            ),
+          ),
         ],
       ),
     );

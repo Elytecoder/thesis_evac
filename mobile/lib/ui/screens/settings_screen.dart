@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 import '../../features/authentication/auth_service.dart';
 import '../../features/emergency_contacts/emergency_contacts_service.dart';
+import '../../utils/input_validators.dart';
+import '../../utils/input_formatters.dart';
 import 'welcome_screen.dart';
 
 /// Resident Settings Screen - Complete account management
@@ -117,18 +119,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   bool _validateProfile() {
-    if (_fullNameController.text.isEmpty) {
-      _showError('Please enter your full name');
+    // Validate full name
+    final nameError = InputValidators.validateName(_fullNameController.text, fieldName: 'Full name');
+    if (nameError != null) {
+      _showError(nameError);
       return false;
     }
-    if (_emailController.text.isEmpty || !_emailController.text.contains('@')) {
-      _showError('Please enter a valid email address');
+    
+    // Validate email
+    final emailError = InputValidators.validateEmail(_emailController.text);
+    if (emailError != null) {
+      _showError(emailError);
       return false;
     }
-    if (_phoneController.text.isEmpty || _phoneController.text.length < 10) {
-      _showError('Please enter a valid phone number');
+    
+    // Validate phone number
+    final phoneError = InputValidators.validatePhoneNumber(_phoneController.text);
+    if (phoneError != null) {
+      _showError(phoneError);
       return false;
     }
+    
     return true;
   }
   
@@ -514,8 +525,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               TextField(
                 controller: _fullNameController,
                 enabled: _isEditing,
+                inputFormatters: [
+                  NameInputFormatter(), // Only letters, spaces, hyphens
+                ],
                 decoration: InputDecoration(
                   labelText: 'Full Name',
+                  hintText: 'e.g., Juan Dela Cruz',
                   prefixIcon: const Icon(Icons.person_outline),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -534,6 +549,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
                   labelText: 'Email',
+                  hintText: 'e.g., [email protected]',
                   prefixIcon: const Icon(Icons.email_outlined),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -550,8 +566,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 controller: _phoneController,
                 enabled: _isEditing,
                 keyboardType: TextInputType.phone,
+                inputFormatters: [
+                  PhoneNumberInputFormatter(), // 11 digits, starts with 09
+                ],
                 decoration: InputDecoration(
                   labelText: 'Phone Number',
+                  hintText: '09XXXXXXXXX',
                   prefixIcon: const Icon(Icons.phone_outlined),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
