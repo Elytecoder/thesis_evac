@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../models/route.dart' as app_route;
 import '../../models/evacuation_center.dart';
 
-/// Screen showing why a route is dangerous and suggesting alternatives
+/// Screen showing why a route is dangerous and suggesting alternatives.
+/// Uses real route data: distance, risk, hazards along route from backend.
 class RouteDangerDetailsScreen extends StatelessWidget {
   final app_route.Route route;
   final EvacuationCenter evacuationCenter;
@@ -15,10 +16,30 @@ class RouteDangerDetailsScreen extends StatelessWidget {
     this.safeAlternative,
   });
 
+  /// Route name from actual data (no hardcoded "River Road").
+  String get _routeName => 'Route to ${evacuationCenter.name}';
+
+  /// Safety score 0–100 from totalRisk (base + hazard penalties). Clamp to 0–1 then scale.
+  double get _safetyScorePercent => (route.totalRisk.clamp(0.0, 1.0) * 100);
+
+  /// Dynamic recommendation from actual hazards along route.
+  String get _recommendation {
+    final hazards = route.hazardsAlongRoute;
+    if (hazards.isEmpty) {
+      return 'This route has elevated risk based on segment data. Consider the safer alternative.';
+    }
+    final types = hazards.map((h) => h.hazardTypeDisplay).toSet().toList();
+    if (types.length == 1) {
+      return 'Avoid this route – ${types.first} reported along the way.';
+    }
+    return 'Avoid this route due to: ${types.join(', ')}.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isYellow = route.riskLevel == app_route.RiskLevel.yellow;
     final color = isYellow ? Colors.orange : Colors.red;
+    final hazards = route.hazardsAlongRoute;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -36,7 +57,7 @@ class RouteDangerDetailsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Warning header
+                  // Warning header – dynamic route name, no mock "River Road"
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -64,15 +85,16 @@ class RouteDangerDetailsScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                isYellow ? 'Central Avenue' : 'River Road',
+                                _routeName,
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   color: color[700],
                                 ),
                               ),
+                              const SizedBox(height: 2),
                               Text(
-                                'Last updated 2 mins ago',
+                                'Based on current hazard data',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey[600],
@@ -91,7 +113,7 @@ class RouteDangerDetailsScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            'Unsafe',
+                            isYellow ? 'Moderate risk' : 'Higher risk',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.red[700],
@@ -105,7 +127,43 @@ class RouteDangerDetailsScreen extends StatelessWidget {
 
                   const SizedBox(height: 24),
 
-                  // Safety prediction score
+                  // Distance (real computed value)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[200]!),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.straighten, color: Colors.grey[600]),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Distance',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              '${(route.totalDistance / 1000).toStringAsFixed(1)} km',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Safety prediction score – from real totalRisk (segment + hazards)
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -127,11 +185,11 @@ class RouteDangerDetailsScreen extends StatelessWidget {
                             ),
                             const Spacer(),
                             Text(
-                              '${(route.totalRisk * 100).toStringAsFixed(0)}',
+                              '${_safetyScorePercent.toStringAsFixed(0)}',
                               style: TextStyle(
                                 fontSize: 32,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.red[700],
+                                color: color[700],
                               ),
                             ),
                           ],
@@ -140,9 +198,9 @@ class RouteDangerDetailsScreen extends StatelessWidget {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(4),
                           child: LinearProgressIndicator(
-                            value: route.totalRisk,
+                            value: route.totalRisk.clamp(0.0, 1.0),
                             backgroundColor: Colors.grey[200],
-                            color: Colors.red[600],
+                            color: color[600],
                             minHeight: 10,
                           ),
                         ),
@@ -160,7 +218,7 @@ class RouteDangerDetailsScreen extends StatelessWidget {
 
                   const SizedBox(height: 24),
 
-                  // Contributing factors
+                  // Contributing factors – from actual hazards along route
                   const Text(
                     'Contributing Factors',
                     style: TextStyle(
@@ -168,58 +226,37 @@ class RouteDangerDetailsScreen extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-
                   const SizedBox(height: 12),
 
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[200]!),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.orange[50],
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            Icons.water_drop,
-                            color: Colors.orange[700],
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Flood Risk',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                  if (hazards.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[200]!),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.grey[600]),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'No verified hazards reported along this route. Risk is from segment data.',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[700],
                               ),
-                              Text(
-                                'High - Flood-Prone Area',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
+                        ],
+                      ),
+                    )
+                  else
+                    ...hazards.map((h) => _buildHazardFactorTile(h, isYellow ? Colors.orange[700]! : Colors.red[700]!)),
 
                   const SizedBox(height: 24),
 
-                  // Recommendation
+                  // Recommendation – dynamic from hazard data
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -250,9 +287,7 @@ class RouteDangerDetailsScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                isYellow
-                                    ? 'Proceed with caution - Some flooding reported in this area'
-                                    : 'Avoid this road - High flood risk',
+                                _recommendation,
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.red[800],
@@ -323,6 +358,58 @@ class RouteDangerDetailsScreen extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHazardFactorTile(app_route.RouteHazard h, Color color) {
+    IconData icon = Icons.warning;
+    if (h.hazardType.contains('flood')) icon = Icons.water_drop;
+    else if (h.hazardType.contains('landslide')) icon = Icons.landscape;
+    else if (h.hazardType.contains('block') || h.hazardType.contains('road')) icon = Icons.block;
+    else if (h.hazardType.contains('tree')) icon = Icons.park;
+    else if (h.hazardType.contains('bridge')) icon = Icons.account_balance;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey[200]!),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${h.hazardTypeDisplay} Risk',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  h.locationLabel,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
             ),
           ),
         ],

@@ -2,9 +2,12 @@ import '../../core/config/api_config.dart';
 import '../../models/hazard_report.dart';
 import '../../models/evacuation_center.dart';
 
-/// Mock service for MDRRMO admin operations.
-/// 
-/// FUTURE: Connect to real backend APIs with role-based authentication.
+/// Legacy mock service for MDRRMO.
+///
+/// Reports, evacuation centers, users, and dashboard stats now use real APIs
+/// (HazardService, EvacuationCenterService, UserManagementService, MdrrmoDashboardService).
+/// The following methods are still mock until backend implements endpoints:
+/// getAnalytics, triggerModelRetraining, syncBaselineData, clearCache.
 class AdminMockService {
   /// Get all hazard reports with filters.
   /// 

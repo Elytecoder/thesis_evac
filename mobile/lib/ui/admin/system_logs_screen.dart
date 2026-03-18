@@ -1,9 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../../features/system_logger/system_logger_service.dart';
+import '../../features/admin/system_log_service.dart';
+import '../../models/system_log.dart';
 
-/// System Logs Screen - Displays and manages system logs
-/// 
-/// Accessible only by MDRRMO Admin from Settings section
+/// System Logs Screen - Displays and manages system logs from the backend database.
+/// Accessible only by MDRRMO Admin from Settings section.
 class SystemLogsScreen extends StatefulWidget {
   const SystemLogsScreen({super.key});
 
@@ -12,6 +13,7 @@ class SystemLogsScreen extends StatefulWidget {
 }
 
 class _SystemLogsScreenState extends State<SystemLogsScreen> {
+  final SystemLogService _logService = SystemLogService();
   List<SystemLog> _logs = [];
   List<SystemLog> _filteredLogs = [];
   bool _isLoading = true;
@@ -29,12 +31,11 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
   final List<String> _userRoleOptions = ['All', 'Resident', 'MDRRMO', 'System'];
   final List<String> _moduleOptions = [
     'All',
-    'Reports',
-    'Evacuation Centers',
-    'User Management',
-    'Navigation',
-    'Settings',
     'Authentication',
+    'User Management',
+    'Hazard Reports',
+    'Evacuation Centers',
+    'Navigation',
     'System',
   ];
   final List<String> _statusOptions = ['All', 'Success', 'Warning', 'Failed'];
@@ -55,13 +56,15 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final logs = await SystemLogger.getAllLogs();
+      final result = await _logService.listSystemLogs(limit: 500);
+      final logs = result['results'] as List<SystemLog>;
       setState(() {
         _logs = logs;
         _filteredLogs = logs;
         _isLoading = false;
         _currentPage = 0;
       });
+      _filterLogs();
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -77,26 +80,24 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
 
     setState(() {
       _filteredLogs = _logs.where((log) {
-        // Search filter
         final matchesSearch = query.isEmpty ||
             log.userName.toLowerCase().contains(query) ||
             log.action.toLowerCase().contains(query) ||
-            log.module.toLowerCase().contains(query);
+            log.module.toLowerCase().contains(query) ||
+            log.description.toLowerCase().contains(query);
 
-        // Role filter
-        final matchesRole = _selectedUserRole == 'All' || log.userRole == _selectedUserRole;
+        final matchesRole = _selectedUserRole == 'All' ||
+            log.userRole.toLowerCase() == _selectedUserRole.toLowerCase();
 
-        // Module filter
-        final matchesModule = _selectedModule == 'All' || log.module == _selectedModule;
+        final matchesModule = _selectedModule == 'All' || log.moduleDisplay == _selectedModule;
 
-        // Status filter
         final matchesStatus = _selectedStatus == 'All' ||
-            log.status.name.toLowerCase() == _selectedStatus.toLowerCase();
+            log.status.toLowerCase() == _selectedStatus.toLowerCase();
 
         return matchesSearch && matchesRole && matchesModule && matchesStatus;
       }).toList();
 
-      _currentPage = 0; // Reset to first page when filtering
+      _currentPage = 0;
     });
   }
 
@@ -133,26 +134,30 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     );
 
     if (confirmed == true) {
-      await SystemLogger.clearAllLogs();
-      await _loadLogs();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('All system logs have been cleared'),
-            backgroundColor: Colors.green,
-          ),
-        );
+      try {
+        final message = await _logService.clearSystemLogs();
+        await _loadLogs();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message), backgroundColor: Colors.green),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to clear logs: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }
 
   Future<void> _exportLogs() async {
     try {
-      final jsonData = await SystemLogger.exportLogsAsJson();
-      
-      // In a real app, you'd use a file picker or share plugin here
-      // For now, we'll just show a success message
+      final jsonData = _logs.map((log) => log.toJson()).toList();
+      final jsonString = jsonEncode(jsonData);
+      final sizeKb = (jsonString.length / 1024).toStringAsFixed(2);
+
       if (mounted) {
         showDialog(
           context: context,
@@ -176,7 +181,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Size: ${(jsonData.length / 1024).toStringAsFixed(2)} KB',
+                  'Size: $sizeKb KB',
                   style: TextStyle(color: Colors.grey[700]),
                 ),
               ],
@@ -472,7 +477,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: _getStatusColor(log.status).withOpacity(0.3)),
+        border: Border.all(color: _getStatusColorFromString(log.status).withOpacity(0.3)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -484,11 +489,10 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: _getStatusColor(log.status).withOpacity(0.1),
+              color: _getStatusColorFromString(log.status).withOpacity(0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(12),
                 topRight: Radius.circular(12),
@@ -496,11 +500,11 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
             ),
             child: Row(
               children: [
-                _buildStatusBadge(log.status),
+                _buildStatusBadgeFromString(log.status),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    log.action,
+                    _actionDisplay(log.action),
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -517,20 +521,18 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
               ],
             ),
           ),
-
-          // Details
           Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
               children: [
-                _buildInfoRow(Icons.person, 'User', '${log.userName} (${log.userRole})'),
+                _buildInfoRow(Icons.person, 'User', '${log.userName} (${log.userRole.isNotEmpty ? log.userRole : 'System'})'),
                 const SizedBox(height: 8),
-                _buildInfoRow(Icons.category, 'Module', log.module),
+                _buildInfoRow(Icons.category, 'Module', log.moduleDisplay),
                 const SizedBox(height: 8),
                 _buildInfoRow(Icons.access_time, 'Timestamp', log.getFullTimestamp()),
-                if (log.details != null && log.details!.isNotEmpty) ...[
+                if (log.description.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  _buildInfoRow(Icons.info_outline, 'Details', log.details!),
+                  _buildInfoRow(Icons.info_outline, 'Details', log.description),
                 ],
               ],
             ),
@@ -538,6 +540,10 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
         ],
       ),
     );
+  }
+
+  String _actionDisplay(String action) {
+    return action.replaceAll('_', ' ').split(' ').map((e) => e.isEmpty ? e : '${e[0].toUpperCase()}${e.substring(1)}').join(' ');
   }
 
   Widget _buildInfoRow(IconData icon, String label, String value) {
@@ -568,9 +574,10 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     );
   }
 
-  Widget _buildStatusBadge(LogStatus status) {
-    final color = _getStatusColor(status);
-    final icon = _getStatusIcon(status);
+  Widget _buildStatusBadgeFromString(String status) {
+    final color = _getStatusColorFromString(status);
+    final icon = _getStatusIconFromString(status);
+    final label = status.toUpperCase();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -584,7 +591,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
           Icon(icon, size: 14, color: Colors.white),
           const SizedBox(width: 6),
           Text(
-            status.name.toUpperCase(),
+            label,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 11,
@@ -596,25 +603,29 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     );
   }
 
-  Color _getStatusColor(LogStatus status) {
-    switch (status) {
-      case LogStatus.success:
+  Color _getStatusColorFromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'success':
         return Colors.green;
-      case LogStatus.warning:
+      case 'warning':
         return Colors.orange;
-      case LogStatus.failed:
+      case 'failed':
         return Colors.red;
+      default:
+        return Colors.grey;
     }
   }
 
-  IconData _getStatusIcon(LogStatus status) {
-    switch (status) {
-      case LogStatus.success:
+  IconData _getStatusIconFromString(String status) {
+    switch (status.toLowerCase()) {
+      case 'success':
         return Icons.check_circle;
-      case LogStatus.warning:
+      case 'warning':
         return Icons.warning;
-      case LogStatus.failed:
+      case 'failed':
         return Icons.error;
+      default:
+        return Icons.info;
     }
   }
 }

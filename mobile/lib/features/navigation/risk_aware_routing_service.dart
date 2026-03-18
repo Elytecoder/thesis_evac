@@ -56,19 +56,11 @@ class RiskAwareRoutingService {
     LatLng start,
     LatLng destination,
   ) async {
-    // Validate coordinates are in Philippines
-    final isStartInPhilippines = start.latitude >= 4.0 && start.latitude <= 21.0 &&
-                                 start.longitude >= 116.0 && start.longitude <= 127.0;
-    
-    final validStart = isStartInPhilippines ? start : LatLng(12.6699, 123.8758);
-    
-    if (!isStartInPhilippines) {
-      print('⚠️ Start location outside Philippines, using Bulan default');
-    }
+    // Use actual start position (from map/navigation)
 
     // OSRM API: Get route with steps and geometry
     final url = 'https://router.project-osrm.org/route/v1/driving/'
-        '${validStart.longitude},${validStart.latitude};'
+        '${start.longitude},${start.latitude};'
         '${destination.longitude},${destination.latitude}'
         '?alternatives=false&geometries=geojson&overview=full&steps=true';
 

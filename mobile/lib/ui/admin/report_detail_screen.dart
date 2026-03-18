@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 
 /// Report Detail Screen - View full report details and make approval decisions.
@@ -20,7 +20,7 @@ class ReportDetailScreen extends StatefulWidget {
 }
 
 class _ReportDetailScreenState extends State<ReportDetailScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final HazardService _hazardService = HazardService();
   final TextEditingController _commentController = TextEditingController();
   bool _isProcessing = false;
 
@@ -122,8 +122,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       setState(() => _isProcessing = true);
 
       try {
-        await _adminService.approveReport(
-          widget.report.id ?? 0,
+        await _hazardService.approveOrRejectReport(
+          reportId: widget.report.id ?? 0,
+          approve: true,
           comment: _commentController.text.trim().isEmpty ? null : _commentController.text.trim(),
         );
 
@@ -162,8 +163,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       setState(() => _isProcessing = true);
 
       try {
-        await _adminService.rejectReport(
-          widget.report.id ?? 0,
+        await _hazardService.approveOrRejectReport(
+          reportId: widget.report.id ?? 0,
+          approve: false,
           comment: _commentController.text.trim().isEmpty ? null : _commentController.text.trim(),
         );
 

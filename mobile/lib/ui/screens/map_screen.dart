@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/config/api_config.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
 import '../../data/mock_evacuation_centers.dart';
@@ -33,7 +34,7 @@ class _MapScreenState extends State<MapScreen> {
   
   LatLng? _userLocation;
   bool _isLoading = true;
-  final List<EvacuationCenter> _evacuationCenters = getMockEvacuationCenters();
+  List<EvacuationCenter> _evacuationCenters = [];
   
   // Selected center and routes
   EvacuationCenter? _selectedCenter;
@@ -50,9 +51,40 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    _loadEvacuationCenters();
     _initializeMap();
     _loadHazardReports();
     _loadNotificationCount();
+  }
+
+  /// Load evacuation centers from API (residents see same data as MDRRMO updates).
+  Future<void> _loadEvacuationCenters() async {
+    if (ApiConfig.useMockData) {
+      setState(() {
+        _evacuationCenters = getMockEvacuationCenters();
+      });
+      return;
+    }
+    try {
+      final centers = await _routingService.getEvacuationCenters();
+      if (mounted) {
+        setState(() {
+          _evacuationCenters = centers;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _evacuationCenters = [];
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not load evacuation centers. Try again later.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    }
   }
   
   @override
@@ -121,26 +153,14 @@ class _MapScreenState extends State<MapScreen> {
             desiredAccuracy: LocationAccuracy.high,
           );
 
-          // Check if location is reasonable (within Philippines bounds)
-          // Philippines: Lat 4-21, Lng 116-127
-          final isInPhilippines = position.latitude >= 4.0 && 
-                                   position.latitude <= 21.0 &&
-                                   position.longitude >= 116.0 && 
-                                   position.longitude <= 127.0;
-
           setState(() {
-            // Use actual location if in Philippines, otherwise default to Bulan
-            _userLocation = isInPhilippines
-                ? LatLng(position.latitude, position.longitude)
-                : LatLng(12.6699, 123.8758); // Default to Bulan, Sorsogon
+            // Always use actual GPS position when available
+            _userLocation = LatLng(position.latitude, position.longitude);
             _isLoading = false;
           });
-
-          if (!isInPhilippines) {
-            print('⚠️ Location outside Philippines (${position.latitude}, ${position.longitude}), using Bulan default');
-          }
+          print('📍 Current location: ${position.latitude}, ${position.longitude}');
         } catch (e) {
-          // If GPS fails, use Bulan default
+          // Only use Bulan when GPS actually fails (no position available)
           print('⚠️ GPS error: $e, using Bulan default');
           setState(() {
             _userLocation = LatLng(12.6699, 123.8758);
@@ -337,6 +357,9 @@ class _MapScreenState extends State<MapScreen> {
                       MaterialPageRoute(
                         builder: (context) => ReportHazardScreen(
                           location: location,
+                          userLocation: _userLocation != null
+                              ? LatLng(_userLocation!.latitude, _userLocation!.longitude)
+                              : null,
                         ),
                       ),
                     ).then((_) => _loadHazardReports()); // Reload after reporting
@@ -632,6 +655,10 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // When returning from Notifications "View on Map", focus on report location
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndFocusTargetLocation();
+    });
     return Scaffold(
       body: _isLoading
           ? const Center(

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/evacuation/evacuation_center_service.dart';
 import '../../features/admin/reverse_geocoding_service.dart';
 import '../../core/constants/philippine_address_data.dart';
 import '../../models/evacuation_center.dart';
@@ -24,7 +24,7 @@ class EditEvacuationCenterScreen extends StatefulWidget {
 
 class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final AdminMockService _adminService = AdminMockService();
+  final EvacuationCenterService _evacuationCenterService = EvacuationCenterService();
   final ReverseGeocodingService _geocodingService = ReverseGeocodingService();
   
   late TextEditingController _nameController;
@@ -51,10 +51,31 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
     _latitudeController = TextEditingController(text: widget.center.latitude.toString());
     _longitudeController = TextEditingController(text: widget.center.longitude.toString());
     
-    // Pre-populate dropdowns
-    _selectedProvince = widget.center.province ?? 'Sorsogon';
-    _selectedMunicipality = widget.center.municipality ?? 'Bulan';
-    _selectedBarangay = widget.center.barangay ?? 'Zone ${widget.center.id} (Pob.)';
+    // Pre-populate dropdowns with values that exist in options (avoid DropdownButton assertion)
+    final province = widget.center.province ?? 'Sorsogon';
+    _selectedProvince = PhilippineAddressData.provinces.contains(province)
+        ? province
+        : PhilippineAddressData.provinces.isNotEmpty
+            ? PhilippineAddressData.provinces.first
+            : null;
+    final municipalities = _selectedProvince != null
+        ? PhilippineAddressData.getMunicipalities(_selectedProvince!)
+        : <String>[];
+    final municipality = widget.center.municipality ?? 'Bulan';
+    _selectedMunicipality = municipalities.contains(municipality)
+        ? municipality
+        : municipalities.isNotEmpty
+            ? municipalities.first
+            : null;
+    final barangays = _selectedMunicipality != null
+        ? PhilippineAddressData.getBarangays(_selectedMunicipality!)
+        : <String>[];
+    final barangay = widget.center.barangay ?? 'Zone 1 (Pob.)';
+    _selectedBarangay = barangays.contains(barangay)
+        ? barangay
+        : barangays.isNotEmpty
+            ? barangays.first
+            : null;
   }
 
   @override
@@ -91,76 +112,68 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
       ),
     );
 
-    // Update coordinates and perform reverse geocoding
+    // Update coordinates and perform reverse geocoding to auto-fill province, municipality, barangay
     if (selectedLocation != null && mounted) {
       setState(() {
         _latitudeController.text = selectedLocation.latitude.toStringAsFixed(6);
         _longitudeController.text = selectedLocation.longitude.toStringAsFixed(6);
         _isReverseGeocoding = true;
       });
-      
-      // Perform reverse geocoding
+
       try {
         final addressComponents = await _geocodingService.reverseGeocode(selectedLocation);
-        
-        if (addressComponents != null && mounted) {
+
+        if (addressComponents != null && addressComponents.isNotEmpty && mounted) {
           // Validate and sanitize geocoded values to match dropdown options
-          String? validProvince;
-          String? validMunicipality;
+          String validProvince = 'Sorsogon';
+          String validMunicipality = 'Bulan';
           String? validBarangay;
-          
-          // Validate province (must exist in our list)
+
           final geocodedProvince = addressComponents['province'];
-          if (geocodedProvince != null && PhilippineAddressData.provinces.contains(geocodedProvince)) {
+          if (geocodedProvince != null && geocodedProvince.toString().trim().isNotEmpty &&
+              PhilippineAddressData.provinces.contains(geocodedProvince)) {
             validProvince = geocodedProvince;
-          } else {
-            // Default to Sorsogon if not found
-            validProvince = 'Sorsogon';
           }
-          
-          // Validate municipality (must exist under the province)
-          final geocodedMunicipality = addressComponents['municipality'];
+
           final availableMunicipalities = PhilippineAddressData.getMunicipalities(validProvince);
-          if (geocodedMunicipality != null && availableMunicipalities.contains(geocodedMunicipality)) {
+          final geocodedMunicipality = addressComponents['municipality']?.toString().trim();
+          if (geocodedMunicipality != null && geocodedMunicipality.isNotEmpty &&
+              availableMunicipalities.contains(geocodedMunicipality)) {
             validMunicipality = geocodedMunicipality;
-          } else {
-            // Try case-insensitive match
+          } else if (geocodedMunicipality != null && geocodedMunicipality.isNotEmpty) {
             validMunicipality = availableMunicipalities.firstWhere(
-              (m) => m.toLowerCase() == geocodedMunicipality?.toLowerCase(),
+              (m) => m.toLowerCase() == geocodedMunicipality.toLowerCase(),
               orElse: () => availableMunicipalities.isNotEmpty ? availableMunicipalities.first : 'Bulan',
             );
+          } else if (availableMunicipalities.isNotEmpty) {
+            validMunicipality = availableMunicipalities.first;
           }
-          
-          // Validate barangay (must exist under the municipality)
-          final geocodedBarangay = addressComponents['barangay'];
+
           final availableBarangays = PhilippineAddressData.getBarangays(validMunicipality);
-          if (geocodedBarangay != null && availableBarangays.contains(geocodedBarangay)) {
+          final geocodedBarangay = addressComponents['barangay']?.toString().trim();
+          if (geocodedBarangay != null && geocodedBarangay.isNotEmpty && availableBarangays.contains(geocodedBarangay)) {
             validBarangay = geocodedBarangay;
-          } else {
-            // Try case-insensitive or partial match
-            validBarangay = availableBarangays.firstWhere(
-              (b) => b.toLowerCase().contains(geocodedBarangay?.toLowerCase() ?? ''),
-              orElse: () => '', // Leave empty if no match
+          } else if (geocodedBarangay != null && geocodedBarangay.isNotEmpty) {
+            final matches = availableBarangays.where(
+              (b) => b.toLowerCase().contains(geocodedBarangay.toLowerCase()),
             );
-            if (validBarangay.isEmpty && availableBarangays.isNotEmpty) {
-              validBarangay = null; // Don't auto-select, let user choose
-            }
+            if (matches.isNotEmpty) validBarangay = matches.first;
           }
-          
+
+          final street = addressComponents['street']?.toString().trim() ?? '';
+
           setState(() {
-            // Auto-fill address dropdowns with validated values
             _selectedProvince = validProvince;
             _selectedMunicipality = validMunicipality;
             _selectedBarangay = validBarangay;
-            _streetController.text = addressComponents['street'] ?? '';
+            if (street.isNotEmpty) _streetController.text = street;
             _isReverseGeocoding = false;
           });
-          
+
           if (mounted) {
             final message = validBarangay == null
-                ? '✅ Location updated. Please select barangay manually.'
-                : '✅ Location and address updated from map';
-            
+                ? 'Location updated. Province and municipality filled from map; please select Barangay.'
+                : 'Location and address (Province, Municipality, Barangay) filled from map.';
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(message),
@@ -170,25 +183,46 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
             );
           }
         } else {
-          setState(() => _isReverseGeocoding = false);
+          // No address from API: still fill province/municipality defaults so user only picks barangay
+          setState(() {
+            _selectedProvince = PhilippineAddressData.provinces.contains('Sorsogon')
+                ? 'Sorsogon'
+                : (PhilippineAddressData.provinces.isNotEmpty ? PhilippineAddressData.provinces.first : null);
+            _selectedMunicipality = _selectedProvince != null
+                ? (PhilippineAddressData.getMunicipalities(_selectedProvince!).contains('Bulan')
+                    ? 'Bulan'
+                    : (PhilippineAddressData.getMunicipalities(_selectedProvince!).isNotEmpty
+                        ? PhilippineAddressData.getMunicipalities(_selectedProvince!).first
+                        : null))
+                : null;
+            _selectedBarangay = null;
+            _isReverseGeocoding = false;
+          });
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('⚠️ Address could not be determined. Please complete manually.'),
+                content: Text('Location updated. Address could not be detected from map—please select Province, Municipality, and Barangay.'),
                 backgroundColor: Colors.orange,
-                duration: Duration(seconds: 3),
+                duration: Duration(seconds: 4),
               ),
             );
           }
         }
       } catch (e) {
-        setState(() => _isReverseGeocoding = false);
+        setState(() {
+          _selectedProvince = PhilippineAddressData.provinces.isNotEmpty ? PhilippineAddressData.provinces.first : null;
+          _selectedMunicipality = _selectedProvince != null && PhilippineAddressData.getMunicipalities(_selectedProvince!).isNotEmpty
+              ? PhilippineAddressData.getMunicipalities(_selectedProvince!).first
+              : null;
+          _selectedBarangay = null;
+          _isReverseGeocoding = false;
+        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('❌ Geocoding failed: $e'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
+            const SnackBar(
+              content: Text('Location updated. Address could not be fetched—please select Province, Municipality, and Barangay.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 4),
             ),
           );
         }
@@ -196,20 +230,60 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
     }
   }
 
+  /// Resolve effective dropdown value (selection or first option) to avoid null on save.
+  String? _effectiveProvince() {
+    if (_selectedProvince != null && PhilippineAddressData.provinces.contains(_selectedProvince)) {
+      return _selectedProvince;
+    }
+    return PhilippineAddressData.provinces.isNotEmpty ? PhilippineAddressData.provinces.first : null;
+  }
+
+  String? _effectiveMunicipality() {
+    final province = _effectiveProvince();
+    if (province == null) return null;
+    final list = PhilippineAddressData.getMunicipalities(province);
+    if (_selectedMunicipality != null && list.contains(_selectedMunicipality)) return _selectedMunicipality;
+    return list.isNotEmpty ? list.first : null;
+  }
+
+  String? _effectiveBarangay() {
+    final municipality = _effectiveMunicipality();
+    if (municipality == null) return null;
+    final list = PhilippineAddressData.getBarangays(municipality);
+    if (_selectedBarangay != null && list.contains(_selectedBarangay)) return _selectedBarangay;
+    return list.isNotEmpty ? list.first : null;
+  }
+
   Future<void> _handleSave() async {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    final province = _effectiveProvince();
+    final municipality = _effectiveMunicipality();
+    final barangay = _effectiveBarangay();
+    if (province == null || municipality == null || barangay == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select Province, Municipality, and Barangay before saving.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
       return;
     }
 
     setState(() => _isSaving = true);
 
     try {
-      await _adminService.updateEvacuationCenter(
-        id: widget.center.id,
+      await _evacuationCenterService.updateEvacuationCenter(
+        centerId: widget.center.id,
         name: _nameController.text.trim(),
-        province: _selectedProvince!,
-        municipality: _selectedMunicipality!,
-        barangay: _selectedBarangay!,
+        province: province,
+        municipality: municipality,
+        barangay: barangay,
         street: _streetController.text.trim(),
         contactNumber: _contactController.text.trim(),
         latitude: double.parse(_latitudeController.text.trim()),
@@ -220,22 +294,45 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Evacuation center updated successfully'),
+            content: Text('Evacuation center updated successfully.'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
           ),
         );
       }
     } catch (e) {
       setState(() => _isSaving = false);
       if (mounted) {
+        final String message = _userFriendlyUpdateError(e);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to update center: $e'),
+            content: Text(message),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
           ),
         );
       }
     }
+  }
+
+  String _userFriendlyUpdateError(dynamic e) {
+    final msg = e?.toString() ?? '';
+    if (msg.contains('null') || msg.contains('Null') || msg.contains('Null check')) {
+      return 'Couldn\'t save. Please make sure Province, Municipality, and Barangay are selected and try again.';
+    }
+    if (msg.contains('Network') || msg.contains('Connection') || msg.contains('timeout')) {
+      return 'Connection problem. Please check your internet and try again.';
+    }
+    if (msg.contains('401') || msg.contains('403')) {
+      return 'Session expired or access denied. Please log in again.';
+    }
+    if (msg.contains('404')) {
+      return 'Evacuation center not found. It may have been removed.';
+    }
+    if (msg.isNotEmpty && msg.length < 80 && !msg.contains('Exception')) {
+      return msg;
+    }
+    return 'Couldn\'t update evacuation center. Please check the fields and try again.';
   }
 
   @override
@@ -313,7 +410,9 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
             
             // Province Dropdown
             DropdownButtonFormField<String>(
-              value: _selectedProvince,
+              value: PhilippineAddressData.provinces.contains(_selectedProvince)
+                  ? _selectedProvince
+                  : (PhilippineAddressData.provinces.isNotEmpty ? PhilippineAddressData.provinces.first : null),
               decoration: InputDecoration(
                 labelText: 'Province *',
                 prefixIcon: const Icon(Icons.map),
@@ -335,7 +434,12 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
             
             // Municipality Dropdown
             DropdownButtonFormField<String>(
-              value: _selectedMunicipality,
+              value: _selectedProvince != null
+                  ? () {
+                      final list = PhilippineAddressData.getMunicipalities(_selectedProvince!);
+                      return list.contains(_selectedMunicipality) ? _selectedMunicipality : (list.isNotEmpty ? list.first : null);
+                    }()
+                  : null,
               decoration: InputDecoration(
                 labelText: 'Municipality *',
                 prefixIcon: const Icon(Icons.location_city),
@@ -360,7 +464,12 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
             
             // Barangay Dropdown
             DropdownButtonFormField<String>(
-              value: _selectedBarangay,
+              value: _selectedMunicipality != null
+                  ? () {
+                      final list = PhilippineAddressData.getBarangays(_selectedMunicipality!);
+                      return list.contains(_selectedBarangay) ? _selectedBarangay : (list.isNotEmpty ? list.first : null);
+                    }()
+                  : null,
               decoration: InputDecoration(
                 labelText: 'Barangay *',
                 prefixIcon: const Icon(Icons.location_on),

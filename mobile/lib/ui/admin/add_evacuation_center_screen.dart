@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/evacuation/evacuation_center_service.dart';
 import '../../features/admin/reverse_geocoding_service.dart';
 import '../../core/constants/philippine_address_data.dart';
 import '../../utils/input_validators.dart';
@@ -18,7 +18,7 @@ class AddEvacuationCenterScreen extends StatefulWidget {
 
 class _AddEvacuationCenterScreenState extends State<AddEvacuationCenterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final AdminMockService _adminService = AdminMockService();
+  final EvacuationCenterService _evacuationCenterService = EvacuationCenterService();
   final ReverseGeocodingService _geocodingService = ReverseGeocodingService();
   
   final _nameController = TextEditingController();
@@ -182,12 +182,17 @@ class _AddEvacuationCenterScreenState extends State<AddEvacuationCenterScreen> {
     setState(() => _isSaving = true);
 
     try {
-      await _adminService.addEvacuationCenter(
+      final street = _streetController.text.trim();
+      final province = _selectedProvince!;
+      final municipality = _selectedMunicipality!;
+      final barangay = _selectedBarangay ?? '';
+      await _evacuationCenterService.createEvacuationCenter(
         name: _nameController.text.trim(),
-        province: _selectedProvince!,
-        municipality: _selectedMunicipality!,
-        barangay: _selectedBarangay!,
-        street: _streetController.text.trim(),
+        province: province,
+        municipality: municipality,
+        barangay: barangay,
+        street: street,
+        address: '$street, $barangay, $municipality, $province',
         contactNumber: _contactController.text.trim(),
         latitude: double.parse(_latitudeController.text.trim()),
         longitude: double.parse(_longitudeController.text.trim()),

@@ -106,6 +106,31 @@ Validation uses **one** algorithm (Naive Bayes) with proximity and nearby-report
 
 ---
 
+## 4. Risk Evaluation Layer (After Routing)
+
+**Role:** A **safety layer** applied *after* routes are generated. It does **not** replace or modify Naive Bayes, Random Forest, or Dijkstra. It evaluates the returned routes and adds warnings, labels, and alternatives when all routes are high-risk.
+
+### Thresholds
+
+- **HIGH_RISK_THRESHOLD = 0.7** — Routes with total risk ≥ 0.7 are labeled "High Risk"; if *all* returned routes meet this, the system sets `no_safe_route = true`.
+- **EXTREME_RISK_THRESHOLD = 0.9** — Routes with total risk > 0.9 are tagged "Possibly Blocked" for the UI.
+
+### Logic (after Dijkstra returns top 3 routes)
+
+1. **Per route:** Assign `risk_label` ("High Risk" if total_risk ≥ 0.7, else "Safer Route"); set `possibly_blocked` if total_risk > 0.9.
+2. **Contributing factors:** For each route, build a list of hazards affecting it (from approved HazardReports near the path): `hazard_type`, `severity` (derived from type), `location` (e.g. "Near Km 2.1").
+3. **No-safe-route detection:** If every returned route has total_risk ≥ 0.7, set `no_safe_route = true`, `message` (e.g. "All routes are high risk"), and `recommended_action` (e.g. "Try another evacuation center or wait").
+4. **Alternative centers:** When `no_safe_route` is true, the backend computes routes to other operational evacuation centers (excluding the selected one) and returns for each: `center_name`, `has_safe_route` (any route &lt; 0.7), `best_route_risk`. No recursion (alternatives are computed with `include_alternative_centers = false`).
+
+### API response additions
+
+- **Top level:** `no_safe_route`, `message`, `recommended_action`, `alternative_centers`.
+- **Per route:** `risk_label`, `possibly_blocked`, `contributing_factors`.
+
+Routes are **never blocked**; they are always returned and shown in the UI with clear labels so users can still "View Routes Anyway" or "Try Other Evacuation Centers."
+
+---
+
 ## End-to-end flows
 
 ### Report submission (validation)
@@ -136,23 +161,29 @@ User requests route to evacuation center
 Check cache; if miss → OSRM for road geometry/graph
         ↓
 Backend: assign edge weight = distance + (segment_risk × 500)
-         (segment_risk from Random Forest)
+         (segment_risk from Random Forest + approved hazards)
         ↓
 Modified Dijkstra  →  Top 3 safest paths
         ↓
-Return routes (distance, risk, ETA); display on map
+Risk evaluation layer (no algorithm change):
+  - Label routes: "High Risk" / "Safer Route"; tag "Possibly Blocked" if risk > 0.9
+  - Build contributing_factors per route from approved hazards
+  - If all routes ≥ 0.7 → no_safe_route, message, recommended_action, alternative_centers
+        ↓
+Return routes + no_safe_route + message + recommended_action + alternative_centers; display on map with labels; show warning modal if no_safe_route
 ```
 
 ---
 
 ## Summary table
 
-| Algorithm      | Inputs                                      | Output              | Used for                    |
-|----------------|---------------------------------------------|---------------------|-----------------------------|
-| Naive Bayes    | hazard_type, description, distance_category, nearby_category, optional time | Probability 0–1     | Report validation only      |
-| Random Forest  | nearby hazard count, severity, optional history/elevation per segment       | Risk score 0–1 per segment | Barangay risk, route weights |
-| Modified Dijkstra | Graph + edge cost = distance + (risk × 500) | Top 3 paths         | Safest route to evacuation center |
+| Component           | Inputs                                      | Output              | Used for                    |
+|--------------------|---------------------------------------------|---------------------|-----------------------------|
+| Naive Bayes        | hazard_type, description, distance_category, nearby_category, optional time | Probability 0–1     | Report validation only      |
+| Random Forest      | nearby hazard count, severity, optional history/elevation per segment       | Risk score 0–1 per segment | Barangay risk, route weights |
+| Modified Dijkstra  | Graph + edge cost = distance + (risk × 500) | Top 3 paths         | Safest route to evacuation center |
+| Risk evaluation layer | Top 3 routes (total_risk, hazards_along_route) | no_safe_route, message, recommended_action, alternative_centers; per route: risk_label, possibly_blocked, contributing_factors | Warnings, labels, alternative centers; does not change algorithms above |
 
 ---
 
-*Document reflects the refactored validation architecture: single Naive Bayes with integrated proximity and nearby-report features; Random Forest and Modified Dijkstra unchanged.*
+*Document reflects the refactored validation architecture: single Naive Bayes with integrated proximity and nearby-report features; Random Forest and Modified Dijkstra unchanged; risk evaluation layer applied after routing.*

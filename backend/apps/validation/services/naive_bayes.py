@@ -6,8 +6,8 @@ proximity and consensus features (as input features, not separate formulas).
 
 Features: hazard_type, description_length (bucketed), distance_category,
 nearby_similar_report_count_category, optional time_of_report.
-Output: P(valid | report) in [0, 1]. Decision thresholds: >=0.8 auto-approve,
-0.5–0.8 pending, <0.5 reject.
+Output: P(valid | report) in [0, 1]. Score is stored for MDRRMO; report status
+is set by MDRRMO (no auto-approve/auto-reject by score in this module).
 
 TO REPLACE WITH REAL MDRRMO DATA:
 1. Load historical MDRRMO-verified reports (CSV/DB) with same feature schema.

@@ -38,19 +38,17 @@ class EvacuationCenter {
   });
 
   factory EvacuationCenter.fromJson(Map<String, dynamic> json) {
+    final lat = json['latitude'];
+    final lng = json['longitude'];
     return EvacuationCenter(
-      id: json['id'] as int,
-      name: json['name'] as String,
-      latitude: json['latitude'] is String 
-          ? double.parse(json['latitude']) 
-          : (json['latitude'] as num).toDouble(),
-      longitude: json['longitude'] is String 
-          ? double.parse(json['longitude']) 
-          : (json['longitude'] as num).toDouble(),
+      id: json['id'] is int ? json['id'] as int : int.parse(json['id'].toString()),
+      name: (json['name'] as String?) ?? '',
+      latitude: lat == null ? 0.0 : (lat is String ? double.tryParse(lat) ?? 0.0 : (lat as num).toDouble()),
+      longitude: lng == null ? 0.0 : (lng is String ? double.tryParse(lng) ?? 0.0 : (lng as num).toDouble()),
       description: json['description'] as String? ?? '',
       isOperational: json['is_operational'] as bool? ?? true,
       deactivatedAt: json['deactivated_at'] != null
-          ? DateTime.parse(json['deactivated_at'] as String)
+          ? DateTime.tryParse(json['deactivated_at'].toString())
           : null,
       province: json['province'] as String?,
       municipality: json['municipality'] as String?,

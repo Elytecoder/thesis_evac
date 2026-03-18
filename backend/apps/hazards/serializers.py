@@ -3,16 +3,37 @@ from rest_framework import serializers
 from .models import HazardReport, BaselineHazard
 
 
+def _round_coord(value):
+    """Round coordinate to 7 decimal places (DB accepts max_digits=10, decimal_places=7)."""
+    if value is None:
+        return None
+    return round(float(value), 7)
+
+
 class HazardReportCreateSerializer(serializers.ModelSerializer):
-    """For POST /api/report-hazard/. user_latitude/user_longitude optional (for proximity feature in Naive Bayes)."""
+    """For POST /api/report-hazard/. Accepts floats for coords; rounds to 7 decimal places for DB."""
     photo_url = serializers.URLField(required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
-    user_latitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=False, allow_null=True)
-    user_longitude = serializers.DecimalField(max_digits=10, decimal_places=7, required=False, allow_null=True)
+    latitude = serializers.FloatField()
+    longitude = serializers.FloatField()
+    user_latitude = serializers.FloatField(required=False, allow_null=True)
+    user_longitude = serializers.FloatField(required=False, allow_null=True)
 
     class Meta:
         model = HazardReport
         fields = ('hazard_type', 'latitude', 'longitude', 'description', 'photo_url', 'user_latitude', 'user_longitude')
+
+    def validate_latitude(self, value):
+        return _round_coord(value)
+
+    def validate_longitude(self, value):
+        return _round_coord(value)
+
+    def validate_user_latitude(self, value):
+        return _round_coord(value)
+
+    def validate_user_longitude(self, value):
+        return _round_coord(value)
 
 
 class HazardReportSerializer(serializers.ModelSerializer):

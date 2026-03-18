@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/evacuation/evacuation_center_service.dart';
 import '../../models/evacuation_center.dart';
 import 'edit_evacuation_center_screen.dart';
 import 'evacuation_center_map_view_screen.dart';
@@ -18,7 +18,7 @@ class EvacuationCenterDetailScreen extends StatefulWidget {
 }
 
 class _EvacuationCenterDetailScreenState extends State<EvacuationCenterDetailScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final EvacuationCenterService _evacuationCenterService = EvacuationCenterService();
   late EvacuationCenter _center;
   bool _isUpdating = false;
 
@@ -150,10 +150,9 @@ class _EvacuationCenterDetailScreenState extends State<EvacuationCenterDetailScr
     setState(() => _isUpdating = true);
 
     try {
-      final updatedCenter = await _adminService.toggleCenterStatus(
-        _center.id,
-        setOperational,
-      );
+      final updatedCenter = setOperational
+          ? await _evacuationCenterService.reactivateEvacuationCenter(_center.id)
+          : await _evacuationCenterService.deactivateEvacuationCenter(_center.id);
 
       if (mounted) {
         setState(() {

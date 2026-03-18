@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import '../../features/admin/admin_mock_service.dart';
 import '../../features/authentication/auth_service.dart';
 import '../../features/emergency_contacts/emergency_contacts_service.dart';
-import '../../features/system_logger/system_logger_service.dart';
 import '../../utils/input_validators.dart';
 import '../../utils/input_formatters.dart';
 import '../screens/welcome_screen.dart';
@@ -30,12 +29,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   void initState() {
     super.initState();
     _loadData();
-    _initializeSystemLogs();
-  }
-
-  Future<void> _initializeSystemLogs() async {
-    // Seed sample logs if none exist
-    await SystemLogger.seedSampleLogs();
   }
 
   Future<void> _loadData() async {

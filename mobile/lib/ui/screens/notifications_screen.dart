@@ -48,106 +48,107 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _loadNotifications();
   }
   
+  /// Get report location for approved notification (from notification metadata or by fetching report).
+  Future<Map<String, dynamic>?> _getReportLocationForApproved(Map<String, dynamic> notification) async {
+    final lat = notification['latitude'];
+    final lng = notification['longitude'];
+    if (lat != null && lng != null) {
+      final la = lat is double ? lat : double.tryParse(lat.toString());
+      final ln = lng is double ? lng : double.tryParse(lng.toString());
+      if (la != null && ln != null) return {'lat': la, 'lng': ln};
+    }
+    final reportId = notification['report_id']?.toString();
+    if (reportId == null || reportId.isEmpty) return null;
+    return await _hazardReportsService.getReportById(reportId);
+  }
+
   /// Handle notification click
   Future<void> _handleNotificationClick(Map<String, dynamic> notification) async {
-    // Mark as read first
     if (notification['status'] == 'unread') {
       await _markAsRead(notification['id']);
     }
-    
     final isApproved = notification['type'] == 'approved';
-    
     if (isApproved) {
-      // For approved reports, show dialog with map navigation option
-      final reportId = notification['report_id'];
-      final report = await _hazardReportsService.getReportById(reportId);
-      
+      final report = await _getReportLocationForApproved(notification);
       if (report != null && mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green[700], size: 28),
-                const SizedBox(width: 12),
-                const Text('Report Approved'),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  notification['report_type'],
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+        final lat = report['lat'] as num?;
+        final lng = report['lng'] as num?;
+        if (lat != null && lng != null) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green[700], size: 28),
+                  const SizedBox(width: 12),
+                  const Text('Report Approved'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    notification['report_type']?.toString() ?? 'Hazard Report',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                ),
-                const SizedBox(height: 16),
-                _buildInfoRow(Icons.check_circle, 'Status', 'Approved'),
-                _buildInfoRow(Icons.calendar_today, 'Date', notification['date']),
-                _buildInfoRow(
-                  Icons.location_on, 
-                  'Location', 
-                  'Lat: ${report['lat'].toStringAsFixed(4)}, Lng: ${report['lng'].toStringAsFixed(4)}'
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.green[50],
-                    borderRadius: BorderRadius.circular(8),
+                  const SizedBox(height: 16),
+                  _buildInfoRow(Icons.check_circle, 'Status', 'Approved'),
+                  _buildInfoRow(Icons.calendar_today, 'Date', notification['date']?.toString() ?? ''),
+                  _buildInfoRow(
+                    Icons.location_on,
+                    'Location',
+                    'Lat: ${lat.toStringAsFixed(4)}, Lng: ${lng.toStringAsFixed(4)}',
                   ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline, color: Colors.green[700], size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Your report has been approved and is now visible on the map.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.green[900],
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.green[700], size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Your report has been approved and is now visible on the map.',
+                            style: TextStyle(fontSize: 13, color: Colors.green[900]),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setDouble('map_target_lat', lat.toDouble());
+                    await prefs.setDouble('map_target_lng', lng.toDouble());
+                    await prefs.setBool('map_should_focus', true);
+                    if (mounted) {
+                      Navigator.pop(context);
+                      Navigator.pop(context);
+                    }
+                  },
+                  icon: const Icon(Icons.map),
+                  label: const Text('View on Map'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
+                    foregroundColor: Colors.white,
                   ),
                 ),
               ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-              ElevatedButton.icon(
-                onPressed: () async {
-                  // Save target location to SharedPreferences
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setDouble('map_target_lat', report['lat']);
-                  await prefs.setDouble('map_target_lng', report['lng']);
-                  await prefs.setBool('map_should_focus', true);
-                  
-                  print('🎯 NOTIFICATION: Saved target location: ${report['lat']}, ${report['lng']}');
-                  print('🎯 NOTIFICATION: Flag set to: ${prefs.getBool('map_should_focus')}');
-                  
-                  if (mounted) {
-                    Navigator.pop(context); // Close dialog
-                    Navigator.pop(context); // Close notifications screen, go back to map
-                  }
-                },
-                icon: const Icon(Icons.map),
-                label: const Text('View on Map'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[700],
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        );
+          );
+        }
       }
     } else {
       // For rejected reports, show popup with rejection info

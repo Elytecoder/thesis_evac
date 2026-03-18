@@ -27,10 +27,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isEditing = false;
   String? _profileImagePath; // Store profile image path
 
-  // Controllers for profile editing
-  final TextEditingController _fullNameController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
+  // Controllers for profile editing (only phone and street are editable)
   final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _streetController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
 
   @override
@@ -41,45 +40,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _fullNameController.dispose();
-    _emailController.dispose();
     _phoneController.dispose();
+    _streetController.dispose();
     super.dispose();
   }
 
   Future<void> _loadData() async {
     try {
+      // Prefer fresh profile from API so registration data is reflected
       final profile = await _authService.getCurrentUser();
       final contacts = await _contactsService.getAllContacts();
-      
-      // Load saved profile from SharedPreferences (mock storage)
       final prefs = await SharedPreferences.getInstance();
-      final savedProfileJson = prefs.getString('user_profile');
       final savedImagePath = prefs.getString('profile_image_path');
-      Map<String, dynamic>? actualProfile = profile;
-      
-      if (savedProfileJson != null) {
-        try {
-          actualProfile = json.decode(savedProfileJson);
-        } catch (e) {
-          print('Error parsing saved profile: $e');
-        }
-      }
-      
       setState(() {
-        _userProfile = actualProfile;
+        _userProfile = profile;
         _emergencyContacts = contacts;
         _profileImagePath = savedImagePath;
-        
-        // Initialize controllers with resident's data
-        _fullNameController.text = actualProfile?['full_name'] ?? actualProfile?['username'] ?? '';
-        _emailController.text = actualProfile?['email'] ?? '';
-        _phoneController.text = actualProfile?['phone'] ?? '';
-        
+        _phoneController.text = profile['phone_number']?.toString() ?? profile['phone']?.toString() ?? '';
+        _streetController.text = profile['street']?.toString() ?? '';
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      // Fallback to cached profile only when API fails (e.g. offline)
+      final prefs = await SharedPreferences.getInstance();
+      final savedProfileJson = prefs.getString('user_profile');
+      Map<String, dynamic>? fallback;
+      if (savedProfileJson != null) {
+        try {
+          fallback = json.decode(savedProfileJson);
+        } catch (_) {}
+      }
+      setState(() {
+        _userProfile = fallback;
+        _phoneController.text = fallback?['phone_number']?.toString() ?? fallback?['phone']?.toString() ?? '';
+        _streetController.text = fallback?['street']?.toString() ?? '';
+        _isLoading = false;
+      });
     }
   }
 
@@ -87,59 +83,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!_validateProfile()) return;
 
     try {
-      // Save to shared preferences (mock storage)
-      final prefs = await SharedPreferences.getInstance();
-      final updatedProfile = {
-        ..._userProfile!,
-        'full_name': _fullNameController.text,
-        'email': _emailController.text,
-        'phone': _phoneController.text,
-      };
-      await prefs.setString('user_profile', json.encode(updatedProfile));
-
+      final updated = await _authService.updateProfile(
+        phoneNumber: _phoneController.text.trim(),
+        street: _streetController.text.trim(),
+      );
       setState(() {
-        _userProfile = updatedProfile;
+        _userProfile = updated.isNotEmpty ? updated : _userProfile;
         _isEditing = false;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profile updated successfully'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile updated successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to save profile: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save profile: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   bool _validateProfile() {
-    // Validate full name
-    final nameError = InputValidators.validateName(_fullNameController.text, fieldName: 'Full name');
-    if (nameError != null) {
-      _showError(nameError);
-      return false;
-    }
-    
-    // Validate email
-    final emailError = InputValidators.validateEmail(_emailController.text);
-    if (emailError != null) {
-      _showError(emailError);
-      return false;
-    }
-    
-    // Validate phone number
     final phoneError = InputValidators.validatePhoneNumber(_phoneController.text);
     if (phoneError != null) {
       _showError(phoneError);
       return false;
     }
-    
     return true;
   }
   
@@ -259,10 +236,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final TextEditingController currentPwController = TextEditingController();
     final TextEditingController newPwController = TextEditingController();
     final TextEditingController confirmPwController = TextEditingController();
+    final scaffoldContext = context;
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Change Password'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -297,26 +275,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
-              if (newPwController.text.length < 6) {
-                _showError('Password must be at least 6 characters');
+            onPressed: () async {
+              final current = currentPwController.text;
+              final newPw = newPwController.text;
+              final confirm = confirmPwController.text;
+              if (current.isEmpty) {
+                _showError('Please enter your current password');
                 return;
               }
-              if (newPwController.text != confirmPwController.text) {
-                _showError('Passwords do not match');
+              if (newPw.length < 6) {
+                _showError('New password must be at least 6 characters');
                 return;
               }
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Password changed successfully'),
-                  backgroundColor: Colors.green,
-                ),
-              );
+              if (newPw != confirm) {
+                _showError('New passwords do not match');
+                return;
+              }
+              try {
+                await _authService.changePassword(
+                  oldPassword: current,
+                  newPassword: newPw,
+                  newPasswordConfirm: confirm,
+                );
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (scaffoldContext.mounted) {
+                  ScaffoldMessenger.of(scaffoldContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password changed successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                _showError(e.toString().replaceFirst('Exception: ', ''));
+              }
             },
             child: const Text('Change Password'),
           ),
@@ -444,6 +440,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildReadOnlyField(String label, String value, IconData icon) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, size: 22),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        filled: true,
+        fillColor: Colors.grey[100],
+      ),
+      child: Text(
+        value.isEmpty ? '-' : value,
+        style: TextStyle(
+          fontSize: 16,
+          color: Colors.grey[800],
+        ),
+      ),
+    );
+  }
+
   Widget _buildProfileSection() {
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -480,102 +495,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               const Divider(height: 24),
-              
-              // Profile Picture
-              Center(
-                child: Stack(
-                  children: [
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: Colors.blue[100],
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.blue[700]!, width: 3),
-                      ),
-                      child: Icon(
-                        Icons.person,
-                        size: 60,
-                        color: Colors.blue[700],
-                      ),
-                    ),
-                    if (_isEditing)
-                      Positioned(
-                        bottom: 0,
-                        right: 0,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.blue[700],
-                            shape: BoxShape.circle,
-                          ),
-                          child: IconButton(
-                            icon: const Icon(Icons.camera_alt, size: 20),
-                            color: Colors.white,
-                            onPressed: _pickProfileImage,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 24),
 
-              // Full Name
-              TextField(
-                controller: _fullNameController,
-                enabled: _isEditing,
-                inputFormatters: [
-                  NameInputFormatter(), // Only letters, spaces, hyphens
-                ],
-                decoration: InputDecoration(
-                  labelText: 'Full Name',
-                  hintText: 'e.g., Juan Dela Cruz',
-                  prefixIcon: const Icon(Icons.person_outline),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  filled: !_isEditing,
-                  fillColor: !_isEditing ? Colors.grey[100] : null,
-                ),
-              ),
-
+              // Full Name (read-only)
+              _buildReadOnlyField('Full Name', _userProfile?['full_name'] ?? _userProfile?['username'] ?? '-', Icons.person_outline),
               const SizedBox(height: 16),
 
-              // Email
-              TextField(
-                controller: _emailController,
-                enabled: _isEditing,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  hintText: 'e.g., [email protected]',
-                  prefixIcon: const Icon(Icons.email_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  filled: !_isEditing,
-                  fillColor: !_isEditing ? Colors.grey[100] : null,
-                ),
-              ),
-
+              // Email (read-only; not editable unless re-verification is implemented)
+              _buildReadOnlyField('Email', _userProfile?['email'] ?? '-', Icons.email_outlined),
               const SizedBox(height: 16),
 
-              // Phone Number
+              // Phone Number (editable)
               TextField(
                 controller: _phoneController,
                 enabled: _isEditing,
                 keyboardType: TextInputType.phone,
                 inputFormatters: [
-                  PhoneNumberInputFormatter(), // 11 digits, starts with 09
+                  PhoneNumberInputFormatter(),
                 ],
                 decoration: InputDecoration(
                   labelText: 'Phone Number',
                   hintText: '09XXXXXXXXX',
                   prefixIcon: const Icon(Icons.phone_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: !_isEditing,
+                  fillColor: !_isEditing ? Colors.grey[100] : null,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Province (read-only)
+              _buildReadOnlyField('Province', _userProfile?['province'] ?? '-', Icons.location_city),
+              const SizedBox(height: 16),
+
+              // Municipality (read-only)
+              _buildReadOnlyField('Municipality', _userProfile?['municipality'] ?? '-', Icons.place),
+              const SizedBox(height: 16),
+
+              // Barangay (read-only)
+              _buildReadOnlyField('Barangay', _userProfile?['barangay'] ?? '-', Icons.home_work),
+              const SizedBox(height: 16),
+
+              // Street Address (editable)
+              TextField(
+                controller: _streetController,
+                enabled: _isEditing,
+                decoration: InputDecoration(
+                  labelText: 'Street Address',
+                  hintText: 'Street, building, or landmark',
+                  prefixIcon: const Icon(Icons.streetview),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   filled: !_isEditing,
                   fillColor: !_isEditing ? Colors.grey[100] : null,
                 ),
@@ -590,10 +558,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onPressed: () {
                           setState(() {
                             _isEditing = false;
-                            _fullNameController.text =
-                                _userProfile?['full_name'] ?? _userProfile?['username'] ?? '';
-                            _emailController.text = _userProfile?['email'] ?? '';
-                            _phoneController.text = _userProfile?['phone'] ?? '';
+                            _phoneController.text = _userProfile?['phone_number'] ?? _userProfile?['phone'] ?? '';
+                            _streetController.text = _userProfile?['street'] ?? '';
                           });
                         },
                         child: const Text('Cancel'),
@@ -603,9 +569,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: _saveProfile,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[700],
-                        ),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blue[700]),
                         child: const Text('Save Changes'),
                       ),
                     ),

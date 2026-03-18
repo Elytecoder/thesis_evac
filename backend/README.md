@@ -22,6 +22,8 @@ python manage.py runserver
 - API base: `http://127.0.0.1:8000/api/`
 - Admin: `http://127.0.0.1:8000/admin/` (create superuser with `python manage.py createsuperuser`)
 
+**Routing:** Route calculation uses the road network loaded by `load_mock_data`. Without it, the API returns no routes.
+
 ---
 
 ## Running tests

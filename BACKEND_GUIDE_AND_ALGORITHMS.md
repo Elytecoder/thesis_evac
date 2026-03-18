@@ -479,6 +479,20 @@ Risk Level: Green (total risk 0.3 < 0.3 threshold)
 
 ---
 
+### **Risk Evaluation Layer (After Dijkstra)** 🟠
+
+**Location:** `apps/mobile_sync/services/route_service.py`
+
+**Purpose:** A **safety layer** applied *after* routes are generated. It does **not** change Naive Bayes, Random Forest, or Dijkstra. It only evaluates the top 3 routes and adds:
+
+- **Thresholds:** HIGH_RISK_THRESHOLD = 0.7, EXTREME_RISK_THRESHOLD = 0.9
+- **Per route:** `risk_label` ("High Risk" / "Safer Route"), `possibly_blocked` (if risk > 0.9), `contributing_factors` (hazards affecting the route from approved reports)
+- **No-safe-route:** If *all* routes have risk ≥ 0.7: set `no_safe_route`, `message`, `recommended_action`, and compute `alternative_centers` (other evacuation centers with has_safe_route and best_route_risk)
+
+The API response includes these fields so the mobile app can show a warning modal and "Try Other Evacuation Centers" when appropriate. Routes are never blocked—they are always returned with clear labels.
+
+---
+
 ## 🔄 How the 4 Algorithms Work Together
 
 ### **Complete Flow:**
@@ -587,7 +601,7 @@ User Request → Modified Dijkstra → Risk-Weighted Routes
 |---------|----------|-----------|
 | Evacuation Centers | `apps/evacuation/views.py` | GET /api/evacuation-centers/ |
 | Submit Report | `apps/hazards/views.py` | POST /api/hazards/ |
-| Calculate Route | `apps/routing/views.py` | POST /api/calculate-route/ |
+| Calculate Route | `apps/mobile_sync/views.py` | POST /api/calculate-route/ (uses route_service + risk evaluation layer) |
 | Bootstrap Sync | `apps/mobile_sync/views.py` | GET /api/bootstrap-sync/ |
 
 ---

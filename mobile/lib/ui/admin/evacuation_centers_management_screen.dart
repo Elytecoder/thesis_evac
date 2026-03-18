@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/evacuation/evacuation_center_service.dart';
 import '../../models/evacuation_center.dart';
 import 'add_evacuation_center_screen.dart';
 import 'evacuation_center_detail_screen.dart';
@@ -17,7 +17,7 @@ class EvacuationCentersManagementScreen extends StatefulWidget {
 }
 
 class _EvacuationCentersManagementScreenState extends State<EvacuationCentersManagementScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final EvacuationCenterService _evacuationCenterService = EvacuationCenterService();
   List<EvacuationCenter> _centers = [];
   bool _isLoading = true;
   String _searchQuery = '';
@@ -76,7 +76,7 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
     setState(() => _isLoading = true);
     
     try {
-      final centers = await _adminService.getEvacuationCenters();
+      final centers = await _evacuationCenterService.getEvacuationCenters(includeInactive: true);
       setState(() {
         _centers = centers;
         _isLoading = false;
@@ -150,7 +150,9 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _selectedBarangay,
+                  value: _barangayOptions.contains(_selectedBarangay)
+                      ? _selectedBarangay
+                      : _barangayOptions.first,
                   decoration: InputDecoration(
                     labelText: 'Filter by Barangay',
                     prefixIcon: const Icon(Icons.location_on, size: 20),

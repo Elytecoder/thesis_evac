@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../features/admin/user_mock_service.dart';
+import '../../features/admin/user_management_service.dart';
+import '../../models/user.dart';
 
 /// User Management Screen for MDRRMO Admin
-/// Allows admin to view, search, filter, suspend, and manage resident accounts
+/// Displays registered residents from the backend (GET /api/mdrrmo/users/).
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
 
@@ -11,25 +12,16 @@ class UserManagementScreen extends StatefulWidget {
 }
 
 class _UserManagementScreenState extends State<UserManagementScreen> {
-  final UserMockService _userService = UserMockService();
+  final UserManagementService _userService = UserManagementService();
   
   List<Map<String, dynamic>> _users = [];
   List<Map<String, dynamic>> _filteredUsers = [];
+  List<String> _barangays = ['All'];
   bool _isLoading = true;
   
   final TextEditingController _searchController = TextEditingController();
   String _selectedBarangay = 'All';
-  String _selectedStatus = 'All'; // NEW: status filter
-  
-  final List<String> _barangays = [
-    'All',
-    'Zone 1',
-    'Zone 2',
-    'Zone 3',
-    'Zone 4',
-    'San Juan',
-    'San Pedro',
-  ];
+  String _selectedStatus = 'All';
   
   final List<String> _statusOptions = [
     'All',
@@ -49,14 +41,65 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     super.dispose();
   }
 
+  static String _formatDate(DateTime d) {
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
+  static Map<String, dynamic> _userToMap(User u) {
+    final name = (u.fullName.isNotEmpty ? u.fullName : u.email).trim();
+    final barangay = (u.barangay).trim();
+    return {
+      'id': u.id,
+      'user_id': u.id,
+      'name': name.isEmpty ? (u.email.isNotEmpty ? u.email : 'User #${u.id}') : name,
+      'email': u.email,
+      'phone_number': u.phoneNumber ?? '',
+      'province': u.province,
+      'municipality': u.municipality,
+      'barangay': barangay.isEmpty ? '—' : barangay,
+      'status': u.isSuspended ? 'Suspended' : 'Active',
+      'date_registered': _formatDate(u.dateJoined),
+      'reports_count': 0,
+    };
+  }
+
   Future<void> _loadUsers() async {
     setState(() => _isLoading = true);
     
     try {
-      final users = await _userService.getAllUsers();
+      final statusParam = _selectedStatus == 'Active'
+          ? 'active'
+          : _selectedStatus == 'Suspended'
+              ? 'suspended'
+              : null;
+      final barangayParam = _selectedBarangay == 'All' ? null : _selectedBarangay;
+      final searchParam = _searchController.text.trim().isEmpty ? null : _searchController.text.trim();
+      final list = await _userService.listUsers(
+        status: statusParam,
+        barangay: barangayParam,
+        search: searchParam,
+      );
+      final maps = list.map(_userToMap).toList();
+      // Build barangay list from data when loading all (no barangay filter)
+      List<String> barangays = ['All'];
+      if (barangayParam == null) {
+        final seen = <String>{};
+        for (final m in maps) {
+          final b = (m['barangay'] ?? '').toString().trim();
+          if (b.isNotEmpty && b != '—' && !seen.contains(b)) {
+            seen.add(b);
+            barangays.add(b);
+          }
+        }
+        barangays.sort((a, b) => a == 'All' ? -1 : (b == 'All' ? 1 : a.compareTo(b)));
+      } else {
+        barangays = _barangays;
+      }
       setState(() {
-        _users = users;
-        _filteredUsers = users;
+        _users = maps;
+        _filteredUsers = maps;
+        _barangays = barangays;
+        if (!_barangays.contains(_selectedBarangay)) _selectedBarangay = 'All';
         _isLoading = false;
       });
     } catch (e) {
@@ -70,16 +113,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   void _filterUsers() {
-    final query = _searchController.text.toLowerCase();
-    
+    final query = _searchController.text.toLowerCase().trim();
     setState(() {
       _filteredUsers = _users.where((user) {
-        final matchesSearch = user['name'].toString().toLowerCase().contains(query) ||
-                            user['email'].toString().toLowerCase().contains(query);
-        final matchesBarangay = _selectedBarangay == 'All' || 
-                               user['barangay'] == _selectedBarangay;
-        final matchesStatus = _selectedStatus == 'All' || 
-                             user['status'] == _selectedStatus;
+        final name = user['name']?.toString() ?? '';
+        final email = user['email']?.toString() ?? '';
+        final matchesSearch = query.isEmpty ||
+            name.toLowerCase().contains(query) ||
+            email.toLowerCase().contains(query);
+        final userBarangay = user['barangay']?.toString() ?? '';
+        final matchesBarangay = _selectedBarangay == 'All' ||
+            userBarangay == _selectedBarangay;
+        final userStatus = user['status']?.toString() ?? '';
+        final matchesStatus = _selectedStatus == 'All' ||
+            userStatus == _selectedStatus;
         return matchesSearch && matchesBarangay && matchesStatus;
       }).toList();
     });
@@ -109,7 +156,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
 
     if (confirmed == true) {
-      await _userService.updateUserStatus(user['user_id'], 'Suspended');
+      await _userService.suspendUser(user['id'] as int);
       _loadUsers();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -120,7 +167,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   Future<void> _activateUser(Map<String, dynamic> user) async {
-    await _userService.updateUserStatus(user['user_id'], 'Active');
+    await _userService.activateUser(user['id'] as int);
     _loadUsers();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -153,7 +200,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
 
     if (confirmed == true) {
-      await _userService.deleteUser(user['user_id']);
+      await _userService.deleteUser(user['id'] as int);
       _loadUsers();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -181,7 +228,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 radius: 50,
                 backgroundColor: Colors.blue[100],
                 child: Text(
-                  _getInitials(user['name']),
+                  _getInitials(user['name']?.toString() ?? '?'),
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -193,7 +240,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               
               // Full Name
               Text(
-                user['name'],
+                user['name']?.toString() ?? '—',
                 style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -207,9 +254,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               
               // User Details
               _buildDetailRow(Icons.email, 'Email', user['email']),
-              _buildDetailRow(Icons.location_on, 'Barangay', user['barangay']),
-              _buildDetailRow(Icons.calendar_today, 'Registered', user['date_registered']),
-              _buildDetailRow(Icons.report, 'Total Reports', '${user['reports_count']}'),
+              _buildDetailRow(Icons.location_on, 'Barangay', user['barangay']?.toString() ?? '—'),
+              _buildDetailRow(Icons.calendar_today, 'Registered', user['date_registered']?.toString() ?? '—'),
+              _buildDetailRow(Icons.report, 'Total Reports', '${user['reports_count'] ?? 0}'),
               
               const SizedBox(height: 24),
               
@@ -265,11 +312,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   String _getInitials(String name) {
-    final parts = name.split(' ');
+    final s = (name).trim();
+    if (s.isEmpty) return '?';
+    final parts = s.split(RegExp(r'\s+'));
     if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+      final a = parts[0].isNotEmpty ? parts[0][0] : '';
+      final b = parts[1].isNotEmpty ? parts[1][0] : '';
+      return (a + b).toUpperCase();
     }
-    return name.substring(0, 1).toUpperCase();
+    return s[0].toUpperCase();
   }
 
   @override
@@ -348,10 +399,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                   );
                                 }).toList(),
                                 onChanged: (value) {
-                                  setState(() {
-                                    _selectedBarangay = value!;
-                                    _filterUsers();
-                                  });
+                                  setState(() => _selectedBarangay = value!);
+                                  _loadUsers();
                                 },
                               ),
                             ),
@@ -400,7 +449,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                                 onChanged: (value) {
                                   setState(() {
                                     _selectedStatus = value!;
-                                    _filterUsers();
+                                    _loadUsers();
                                   });
                                 },
                               ),
@@ -509,7 +558,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   radius: 30,
                   backgroundColor: Colors.blue[100],
                   child: Text(
-                    _getInitials(user['name']),
+                    _getInitials(user['name']?.toString() ?? '?'),
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -525,7 +574,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        user['name'],
+                        user['name']?.toString() ?? '—',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -537,7 +586,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           Icon(Icons.email, size: 14, color: Colors.grey[600]),
                           const SizedBox(width: 4),
                           Text(
-                            user['email'],
+                            user['email']?.toString() ?? '—',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.grey[600],
@@ -551,7 +600,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           Icon(Icons.location_on, size: 14, color: Colors.grey[600]),
                           const SizedBox(width: 4),
                           Text(
-                            user['barangay'],
+                            user['barangay']?.toString() ?? '—',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.grey[600],
@@ -564,7 +613,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 ),
                 
                 // Status Badge
-                _buildStatusBadge(user['status']),
+                _buildStatusBadge(user['status']?.toString() ?? 'Active'),
               ],
             ),
             const SizedBox(height: 12),

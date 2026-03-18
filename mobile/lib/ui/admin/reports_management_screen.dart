@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 import 'report_detail_screen.dart';
 
@@ -15,7 +15,7 @@ class ReportsManagementScreen extends StatefulWidget {
 }
 
 class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final HazardService _hazardService = HazardService();
   List<HazardReport> _reports = [];
   bool _isLoading = true;
   
@@ -94,9 +94,23 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
     setState(() => _isLoading = true);
     
     try {
-      final reports = await _adminService.getReports(
-        status: _selectedStatus == 'all' ? null : _selectedStatus,
-      );
+      List<HazardReport> reports = [];
+      final status = _selectedStatus == 'all' ? null : _selectedStatus;
+      if (status == null || status == 'pending') {
+        reports.addAll(await _hazardService.getPendingReports());
+      }
+      if (status == null || status == 'rejected') {
+        reports.addAll(await _hazardService.getRejectedReports());
+      }
+      if (status == null || status == 'approved') {
+        reports.addAll(await _hazardService.getVerifiedHazards());
+      }
+      // Sort by created_at descending
+      reports.sort((a, b) {
+        final at = a.createdAt ?? DateTime(0);
+        final bt = b.createdAt ?? DateTime(0);
+        return bt.compareTo(at);
+      });
       
       setState(() {
         _reports = reports;
@@ -109,6 +123,53 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to load reports: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Delete approved or rejected report (MDRRMO only). Removes from system.
+  Future<void> _deleteReport(HazardReport report) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Report'),
+        content: Text(
+          'This report will be permanently removed from the system. '
+          'This action cannot be undone. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || report.id == null) return;
+    try {
+      await _hazardService.deleteReportMdrrmo(report.id!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Report deleted.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadReports();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -206,9 +267,9 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
     if (confirmed == true) {
       // Perform restoration
       try {
-        await _adminService.restoreReport(
-          report.id ?? 0,
-          reason: reasonController.text.trim(),
+        await _hazardService.restoreReport(
+          reportId: report.id ?? 0,
+          restorationReason: reasonController.text.trim(),
         );
 
         if (mounted) {
@@ -596,7 +657,7 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                 
                 const SizedBox(height: 12),
                 
-                // View Details Button (and Restore button for rejected reports)
+                // View Details, Restore (rejected only), Delete (approved/rejected only)
                 SizedBox(
                   width: double.infinity,
                   child: report.status == HazardStatus.rejected
@@ -611,11 +672,7 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                                       builder: (context) => ReportDetailScreen(report: report),
                                     ),
                                   );
-                                  
-                                  // Reload if report was updated
-                                  if (result == true) {
-                                    _loadReports();
-                                  }
+                                  if (result == true) _loadReports();
                                 },
                                 icon: const Icon(Icons.visibility, size: 16),
                                 label: const Text('View'),
@@ -643,32 +700,69 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              onPressed: () => _deleteReport(report),
+                              icon: const Icon(Icons.delete_outline, size: 22),
+                              tooltip: 'Delete report',
+                              color: Colors.red[700],
+                            ),
                           ],
                         )
-                      : OutlinedButton.icon(
-                          onPressed: () async {
-                            final result = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ReportDetailScreen(report: report),
+                      : report.status == HazardStatus.approved
+                          ? Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () async {
+                                      final result = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => ReportDetailScreen(report: report),
+                                        ),
+                                      );
+                                      if (result == true) _loadReports();
+                                    },
+                                    icon: const Icon(Icons.visibility, size: 16),
+                                    label: const Text('View Details'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFF1E3A8A),
+                                      side: const BorderSide(color: Color(0xFF1E3A8A)),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  onPressed: () => _deleteReport(report),
+                                  icon: const Icon(Icons.delete_outline, size: 22),
+                                  tooltip: 'Delete report',
+                                  color: Colors.red[700],
+                                ),
+                              ],
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: () async {
+                                final result = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ReportDetailScreen(report: report),
+                                  ),
+                                );
+                                if (result == true) _loadReports();
+                              },
+                              icon: const Icon(Icons.visibility, size: 16),
+                              label: const Text('View Details'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF1E3A8A),
+                                side: const BorderSide(color: Color(0xFF1E3A8A)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
-                            );
-                            
-                            // Reload if report was updated
-                            if (result == true) {
-                              _loadReports();
-                            }
-                          },
-                          icon: const Icon(Icons.visibility, size: 16),
-                          label: const Text('View Details'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF1E3A8A),
-                            side: const BorderSide(color: Color(0xFF1E3A8A)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
                             ),
-                          ),
-                        ),
                 ),
               ],
             ),

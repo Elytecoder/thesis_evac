@@ -2,15 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import '../../core/config/storage_config.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/hazards/hazard_service.dart';
 
 /// Screen for reporting hazards
 class ReportHazardScreen extends StatefulWidget {
   final LatLng location;
+  /// Optional: user's current GPS location for backend proximity validation (reduces auto-reject).
+  final LatLng? userLocation;
 
   const ReportHazardScreen({
     super.key,
     required this.location,
+    this.userLocation,
   });
 
   @override
@@ -27,6 +32,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
   bool _isSubmitting = false;
   XFile? _selectedImage;
   XFile? _selectedVideo;
+
+  /// Maximum distance (km) from your location to the report location. Matches backend rule.
+  static const double _maxAcceptableDistanceKm = 1.0;
 
   final List<Map<String, dynamic>> _hazardTypes = [
     {'value': 'flooded_road', 'label': 'Flooded Road', 'icon': Icons.water_drop, 'color': Colors.blue},
@@ -195,6 +203,21 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       return;
     }
 
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(StorageConfig.authTokenKey);
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please log in to submit a hazard report.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
@@ -224,6 +247,8 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
         latitude: widget.location.latitude,
         longitude: widget.location.longitude,
         description: _descriptionController.text.trim(),
+        userLatitude: widget.userLocation?.latitude,
+        userLongitude: widget.userLocation?.longitude,
         photoUrl: photoUrl,
         videoUrl: videoUrl,
       );
@@ -309,19 +334,31 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmitting = false);
-
+        final message = e is Exception ? e.toString().replaceFirst('Exception: ', '') : 'Failed to submit report. Please try again.';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to submit report: $e'),
+            content: Text(message),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
     }
   }
 
+  double? get _distanceKm {
+    final user = widget.userLocation;
+    if (user == null) return null;
+    const distance = Distance();
+    return distance.as(LengthUnit.Kilometer, user, widget.location);
+  }
+
+  bool get _isTooFar => _distanceKm != null && _distanceKm! > _maxAcceptableDistanceKm;
+
   @override
   Widget build(BuildContext context) {
+    final distanceKm = _distanceKm;
+    final isTooFar = _isTooFar;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -375,6 +412,61 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                         ],
                       ),
                     ),
+
+                    if (isTooFar) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange[50],
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.orange[300]!, width: 1.5),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Colors.orange[800], size: 28),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Report location is too far from you',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.orange[900],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'You are about ${distanceKm?.toStringAsFixed(1) ?? '?'} km away from the hazard location. '
+                                    'Reports are only accepted when you are within $_maxAcceptableDistanceKm km of the hazard. '
+                                    'This ensures MDRRMO can verify reports from on-site observers.',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      height: 1.4,
+                                      color: Colors.orange[900],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'This report will not be sent for MDRRMO approval and would be auto-rejected. '
+                                    'Please move closer to the hazard (within $_maxAcceptableDistanceKm km) to submit.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.orange[800],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
 
                     const SizedBox(height: 24),
 
@@ -690,7 +782,7 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _isSubmitting ? null : _submitReport,
+                  onPressed: (_isSubmitting || _isTooFar) ? null : _submitReport,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange[700],
                     foregroundColor: Colors.white,

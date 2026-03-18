@@ -13,82 +13,101 @@ import '../../data/mock_users.dart';
 class AuthService {
   final ApiClient _apiClient = ApiClient();
 
-  /// Login with username and password.
+  /// Login with email and password.
   /// 
-  /// MOCK: Returns mock resident user.
-  /// REAL: POST to /api/login/ or /api/token/
-  Future<User> login(String username, String password) async {
+  /// Connects to Django API endpoint: POST /api/auth/login/
+  /// Errors: "Invalid email or password." | "Please verify your email before logging in."
+  Future<User> login(String email, String password) async {
     if (ApiConfig.useMockData) {
-      // Mock delay to simulate network
       await Future.delayed(const Duration(seconds: 1));
-      
-      // Mock validation
-      if (username.isEmpty || password.isEmpty) {
-        throw Exception('Username and password required');
+      if (email.isEmpty || password.isEmpty) {
+        throw Exception('Email and password required');
       }
-      
-      // Save username to SharedPreferences for profile identification
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('current_username', username);
-      
-      // Return mock user based on username
-      if (username.toLowerCase().contains('mdrrmo') || 
-          username.toLowerCase().contains('admin')) {
+      await prefs.setString('current_email', email);
+      if (email.toLowerCase().contains('mdrrmo') || email.toLowerCase().contains('admin')) {
         return MockUsers.getMdrrmoUser();
       }
-      
       return MockUsers.getResidentUser();
     }
 
-    // REAL API CALL (when ApiConfig.useMockData = false):
     try {
       final response = await _apiClient.post(
-        '/auth/login/',
+        ApiConfig.loginEndpoint,
         data: {
-          'username': username,
+          'email': email.trim().toLowerCase(),
           'password': password,
         },
       );
 
       final user = User.fromJson(response.data);
-      
-      // Save username for profile identification
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('current_username', username);
-      
-      // Save auth token
+      await prefs.setString('current_email', email.trim().toLowerCase());
       if (user.authToken != null) {
         await saveAuthToken(user.authToken!);
         _apiClient.setAuthToken(user.authToken!);
       }
-
       return user;
+    } on ApiException catch (e) {
+      throw Exception(e.message);
     } catch (e) {
-      throw Exception('Login failed: $e');
+      throw Exception('Login failed. Please check your credentials and try again.');
     }
   }
 
-  /// Register a new user (resident only).
+  /// Send email verification code.
   /// 
-  /// MOCK: Creates a mock user.
-  /// REAL: POST to /api/register/
+  /// Connects to Django API endpoint: POST /api/auth/send-verification-code/
+  Future<Map<String, dynamic>> sendVerificationCode(String email) async {
+    try {
+      final response = await _apiClient.post(
+        ApiConfig.sendVerificationCodeEndpoint,
+        data: {'email': email},
+      );
+
+      return {
+        'message': response.data['message'],
+        'dev_code': response.data['dev_code'], // Only in development
+      };
+    } on ApiException catch (e) {
+      // Pass through the specific error message from the API
+      throw Exception(e.message);
+    } catch (e) {
+      // Fallback for unexpected errors
+      throw Exception('Failed to send verification code. Please try again.');
+    }
+  }
+
+  /// Register a new user (resident only) with email verification.
+  /// 
+  /// Connects to Django API endpoint: POST /api/auth/register/
   Future<User> register({
-    required String username,
     required String email,
     required String password,
-    required String firstName,
-    required String lastName,
+    required String passwordConfirm,
+    required String fullName,
+    required String phoneNumber,
+    required String province,
+    required String municipality,
+    required String barangay,
+    required String street,
+    required String verificationCode,
   }) async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(seconds: 1));
       
       return User(
         id: DateTime.now().millisecondsSinceEpoch,
-        username: username,
+        username: email.split('@')[0], // Generate username from email
         email: email,
-        firstName: firstName,
-        lastName: lastName,
+        fullName: fullName,
+        phoneNumber: phoneNumber,
+        province: province,
+        municipality: municipality,
+        barangay: barangay,
+        street: street,
         role: UserRole.resident,
+        dateJoined: DateTime.now(),
         authToken: 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
       );
     }
@@ -96,13 +115,18 @@ class AuthService {
     // REAL API CALL:
     try {
       final response = await _apiClient.post(
-        '/auth/register/',
+        ApiConfig.registerEndpoint,
         data: {
-          'username': username,
           'email': email,
           'password': password,
-          'first_name': firstName,
-          'last_name': lastName,
+          'password_confirm': passwordConfirm,
+          'verification_code': verificationCode,
+          'full_name': fullName,
+          'phone_number': phoneNumber,
+          'province': province,
+          'municipality': municipality,
+          'barangay': barangay,
+          'street': street,
         },
       );
 
@@ -114,19 +138,37 @@ class AuthService {
       }
 
       return user;
+    } on ApiException catch (e) {
+      // Pass through the specific error message from the API
+      throw Exception(e.message);
     } catch (e) {
-      throw Exception('Registration failed: $e');
+      // Fallback for unexpected errors
+      throw Exception('Registration failed. Please try again.');
     }
   }
 
   /// Logout current user.
+  /// 
+  /// Connects to Django API endpoint: POST /api/auth/logout/
   Future<void> logout() async {
+    if (!ApiConfig.useMockData) {
+      try {
+        // Call logout endpoint to invalidate token on server
+        await _apiClient.post(ApiConfig.logoutEndpoint);
+      } catch (e) {
+        print('Logout API call failed: $e');
+        // Continue with local cleanup even if API call fails
+      }
+    }
+    
+    // Clear local auth data
     await clearAuthToken();
     _apiClient.clearAuthToken();
     
     // Clear saved username and profile
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('current_username');
+    await prefs.remove('current_email');
     await prefs.remove('user_profile');
   }
 
@@ -142,10 +184,59 @@ class AuthService {
     return prefs.getString(StorageConfig.authTokenKey);
   }
 
+  /// Ensure the ApiClient has the current token (each AuthService has its own
+  /// ApiClient; token is only set on the instance used at login). Restore from
+  /// storage before authenticated requests so profile/change-password work from
+  /// any screen.
+  Future<void> _ensureAuthToken() async {
+    final token = await getAuthToken();
+    if (token != null && token.isNotEmpty) {
+      _apiClient.setAuthToken(token);
+    }
+  }
+
   /// Clear auth token from local storage.
   Future<void> clearAuthToken() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(StorageConfig.authTokenKey);
+  }
+
+  /// Change password (validates current password on backend).
+  ///
+  /// Connects to Django API endpoint: POST /api/auth/change-password/
+  /// Body: old_password, new_password, new_password_confirm
+  /// On success, stores the new token returned by the backend.
+  Future<void> changePassword({
+    required String oldPassword,
+    required String newPassword,
+    required String newPasswordConfirm,
+  }) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      throw Exception('Change password is not available in demo mode.');
+    }
+
+    await _ensureAuthToken();
+    try {
+      final response = await _apiClient.post(
+        ApiConfig.changePasswordEndpoint,
+        data: {
+          'old_password': oldPassword,
+          'new_password': newPassword,
+          'new_password_confirm': newPasswordConfirm,
+        },
+      );
+
+      final newToken = response.data is Map ? response.data['token'] : null;
+      if (newToken != null && newToken.toString().isNotEmpty) {
+        await saveAuthToken(newToken.toString());
+        _apiClient.setAuthToken(newToken.toString());
+      }
+    } on ApiException catch (e) {
+      throw Exception(e.message);
+    } catch (e) {
+      throw Exception('Failed to change password. Please try again.');
+    }
   }
 
   /// Check if user is logged in.
@@ -154,10 +245,42 @@ class AuthService {
     return token != null && token.isNotEmpty;
   }
 
+  /// Update profile (editable fields: phone_number, street only).
+  /// 
+  /// Connects to Django API endpoint: PUT /api/auth/profile/update/
+  Future<Map<String, dynamic>> updateProfile({
+    required String phoneNumber,
+    required String street,
+  }) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('user_profile');
+      if (saved != null) {
+        final map = json.decode(saved) as Map<String, dynamic>;
+        map['phone_number'] = phoneNumber;
+        map['street'] = street;
+        await prefs.setString('user_profile', json.encode(map));
+        return map;
+      }
+      return {};
+    }
+    await _ensureAuthToken();
+    final response = await _apiClient.put(
+      ApiConfig.updateProfileEndpoint,
+      data: {
+        'phone_number': phoneNumber,
+        'street': street,
+      },
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_profile', json.encode(response.data));
+    return response.data is Map ? Map<String, dynamic>.from(response.data) : {};
+  }
+
   /// Get current user profile.
   /// 
-  /// MOCK: Returns mock user data based on saved login.
-  /// REAL: GET /api/user/profile/
+  /// Connects to Django API endpoint: GET /api/auth/profile/
   Future<Map<String, dynamic>> getCurrentUser() async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 300));
@@ -174,13 +297,12 @@ class AuthService {
         }
       }
       
-      // Check saved username to determine role
       final savedUsername = prefs.getString('current_username');
-      
-      // If username contains mdrrmo or admin, return MDRRMO profile
-      if (savedUsername != null && 
-          (savedUsername.toLowerCase().contains('mdrrmo') || 
-           savedUsername.toLowerCase().contains('admin'))) {
+      final savedEmail = prefs.getString('current_email');
+      final check = savedEmail ?? savedUsername;
+      if (check != null && 
+          (check.toLowerCase().contains('mdrrmo') || 
+           check.toLowerCase().contains('admin'))) {
         return {
           'username': 'mdrrmo_admin',
           'email': 'admin@mdrrmo.bulan.gov.ph',
@@ -189,21 +311,38 @@ class AuthService {
         };
       }
       
-      // Otherwise return resident profile
       return {
-        'username': savedUsername ?? 'resident1',
-        'email': 'resident1@gmail.com',
+        'username': check?.split('@').first ?? 'resident1',
+        'email': savedEmail ?? 'resident1@gmail.com',
         'role': 'resident',
         'full_name': 'Juan Dela Cruz',
-        'phone': '0917-123-4567',
+        'phone_number': '09171234567',
       };
     }
 
     // REAL API CALL:
+    await _ensureAuthToken();
     try {
-      final response = await _apiClient.get('/auth/profile/');
+      final response = await _apiClient.get(ApiConfig.profileEndpoint);
+      
+      // Cache the profile locally
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_profile', json.encode(response.data));
+      
       return response.data;
     } catch (e) {
+      // If API fails, try to return cached profile
+      final prefs = await SharedPreferences.getInstance();
+      final savedProfileJson = prefs.getString('user_profile');
+      
+      if (savedProfileJson != null && savedProfileJson.isNotEmpty) {
+        try {
+          return json.decode(savedProfileJson);
+        } catch (parseError) {
+          throw Exception('Failed to get user profile: $e');
+        }
+      }
+      
       throw Exception('Failed to get user profile: $e');
     }
   }

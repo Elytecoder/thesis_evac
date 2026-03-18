@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../core/config/api_config.dart';
 import '../../features/admin/admin_mock_service.dart';
+import '../../features/hazards/hazard_service.dart';
+import '../../models/hazard_report.dart';
 
 /// Analytics Screen - Statistical analysis and charts for MDRRMO.
+/// When using real API, hazard distribution is derived from actual reports (empty when none).
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -11,6 +15,7 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final AdminMockService _adminService = AdminMockService();
+  final HazardService _hazardService = HazardService();
   Map<String, dynamic>? _analytics;
   bool _isLoading = true;
 
@@ -23,9 +28,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _loadAnalytics() async {
     setState(() => _isLoading = true);
     try {
-      final analytics = await _adminService.getAnalytics();
+      if (ApiConfig.useMockData) {
+        final analytics = await _adminService.getAnalytics();
+        setState(() {
+          _analytics = analytics;
+          _isLoading = false;
+        });
+        return;
+      }
+      // Real API: hazard type distribution from verified (approved) reports only
+      final verified = await _hazardService.getVerifiedHazards();
+      final Map<String, int> hazardTypeCounts = {};
+      for (final r in verified) {
+        hazardTypeCounts[r.hazardType] = (hazardTypeCounts[r.hazardType] ?? 0) + 1;
+      }
+      final hazardTypeDistribution = hazardTypeCounts.map((k, v) => MapEntry(k, v));
       setState(() {
-        _analytics = analytics;
+        _analytics = {
+          'hazard_type_distribution': hazardTypeDistribution,
+          'road_risk_distribution': {
+            'high_risk': 0,
+            'moderate_risk': 0,
+            'low_risk': 0,
+          },
+        };
         _isLoading = false;
       });
     } catch (e) {
@@ -156,7 +182,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   /// Build Hazard Distribution Pie Chart
   Widget _buildHazardDistributionPieChart() {
-    final distribution = _analytics?['hazard_type_distribution'] as Map<String, dynamic>? ?? {};
+    final raw = _analytics?['hazard_type_distribution'];
+    final distribution = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     if (distribution.isEmpty) {
       return Container(
@@ -176,7 +203,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       );
     }
     
-    final total = distribution.values.fold<int>(0, (sum, count) => sum + (count as int));
+    final total = distribution.values.fold<int>(0, (sum, count) => sum + (count is int ? count : (count as num).toInt()));
     
     return Container(
       decoration: BoxDecoration(
@@ -201,7 +228,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               painter: PieChartPainter(
                 distribution.map((key, value) => MapEntry(
                   key,
-                  (value as int) / total,
+                  (value is int ? value : (value as num).toInt()) / total,
                 )),
                 distribution.map((key, value) => MapEntry(
                   key,
@@ -217,7 +244,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             spacing: 12,
             runSpacing: 8,
             children: distribution.entries.map((entry) {
-              final percentage = ((entry.value as int) / total * 100).toStringAsFixed(1);
+              final count = entry.value is int ? entry.value as int : (entry.value as num).toInt();
+              final percentage = (count / total * 100).toStringAsFixed(1);
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -231,7 +259,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '${entry.key}: ${entry.value} ($percentage%)',
+                    '${entry.key}: $count ($percentage%)',
                     style: const TextStyle(fontSize: 12),
                   ),
                 ],
@@ -244,7 +272,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildHazardDistributionCard() {
-    final distribution = _analytics?['hazard_type_distribution'] as Map<String, dynamic>? ?? {};
+    final raw = _analytics?['hazard_type_distribution'];
+    final distribution = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     return Container(
       decoration: BoxDecoration(
@@ -278,7 +307,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildRoadRiskCard() {
-    final distribution = _analytics?['road_risk_distribution'] as Map<String, dynamic>? ?? {};
+    final raw = _analytics?['road_risk_distribution'];
+    final distribution = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     return Container(
       decoration: BoxDecoration(
@@ -331,7 +361,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildModelStatsCard() {
-    final stats = _analytics?['model_statistics'] as Map<String, dynamic>? ?? {};
+    final raw = _analytics?['model_statistics'];
+    final stats = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     return Container(
       decoration: BoxDecoration(

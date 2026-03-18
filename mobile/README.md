@@ -118,10 +118,11 @@ static const bool useMockData = false; // Set to false to use real API
 ```
 
 ### Mock Data Mode
-By default, the app uses mock data services. To connect to the real backend:
-1. Start the Django backend server
-2. Set `useMockData = false` in `api_config.dart`
-3. Ensure `baseUrl` points to your backend
+By default, the app can use mock data. To use the real backend:
+1. Start the Django backend and run `load_mock_data` (road network required for routing)
+2. Set `useMockData = false` in `lib/core/config/api_config.dart`
+3. Set `baseUrl` to your backend (e.g. `http://10.0.2.2:8000/api` for Android emulator)
+4. Log in so the app sends the auth token for protected endpoints (e.g. report hazard, calculate route)
 
 ---
 

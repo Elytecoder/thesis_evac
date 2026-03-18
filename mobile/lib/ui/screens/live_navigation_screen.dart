@@ -5,9 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../models/evacuation_center.dart';
+import '../../models/hazard_report.dart';
 import '../../models/navigation_route.dart';
 import '../../models/navigation_step.dart';
 import '../../models/route_segment.dart';
+import '../../features/hazards/hazard_service.dart';
 import '../../features/navigation/gps_tracking_service.dart';
 import '../../features/navigation/voice_guidance_service.dart';
 import '../../features/navigation/risk_aware_routing_service.dart';
@@ -37,6 +39,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   final GPSTrackingService _gpsService = GPSTrackingService();
   final VoiceGuidanceService _voiceService = VoiceGuidanceService();
   final RiskAwareRoutingService _routingService = RiskAwareRoutingService();
+  final HazardService _hazardService = HazardService();
   final MapController _mapController = MapController();
 
   // State
@@ -44,10 +47,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   LatLng? _userLocation;
   NavigationStep? _currentStep;
   RouteSegment? _currentHighRiskSegment;
+  List<HazardReport> _verifiedHazards = [];
   bool _isLoading = true;
   bool _hasArrived = false;
   bool _isRerouting = false;
   bool _voiceEnabled = true;
+  /// When true, camera follows user; when false, user can pan/explore freely.
+  bool _followUserLocation = true;
 
   // Streams
   StreamSubscription<LatLng>? _locationSubscription;
@@ -91,8 +97,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       // Initialize voice
       await _voiceService.initialize();
 
-      // Calculate initial route
-      await _calculateRoute();
+      // Load verified hazards (identified hazards on the map) and calculate route in parallel
+      await Future.wait([
+        _calculateRoute(),
+        _loadVerifiedHazards(),
+      ]);
 
       // Start GPS tracking
       final started = await _gpsService.startTracking();
@@ -121,6 +130,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     } catch (e) {
       print('❌ Navigation initialization failed: $e');
       _showError('Failed to start navigation: $e');
+    }
+  }
+
+  /// Load approved/verified hazards to show on the map during navigation
+  Future<void> _loadVerifiedHazards() async {
+    try {
+      final list = await _hazardService.getVerifiedHazards();
+      if (mounted) setState(() => _verifiedHazards = list);
+    } catch (e) {
+      print('Could not load verified hazards: $e');
     }
   }
 
@@ -249,9 +268,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     });
   }
 
-  /// Smooth camera follow with rotation simulation
+  /// Smooth camera follow with rotation simulation (only when follow mode is on)
   void _smoothCameraFollow() {
-    if (_userLocation == null) return;
+    if (_userLocation == null || !_followUserLocation) return;
 
     try {
       // Calculate bearing to next point if available
@@ -380,8 +399,39 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     });
   }
 
-  /// Handle long press on map - Report hazard during navigation
+  /// Maximum distance (m) from user to hazard location to allow reporting. Matches backend 1 km rule.
+  static const double _reportMaxDistanceM = 1000;
+
+  /// Handle long press on map - Report hazard during navigation (only if user is within 1 km)
   void _onLongPressMap(TapPosition tapPosition, LatLng location) {
+    if (_userLocation == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Wait for GPS location before reporting a hazard.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+      return;
+    }
+    final distanceM = _gpsService.calculateDistance(_userLocation!, location);
+    if (distanceM > _reportMaxDistanceM) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'You must be within 1 km of the hazard to report. You are ${(distanceM / 1000).toStringAsFixed(1)} km away.',
+            ),
+            backgroundColor: Colors.orange[800],
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -453,6 +503,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                     MaterialPageRoute(
                       builder: (context) => ReportHazardScreen(
                         location: location,
+                        userLocation: _userLocation,
                       ),
                     ),
                   );
@@ -619,6 +670,31 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
               child: _buildReroutingIndicator(),
             ),
 
+          // Re-center on user button (when user has panned the map)
+          Positioned(
+            right: 16,
+            bottom: 180,
+            child: SafeArea(
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(28),
+                color: _followUserLocation
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.white,
+                child: IconButton(
+                  onPressed: _recenterOnUser,
+                  icon: Icon(
+                    Icons.my_location,
+                    color: _followUserLocation
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.primary,
+                  ),
+                  tooltip: 'Center on my location',
+                ),
+              ),
+            ),
+          ),
+
           // Bottom ETA panel
           Positioned(
             bottom: 0,
@@ -639,17 +715,35 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     );
   }
 
-  /// Build full-screen map
+  /// Re-center map on user and resume follow mode
+  void _recenterOnUser() {
+    if (_userLocation != null) {
+      setState(() => _followUserLocation = true);
+      _mapController.move(_userLocation!, 17.0);
+    }
+  }
+
+  /// Build full-screen map (user can pan/scroll; re-center via FAB)
   Widget _buildMap() {
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: _userLocation ?? widget.startLocation,
-        initialZoom: 17.0,
-        minZoom: 12.0,
-        maxZoom: 19.0,
-        onLongPress: _onLongPressMap,
-      ),
+    return Listener(
+      onPointerDown: (_) {
+        // User touched the map — stop auto-follow so they can pan/explore
+        if (_followUserLocation && mounted) {
+          setState(() => _followUserLocation = false);
+        }
+      },
+      child: FlutterMap(
+        mapController: _mapController,
+        options: MapOptions(
+          initialCenter: _userLocation ?? widget.startLocation,
+          initialZoom: 17.0,
+          minZoom: 12.0,
+          maxZoom: 19.0,
+          onLongPress: _onLongPressMap,
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.all,
+          ),
+        ),
       children: [
         // Map tiles
         TileLayer(
@@ -683,7 +777,12 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           ),
         ],
 
-        // Hazard markers with pulsing animation
+        // Verified/approved hazard markers (identified hazards visible during navigation)
+        MarkerLayer(
+          markers: _buildVerifiedHazardMarkers(),
+        ),
+
+        // High-risk segment markers with pulsing animation
         if (_currentRoute != null)
           MarkerLayer(
             markers: _buildHazardMarkers(),
@@ -793,10 +892,37 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           ],
         ),
       ],
+    ),
     );
   }
 
-  /// Build hazard markers with pulsing animation
+  /// Build markers for verified/approved hazards (identified hazards on the map)
+  List<Marker> _buildVerifiedHazardMarkers() {
+    return _verifiedHazards.map((report) {
+      return Marker(
+        point: LatLng(report.latitude, report.longitude),
+        width: 44,
+        height: 44,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.red.shade700,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Icon(Icons.warning_rounded, color: Colors.white, size: 24),
+        ),
+      );
+    }).toList();
+  }
+
+  /// Build hazard markers with pulsing animation (high-risk route segments)
   List<Marker> _buildHazardMarkers() {
     if (_currentRoute == null) return [];
 

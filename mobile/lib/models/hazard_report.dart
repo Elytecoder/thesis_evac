@@ -63,14 +63,18 @@ class HazardReport {
   });
 
   factory HazardReport.fromJson(Map<String, dynamic> json) {
+    final lat = json['latitude'];
+    final lng = json['longitude'];
+    final idVal = json['id'];
+    final userIdVal = json['user'];
     return HazardReport(
-      id: json['id'] as int?,
-      userId: json['user'] as int?,
-      hazardType: json['hazard_type'] as String,
-      latitude: double.parse(json['latitude'].toString()),
-      longitude: double.parse(json['longitude'].toString()),
-      userLatitude: json['user_latitude'] != null ? double.parse(json['user_latitude'].toString()) : null,
-      userLongitude: json['user_longitude'] != null ? double.parse(json['user_longitude'].toString()) : null,
+      id: idVal is int ? idVal : (idVal != null ? int.tryParse(idVal.toString()) : null),
+      userId: userIdVal is int ? userIdVal : (userIdVal != null ? int.tryParse(userIdVal.toString()) : null),
+      hazardType: (json['hazard_type'] as String?) ?? '',
+      latitude: lat == null ? 0.0 : (lat is num ? lat.toDouble() : double.tryParse(lat.toString()) ?? 0.0),
+      longitude: lng == null ? 0.0 : (lng is num ? lng.toDouble() : double.tryParse(lng.toString()) ?? 0.0),
+      userLatitude: json['user_latitude'] != null ? double.tryParse(json['user_latitude'].toString()) : null,
+      userLongitude: json['user_longitude'] != null ? double.tryParse(json['user_longitude'].toString()) : null,
       description: json['description'] as String? ?? '',
       photoUrl: json['photo_url'] as String?,
       videoUrl: json['video_url'] as String?,
@@ -78,20 +82,16 @@ class HazardReport {
       autoRejected: json['auto_rejected'] as bool? ?? false,
       naiveBayesScore: (json['naive_bayes_score'] as num?)?.toDouble(),
       consensusScore: (json['consensus_score'] as num?)?.toDouble(),
-      validationBreakdown: json['validation_breakdown'] as Map<String, dynamic>?,
+      validationBreakdown: json['validation_breakdown'] != null && json['validation_breakdown'] is Map
+          ? Map<String, dynamic>.from(json['validation_breakdown'] as Map)
+          : null,
       adminComment: json['admin_comment'] as String?,
       restorationReason: json['restoration_reason'] as String?,
-      restoredAt: json['restored_at'] != null
-          ? DateTime.parse(json['restored_at'] as String)
-          : null,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'] as String)
-          : null,
-      rejectedAt: json['rejected_at'] != null
-          ? DateTime.parse(json['rejected_at'] as String)
-          : null,
+      restoredAt: json['restored_at'] != null ? DateTime.tryParse(json['restored_at'].toString()) : null,
+      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+      rejectedAt: json['rejected_at'] != null ? DateTime.tryParse(json['rejected_at'].toString()) : null,
       deletionScheduledAt: json['deletion_scheduled_at'] != null
-          ? DateTime.parse(json['deletion_scheduled_at'] as String)
+          ? DateTime.tryParse(json['deletion_scheduled_at'].toString())
           : null,
     );
   }

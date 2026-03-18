@@ -1,10 +1,40 @@
-/// Mock Hazard Reports Service for Residents
-/// Provides mock data for displaying verified and pending hazard reports on map
+import '../../core/config/api_config.dart';
+import '../../features/hazards/hazard_service.dart';
+import '../../models/hazard_report.dart';
+
+/// Service for displaying verified and current user's pending hazard reports on the map.
+/// When not in mock mode, fetches from API: verified hazards + my reports (pending only for "my" on map).
 class ResidentHazardReportsService {
-  // Current user ID (mock - will come from auth later)
+  // Current user ID (mock key; for API we use is_current_user on each report)
   static const String currentUserId = 'current_user';
 
-  // Mock hazard reports data
+  final HazardService _hazardService = HazardService();
+
+  /// Convert HazardReport to map format expected by map UI (lat, lng, type, status, id, reported_by, description, date_submitted, media).
+  static Map<String, dynamic> _reportToMap(HazardReport r, {required bool isCurrentUser}) {
+    final media = <Map<String, dynamic>>[];
+    if (r.photoUrl != null && r.photoUrl!.isNotEmpty) {
+      media.add({'type': 'image', 'url': r.photoUrl!});
+    }
+    if (r.videoUrl != null && r.videoUrl!.isNotEmpty) {
+      media.add({'type': 'video', 'url': r.videoUrl!});
+    }
+    return {
+      'id': r.id,
+      'lat': r.latitude,
+      'lng': r.longitude,
+      'type': r.hazardType,
+      'status': r.status == HazardStatus.approved ? 'verified' : r.status.value,
+      'reported_by': isCurrentUser ? currentUserId : (r.userId?.toString() ?? ''),
+      'description': r.description,
+      'date_submitted': r.createdAt != null
+          ? '${r.createdAt!.year}-${r.createdAt!.month.toString().padLeft(2, '0')}-${r.createdAt!.day.toString().padLeft(2, '0')}'
+          : '',
+      'media': media,
+    };
+  }
+
+  // Mock hazard reports data (used only when ApiConfig.useMockData is true)
   static List<Map<String, dynamic>> _hazardReports = [
     // Verified reports (visible to all)
     {
@@ -117,40 +147,98 @@ class ResidentHazardReportsService {
         .toList();
   }
 
-  /// Get all reports for map display (verified + current user's pending)
+  /// Get all reports for map display (verified + current user's own reports: pending, rejected, and approved so they always see their submission).
+  /// When not in mock mode: fetches verified hazards and my reports from API, merges and converts to map format.
   Future<List<Map<String, dynamic>>> getMapReports() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return _hazardReports.where((report) {
-      return report['status'] == 'verified' || 
-             (report['status'] == 'pending' && report['reported_by'] == currentUserId);
-    }).toList();
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      return _hazardReports.where((report) {
+        return report['status'] == 'verified' ||
+            (report['status'] == 'pending' && report['reported_by'] == currentUserId);
+      }).toList();
+    }
+
+    final List<Map<String, dynamic>> out = [];
+    List<HazardReport> verified = [];
+    List<HazardReport> myReports = [];
+
+    try {
+      verified = await _hazardService.getVerifiedHazards();
+    } catch (_) {
+      verified = [];
+    }
+    try {
+      myReports = await _hazardService.getMyReports();
+    } catch (_) {
+      myReports = [];
+    }
+
+    final verifiedIds = verified.map((r) => r.id).whereType<int>().toSet();
+    for (final r in verified) {
+      out.add(_reportToMap(r, isCurrentUser: false));
+    }
+    for (final r in myReports) {
+      if (r.id != null && verifiedIds.contains(r.id)) continue;
+      out.add(_reportToMap(r, isCurrentUser: true));
+    }
+    return out;
   }
 
-  /// Delete a pending report (only if status is pending)
-  Future<bool> deletePendingReport(String reportId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    
-    final index = _hazardReports.indexWhere((r) => r['id'] == reportId);
-    if (index != -1) {
-      final report = _hazardReports[index];
-      
-      // Only allow deletion if status is pending and belongs to current user
-      if (report['status'] == 'pending' && report['reported_by'] == currentUserId) {
-        _hazardReports.removeAt(index);
-        return true;
+  /// Delete a pending report (only if status is pending and belongs to current user).
+  /// When not in mock mode: calls API DELETE /api/my-reports/{id}/
+  Future<bool> deletePendingReport(dynamic reportId) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      final id = reportId is int ? reportId : int.tryParse(reportId.toString());
+      if (id == null) return false;
+      final index = _hazardReports.indexWhere((r) => r['id'] == reportId || r['id'] == id);
+      if (index != -1) {
+        final report = _hazardReports[index];
+        if (report['status'] == 'pending' && report['reported_by'] == currentUserId) {
+          _hazardReports.removeAt(index);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    try {
+      final id = reportId is int ? reportId : int.tryParse(reportId.toString());
+      if (id == null) return false;
+      await _hazardService.deleteMyReport(id);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Get report by ID (for notification → map). Returns map with lat, lng, or null.
+  Future<Map<String, dynamic>?> getReportById(String reportId) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      try {
+        return _hazardReports.firstWhere((r) => r['id'] == reportId);
+      } catch (_) {
+        return null;
       }
     }
-    return false;
-  }
-
-  /// Get report by ID
-  Future<Map<String, dynamic>?> getReportById(String reportId) async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    final id = int.tryParse(reportId);
+    if (id == null) return null;
     try {
-      return _hazardReports.firstWhere((r) => r['id'] == reportId);
-    } catch (e) {
-      return null;
-    }
+      final myReports = await _hazardService.getMyReports();
+      for (final r in myReports) {
+        if (r.id == id) {
+          return _reportToMap(r, isCurrentUser: true);
+        }
+      }
+      final verified = await _hazardService.getVerifiedHazards();
+      for (final r in verified) {
+        if (r.id == id) {
+          return _reportToMap(r, isCurrentUser: false);
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Add new report (for testing)

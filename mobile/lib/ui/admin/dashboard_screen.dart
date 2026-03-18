@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/admin/mdrrmo_dashboard_service.dart';
 
 /// Dashboard Screen - Overview of system statistics and recent activity.
 /// 
@@ -16,7 +16,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final MdrrmoDashboardService _dashboardService = MdrrmoDashboardService();
   Map<String, dynamic>? _stats;
   bool _isLoading = true;
   bool _isOnline = true; // System status
@@ -30,7 +30,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadDashboardData() async {
     try {
-      final stats = await _adminService.getDashboardStats();
+      final stats = await _dashboardService.getDashboardStats();
       setState(() {
         _stats = stats;
         _isLoading = false;
@@ -390,7 +390,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildBarangayChart() {
-    final data = _stats?['reports_by_barangay'] as Map<String, dynamic>? ?? {};
+    final raw = _stats?['reports_by_barangay'];
+    final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     // Find max value with proper type handling
     int maxValue = 1;
@@ -463,7 +464,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   /// Build Pie Chart for Hazard Type Distribution
   Widget _buildHazardPieChart() {
-    final data = _stats?['hazard_distribution'] as Map<String, dynamic>? ?? {};
+    final raw = _stats?['hazard_distribution'];
+    final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     if (data.isEmpty) {
       return const Center(
@@ -541,7 +543,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildRecentActivity() {
-    final activities = _stats?['recent_activity'] as List? ?? [];
+    final raw = _stats?['recent_activity'];
+    final activities = raw is List ? List<dynamic>.from(raw) : <dynamic>[];
     
     if (activities.isEmpty) {
       return Container(
@@ -606,7 +609,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final activity = recentActivities[index];
           final type = activity['type'];
           final message = activity['message'] ?? 'Activity';
-          final timestamp = activity['timestamp'] as DateTime;
+          DateTime timestamp = DateTime.now();
+          final ts = activity['timestamp'];
+          if (ts is DateTime) {
+            timestamp = ts;
+          } else if (ts != null) {
+            timestamp = DateTime.tryParse(ts.toString()) ?? DateTime.now();
+          }
           final timeAgo = _getTimeAgo(timestamp);
           final location = activity['location'] ?? '';
 

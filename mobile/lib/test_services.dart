@@ -51,19 +51,24 @@ Future<void> testAllServices() async {
     
     // Calculate routes
     print('\n   Calculating routes (this takes ~2 seconds)...');
-    final routes = await routingService.calculateRoutes(
+    final result = await routingService.calculateRoutes(
       startLat: 12.6690,
       startLng: 123.8750,
       evacuationCenterId: centers[0].id,
       evacuationCenter: centers[0],
     );
-    
+    final routes = result.routes;
+
     print('✅ Routes calculated: ${routes.length}');
+    if (result.noSafeRoute) {
+      print('   ⚠️ No safe route: ${result.message}');
+    }
     for (var i = 0; i < routes.length; i++) {
       print('   Route ${i + 1}:');
       print('     - Distance: ${routes[i].totalDistance.toStringAsFixed(1)}m');
       print('     - Risk: ${routes[i].totalRisk.toStringAsFixed(2)}');
       print('     - Level: ${routes[i].riskLevel.value}');
+      print('     - Label: ${routes[i].riskLabel}');
       print('     - Path points: ${routes[i].path.length}');
     }
   } catch (e) {

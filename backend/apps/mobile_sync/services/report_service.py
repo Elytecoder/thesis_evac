@@ -1,12 +1,11 @@
 """
 Service for hazard report submission.
 
-Validation is now fully handled by Naive Bayes with integrated proximity
-and consensus features. Flow: compute distance -> if >1 km reject ->
-else extract features -> run Naive Bayes -> apply threshold -> save.
+Flow: create report -> if user-hazard distance > 1 km then auto-reject ->
+else run Naive Bayes (and store score for MDRRMO) -> set status to PENDING.
+MDRRMO approves or rejects; no auto-approve.
 
-Random Forest is used only for road segment risk prediction and not for report validation.
-Modified Dijkstra is used only for routing. Neither appears in report validation.
+Random Forest is used only for road segment risk prediction (routing), not report validation.
 """
 from apps.hazards.models import HazardReport
 from apps.validation.services.naive_bayes import NaiveBayesValidator, nearby_count_to_category
@@ -14,15 +13,8 @@ from apps.validation.services.consensus import ConsensusScoringService
 from reports.utils import (
     haversine_km,
     distance_km_to_category,
-    PROXIMITY_REJECT_KM,
     should_auto_reject_report,
 )
-
-
-# Decision thresholds: single Naive Bayes probability (no combined score).
-AUTO_APPROVE_THRESHOLD = 0.8
-PENDING_THRESHOLD = 0.5
-# Below PENDING_THRESHOLD -> reject.
 
 
 def process_new_report(
@@ -92,19 +84,9 @@ def process_new_report(
         'nearby_similar_report_count_category': nearby_category,
     })
     report.naive_bayes_score = probability
-    # No consensus_score or combined formula; validation is NB only.
-
-    # Step 4: Apply decision thresholds.
-    if probability >= AUTO_APPROVE_THRESHOLD:
-        report.status = HazardReport.Status.APPROVED
-        system_decision = 'auto_approved'
-    elif probability < PENDING_THRESHOLD:
-        report.status = HazardReport.Status.REJECTED
-        system_decision = 'rejected'
-    else:
-        system_decision = 'pending'
-
-    # Random Forest is used only for road segment risk prediction and not for report validation.
+    # All reports that pass distance check go to PENDING; MDRRMO approves or rejects.
+    report.status = HazardReport.Status.PENDING
+    system_decision = 'pending'
     # Build validation breakdown for MDRRMO technical details (Naive Bayes only).
     desc_len = len(description or '')
     desc_bucket = 'short' if desc_len < 20 else ('medium' if desc_len < 60 else 'long')
