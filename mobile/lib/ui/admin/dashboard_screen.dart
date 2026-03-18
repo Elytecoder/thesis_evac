@@ -1,39 +1,59 @@
 import 'package:flutter/material.dart';
-import '../../features/admin/admin_mock_service.dart';
+import 'dart:math' as math;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../features/admin/mdrrmo_dashboard_service.dart';
 
 /// Dashboard Screen - Overview of system statistics and recent activity.
 /// 
-/// Shows summary cards and charts for MDRRMO monitoring.
+/// Shows clickable summary cards and charts for MDRRMO monitoring.
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final Function(int)? onNavigateToTab;
+
+  const DashboardScreen({super.key, this.onNavigateToTab});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final MdrrmoDashboardService _dashboardService = MdrrmoDashboardService();
   Map<String, dynamic>? _stats;
   bool _isLoading = true;
+  bool _isOnline = true; // System status
 
   @override
   void initState() {
     super.initState();
     _loadDashboardData();
+    _checkConnectivity();
   }
 
   Future<void> _loadDashboardData() async {
     try {
-      final stats = await _adminService.getDashboardStats();
+      final stats = await _dashboardService.getDashboardStats();
       setState(() {
         _stats = stats;
         _isLoading = false;
+        _isOnline = true;
       });
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _isOnline = false;
       });
     }
+  }
+
+  void _checkConnectivity() {
+    // Simulate connectivity check
+    // In production, use connectivity_plus package
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        setState(() {
+          _isOnline = true; // Assume online for now
+        });
+      }
+    });
   }
 
   @override
@@ -43,22 +63,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text('MDRRMO Dashboard'),
         backgroundColor: const Color(0xFF1E3A8A), // Navy blue
         foregroundColor: Colors.white,
+        automaticallyImplyLeading: false, // Remove back button
         actions: [
+          // Online/Offline Status Indicator
           Container(
             margin: const EdgeInsets.only(right: 16),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.green,
+              color: _isOnline ? Colors.green : Colors.red,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.circle, size: 8, color: Colors.white),
-                SizedBox(width: 6),
+                Icon(
+                  Icons.circle,
+                  size: 8,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 6),
                 Text(
-                  'System Active',
-                  style: TextStyle(
+                  _isOnline ? 'Online' : 'Offline',
+                  style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                   ),
@@ -78,7 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Summary Cards Grid
+                    // Clickable Summary Cards Grid
                     GridView.count(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
@@ -87,48 +113,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       mainAxisSpacing: 12,
                       childAspectRatio: 1.3,
                       children: [
-                        _buildSummaryCard(
+                        _buildClickableSummaryCard(
                           title: 'Total Reports',
                           count: _stats?['total_reports'] ?? 0,
                           icon: Icons.report,
                           color: const Color(0xFF3B82F6), // Blue
                           trend: '↗ +12 this week',
+                          onTap: () => _navigateToReports(statusFilter: null),
                         ),
-                        _buildSummaryCard(
+                        _buildClickableSummaryCard(
                           title: 'Pending Reports',
                           count: _stats?['pending_reports'] ?? 0,
                           icon: Icons.pending_actions,
-                          color: const Color(0xFFF59E0B), // Orange
+                          color: const Color(0xFFF59E0B), // Orange (Medium Priority)
                           trend: 'Needs attention',
+                          onTap: () => _navigateToReports(statusFilter: 'pending'),
                         ),
-                        _buildSummaryCard(
+                        _buildClickableSummaryCard(
                           title: 'Verified Hazards',
                           count: _stats?['verified_hazards'] ?? 0,
                           icon: Icons.verified,
-                          color: const Color(0xFF10B981), // Green
+                          color: const Color(0xFF10B981), // Green (Verified/Resolved)
                           trend: 'Active monitoring',
+                          onTap: () => _navigateToReports(statusFilter: 'approved'),
                         ),
-                        _buildSummaryCard(
+                        _buildClickableSummaryCard(
                           title: 'High Risk Roads',
                           count: _stats?['high_risk_roads'] ?? 0,
                           icon: Icons.warning_amber,
-                          color: const Color(0xFFEF4444), // Red
+                          color: const Color(0xFFEF4444), // Red (High Priority)
                           trend: 'Critical attention',
+                          onTap: () => _navigateToMap(),
                         ),
-                        _buildSummaryCard(
+                        _buildClickableSummaryCard(
                           title: 'Evacuation Centers',
                           count: _stats?['total_evacuation_centers'] ?? 0,
                           icon: Icons.location_city,
                           color: const Color(0xFF8B5CF6), // Purple
-                          trend: 'All operational',
+                          trend: 'View all centers',
+                          onTap: () => _navigateToEvacuationCenters(),
                         ),
-                        _buildSummaryCard(
-                          title: 'Response Time',
-                          count: 24,
-                          icon: Icons.timer,
-                          color: const Color(0xFF06B6D4), // Cyan
-                          trend: 'minutes avg',
-                          suffix: 'min',
+                        _buildClickableSummaryCard(
+                          title: 'Non-Operational Centers',
+                          count: _stats?['non_operational_centers'] ?? 0,
+                          icon: Icons.cancel,
+                          color: _getNonOperationalColor(_stats?['non_operational_centers'] ?? 0),
+                          trend: 'Deactivated',
+                          onTap: () => _navigateToEvacuationCenters(filterNonOperational: true),
                         ),
                       ],
                     ),
@@ -139,18 +170,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     _buildSectionTitle('Reports Overview'),
                     const SizedBox(height: 12),
                     
-                    _buildChartCard(
-                      title: 'Reports by Barangay',
-                      icon: Icons.bar_chart,
-                      child: _buildBarangayChart(),
-                    ),
-
-                    const SizedBox(height: 16),
-
+                    // Hazard Type Distribution Pie Chart
                     _buildChartCard(
                       title: 'Hazard Type Distribution',
                       icon: Icons.pie_chart,
-                      child: _buildHazardDistributionChart(),
+                      child: _buildHazardPieChart(),
                     ),
 
                     const SizedBox(height: 24),
@@ -167,87 +191,147 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildSummaryCard({
+  /// Navigate to Reports tab with optional filter
+  Future<void> _navigateToReports({String? statusFilter}) async {
+    if (widget.onNavigateToTab != null) {
+      // Save filter preference if specified
+      if (statusFilter != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('dashboard_reports_filter', statusFilter);
+        await prefs.setBool('should_apply_reports_filter', true);
+        
+        print('🎯 Dashboard: Saving reports filter = $statusFilter'); // Debug log
+      }
+      widget.onNavigateToTab!(1); // Index 1 = Reports tab
+    }
+  }
+
+  /// Navigate to Map tab
+  void _navigateToMap() {
+    if (widget.onNavigateToTab != null) {
+      widget.onNavigateToTab!(2); // Index 2 = Map tab
+    }
+  }
+
+  /// Navigate to Evacuation Centers tab with optional filter
+  Future<void> _navigateToEvacuationCenters({bool filterNonOperational = false}) async {
+    if (widget.onNavigateToTab != null) {
+      // Save filter preference if specified
+      if (filterNonOperational) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('dashboard_centers_filter_non_operational', true);
+      }
+      widget.onNavigateToTab!(3); // Index 3 = Evacuation Centers tab
+    }
+  }
+
+  /// Get color for non-operational centers card based on severity
+  Color _getNonOperationalColor(int count) {
+    if (count == 0) return Colors.green;
+    if (count <= 2) return const Color(0xFFF59E0B); // Orange
+    return const Color(0xFFEF4444); // Red (high severity)
+  }
+
+  Widget _buildClickableSummaryCard({
     required String title,
     required int count,
     required IconData icon,
     required Color color,
     required String trend,
+    required VoidCallback onTap,
     String suffix = '',
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              Icon(
-                Icons.trending_up,
-                color: Colors.grey[400],
-                size: 14,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.3), width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
-          const Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$count$suffix',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(12),
+              splashColor: color.withOpacity(0.1),
+              highlightColor: color.withOpacity(0.05),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(icon, color: color, size: 20),
+                        ),
+                        Icon(
+                          Icons.arrow_forward_ios,
+                          color: Colors.grey[400],
+                          size: 14,
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$count$suffix',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          trend,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: Colors.grey[500],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 4),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                trend,
-                style: TextStyle(
-                  fontSize: 9,
-                  color: Colors.grey[500],
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -306,7 +390,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildBarangayChart() {
-    final data = _stats?['reports_by_barangay'] as Map<String, dynamic>? ?? {};
+    final raw = _stats?['reports_by_barangay'];
+    final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     // Find max value with proper type handling
     int maxValue = 1;
@@ -321,7 +406,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Column(
       children: data.entries.map((entry) {
-        final percentage = (entry.value as int) / maxValue;
+        final count = entry.value is int ? entry.value : (entry.value as num).toInt();
+        final percentage = count / maxValue;
+        
+        // Color based on priority (Red > Orange > Yellow > Green)
+        Color barColor;
+        if (percentage > 0.7) {
+          barColor = const Color(0xFFEF4444); // Red - High Priority
+        } else if (percentage > 0.5) {
+          barColor = const Color(0xFFF59E0B); // Orange - Medium Priority
+        } else if (percentage > 0.3) {
+          barColor = const Color(0xFFEAB308); // Yellow - Low Priority
+        } else {
+          barColor = const Color(0xFF10B981); // Green - Safe/Low
+        }
+        
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Column(
@@ -338,7 +437,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                   Text(
-                    '${entry.value} reports',
+                    '$count reports',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey[600],
@@ -352,9 +451,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: LinearProgressIndicator(
                   value: percentage,
                   backgroundColor: Colors.grey[200],
-                  valueColor: AlwaysStoppedAnimation(
-                    percentage > 0.7 ? Colors.red : (percentage > 0.5 ? Colors.orange : Colors.blue),
-                  ),
+                  valueColor: AlwaysStoppedAnimation(barColor),
                   minHeight: 8,
                 ),
               ),
@@ -365,48 +462,128 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildHazardDistributionChart() {
-    final data = _stats?['hazard_distribution'] as Map<String, dynamic>? ?? {};
+  /// Build Pie Chart for Hazard Type Distribution
+  Widget _buildHazardPieChart() {
+    final raw = _stats?['hazard_distribution'];
+    final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: data.entries.map((entry) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: _getHazardColor(entry.key).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: _getHazardColor(entry.key).withOpacity(0.3),
-            ),
+    if (data.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32.0),
+          child: Text(
+            'No hazard data available',
+            style: TextStyle(color: Colors.grey),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _getHazardIcon(entry.key),
-                size: 16,
-                color: _getHazardColor(entry.key),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '${entry.key}: ${entry.value}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: _getHazardColor(entry.key),
+        ),
+      );
+    }
+
+    // Calculate total
+    int total = 0;
+    for (var value in data.values) {
+      total += value is int ? value : (value as num).toInt();
+    }
+
+    return Column(
+      children: [
+        // Pie chart visualization
+        SizedBox(
+          height: 200,
+          child: CustomPaint(
+            size: const Size(200, 200),
+            painter: PieChartPainter(data: data, total: total),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Legend
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: data.entries.map((entry) {
+            final count = entry.value is int ? entry.value : (entry.value as num).toInt();
+            final percentage = ((count / total) * 100).toStringAsFixed(1);
+            
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: _getHazardColor(entry.key).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _getHazardColor(entry.key).withOpacity(0.3),
                 ),
               ),
-            ],
-          ),
-        );
-      }).toList(),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: _getHazardColor(entry.key),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${_formatHazardType(entry.key)}: $count ($percentage%)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[800],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ],
     );
   }
 
   Widget _buildRecentActivity() {
-    final activities = _stats?['recent_activity'] as List? ?? [];
+    final raw = _stats?['recent_activity'];
+    final activities = raw is List ? List<dynamic>.from(raw) : <dynamic>[];
+    
+    if (activities.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(32),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(
+                Icons.history,
+                size: 48,
+                color: Colors.grey[400],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No recent activity available',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Take only latest 10 activities
+    final recentActivities = activities.take(10).toList();
     
     return Container(
       decoration: BoxDecoration(
@@ -423,16 +600,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: ListView.separated(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        itemCount: activities.length,
+        itemCount: recentActivities.length,
         separatorBuilder: (context, index) => Divider(
           height: 1,
           color: Colors.grey[200],
         ),
         itemBuilder: (context, index) {
-          final activity = activities[index];
+          final activity = recentActivities[index];
           final type = activity['type'];
-          final timestamp = activity['timestamp'] as DateTime;
+          final message = activity['message'] ?? 'Activity';
+          DateTime timestamp = DateTime.now();
+          final ts = activity['timestamp'];
+          if (ts is DateTime) {
+            timestamp = ts;
+          } else if (ts != null) {
+            timestamp = DateTime.tryParse(ts.toString()) ?? DateTime.now();
+          }
           final timeAgo = _getTimeAgo(timestamp);
+          final location = activity['location'] ?? '';
 
           return ListTile(
             leading: Container(
@@ -448,17 +633,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             title: Text(
-              activity['message'],
+              message,
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
             ),
             subtitle: Text(
-              timeAgo,
+              location.isNotEmpty ? '$location • $timeAgo' : timeAgo,
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey[600],
+              ),
+            ),
+            trailing: Text(
+              _getFormattedTime(timestamp),
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey[500],
               ),
             ),
           );
@@ -467,33 +659,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  String _formatHazardType(String type) {
+    return type.replaceAll('_', ' ').split(' ').map((word) {
+      return word[0].toUpperCase() + word.substring(1);
+    }).join(' ');
+  }
+
   Color _getHazardColor(String type) {
-    switch (type) {
-      case 'flood':
+    switch (type.toLowerCase()) {
+      case 'flooded_road':
         return Colors.blue;
       case 'landslide':
         return Colors.brown;
-      case 'fire':
+      case 'fallen_tree':
+        return Colors.green[700]!;
+      case 'road_damage':
+        return Colors.grey[700]!;
+      case 'fallen_electric_post':
+        return Colors.amber[700]!;
+      case 'road_blocked':
         return Colors.red;
-      case 'storm':
+      case 'bridge_damage':
+        return Colors.orange;
+      case 'storm_surge':
         return Colors.purple;
       default:
         return Colors.grey;
-    }
-  }
-
-  IconData _getHazardIcon(String type) {
-    switch (type) {
-      case 'flood':
-        return Icons.water_drop;
-      case 'landslide':
-        return Icons.landscape;
-      case 'fire':
-        return Icons.local_fire_department;
-      case 'storm':
-        return Icons.thunderstorm;
-      default:
-        return Icons.warning;
     }
   }
 
@@ -502,9 +693,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 'report_submitted':
         return Colors.blue;
       case 'report_approved':
-        return Colors.green;
-      case 'center_updated':
+        return const Color(0xFF10B981); // Green
+      case 'report_rejected':
+        return const Color(0xFFEF4444); // Red
+      case 'center_deactivated':
         return Colors.orange;
+      case 'center_reactivated':
+        return Colors.green;
+      case 'report_restored':
+        return Colors.purple;
       default:
         return Colors.grey;
     }
@@ -516,8 +713,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return Icons.report;
       case 'report_approved':
         return Icons.check_circle;
-      case 'center_updated':
-        return Icons.update;
+      case 'report_rejected':
+        return Icons.cancel;
+      case 'center_deactivated':
+        return Icons.block;
+      case 'center_reactivated':
+        return Icons.check_circle_outline;
+      case 'report_restored':
+        return Icons.restore;
       default:
         return Icons.info;
     }
@@ -527,12 +730,104 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final now = DateTime.now();
     final difference = now.difference(timestamp);
 
-    if (difference.inMinutes < 60) {
-      return '${difference.inMinutes} minutes ago';
+    if (difference.inMinutes < 1) {
+      return 'Just now';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes} minute${difference.inMinutes > 1 ? 's' : ''} ago';
     } else if (difference.inHours < 24) {
       return '${difference.inHours} hour${difference.inHours > 1 ? 's' : ''} ago';
-    } else {
+    } else if (difference.inDays < 7) {
       return '${difference.inDays} day${difference.inDays > 1 ? 's' : ''} ago';
+    } else {
+      return _getFormattedDate(timestamp);
     }
   }
+
+  String _getFormattedTime(DateTime timestamp) {
+    final hour = timestamp.hour > 12 ? timestamp.hour - 12 : timestamp.hour;
+    final minute = timestamp.minute.toString().padLeft(2, '0');
+    final period = timestamp.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
+  }
+
+  String _getFormattedDate(DateTime timestamp) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[timestamp.month - 1]} ${timestamp.day}';
+  }
+}
+
+/// Custom Pie Chart Painter
+class PieChartPainter extends CustomPainter {
+  final Map<String, dynamic> data;
+  final int total;
+
+  PieChartPainter({required this.data, required this.total});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    
+    double startAngle = -math.pi / 2; // Start from top
+    
+    for (var entry in data.entries) {
+      final count = entry.value is int ? entry.value : (entry.value as num).toInt();
+      final sweepAngle = (count / total) * 2 * math.pi;
+      
+      final paint = Paint()
+        ..color = _getHazardColorForPainter(entry.key)
+        ..style = PaintingStyle.fill;
+      
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        true,
+        paint,
+      );
+      
+      // Draw white separator line
+      final separatorPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      
+      canvas.drawLine(
+        center,
+        Offset(
+          center.dx + radius * math.cos(startAngle),
+          center.dy + radius * math.sin(startAngle),
+        ),
+        separatorPaint,
+      );
+      
+      startAngle += sweepAngle;
+    }
+  }
+
+  Color _getHazardColorForPainter(String type) {
+    switch (type.toLowerCase()) {
+      case 'flooded_road':
+        return Colors.blue;
+      case 'landslide':
+        return Colors.brown;
+      case 'fallen_tree':
+        return Colors.green[700]!;
+      case 'road_damage':
+        return Colors.grey[700]!;
+      case 'fallen_electric_post':
+        return Colors.amber[700]!;
+      case 'road_blocked':
+        return Colors.red;
+      case 'bridge_damage':
+        return Colors.orange;
+      case 'storm_surge':
+        return Colors.purple;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

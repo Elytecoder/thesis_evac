@@ -94,21 +94,25 @@ class ServiceUsageExamples {
         throw Exception('Evacuation center not found');
       }
       
-      // Calculate routes (returns 3 routes sorted by safety)
-      final List<app_route.Route> routes = await routingService.calculateRoutes(
+      // Calculate routes (returns result with routes, noSafeRoute, alternatives)
+      final result = await routingService.calculateRoutes(
         startLat: startLat,
         startLng: startLng,
         evacuationCenterId: evacuationCenterId,
         evacuationCenter: center,
       );
-      
+      final routes = result.routes;
+
       // Hide loading
       if (context.mounted) Navigator.pop(context);
-      
+
       // Success! Display routes on map
+      if (result.noSafeRoute) {
+        print('⚠️ No safe route: ${result.message}');
+      }
       print('Got ${routes.length} routes:');
       for (var i = 0; i < routes.length; i++) {
-        print('Route ${i + 1}: ${routes[i].riskLevel.value} '
+        print('Route ${i + 1}: ${routes[i].riskLevel.value} ${routes[i].riskLabel} '
               '(${routes[i].totalDistance.toStringAsFixed(0)}m, '
               'risk: ${routes[i].totalRisk.toStringAsFixed(2)})');
       }

@@ -145,6 +145,9 @@ class CalculateRouteAPITests(TestCase):
         response = self.client.post('/api/calculate-route/', data, format='json')
         self.assertEqual(response.status_code, 200)
         self.assertIn('routes', response.data)
+        self.assertIsInstance(response.data['routes'], list)
+        # With graph that has alternative paths, backend can return multiple routes
+        self.assertGreaterEqual(len(response.data['routes']), 1)
 
     def test_calculate_route_without_auth(self):
         """Test that authentication is required."""

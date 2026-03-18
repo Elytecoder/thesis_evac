@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../features/hazards/hazard_service.dart';
+import '../../features/evacuation/evacuation_center_service.dart';
 import '../../models/hazard_report.dart';
 import '../../models/evacuation_center.dart';
 
@@ -17,7 +18,8 @@ class MapMonitorScreen extends StatefulWidget {
 
 class _MapMonitorScreenState extends State<MapMonitorScreen> {
   final MapController _mapController = MapController();
-  final AdminMockService _adminService = AdminMockService();
+  final HazardService _hazardService = HazardService();
+  final EvacuationCenterService _evacuationCenterService = EvacuationCenterService();
   
   bool _showEvacuationCenters = true;
   bool _showVerifiedHazards = true;
@@ -36,8 +38,11 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
 
   Future<void> _loadData() async {
     try {
-      final reports = await _adminService.getReports();
-      final centers = await _adminService.getEvacuationCenters();
+      final pending = await _hazardService.getPendingReports();
+      final rejected = await _hazardService.getRejectedReports();
+      final verified = await _hazardService.getVerifiedHazards();
+      final reports = <HazardReport>[...pending, ...rejected, ...verified];
+      final centers = await _evacuationCenterService.getEvacuationCenters(includeInactive: true);
       
       setState(() {
         _reports = reports;
@@ -59,6 +64,7 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
         title: const Text('Map Monitor'),
         backgroundColor: const Color(0xFF1E3A8A),
         foregroundColor: Colors.white,
+        automaticallyImplyLeading: false, // Remove back button - main tab
         actions: [
           IconButton(
             icon: const Icon(Icons.layers),

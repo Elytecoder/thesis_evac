@@ -4,12 +4,13 @@ import 'reports_management_screen.dart';
 import 'map_monitor_screen.dart';
 import 'evacuation_centers_management_screen.dart';
 import 'analytics_screen.dart';
+import 'user_management_screen.dart';
 import 'admin_settings_screen.dart';
 
 /// MDRRMO Admin Home Screen with bottom navigation.
 /// 
 /// This is the main screen for MDRRMO admin users after login.
-/// Contains 6 tabs: Dashboard, Reports, Map Monitor, Evacuation Centers, Analytics, Settings.
+/// Contains 7 tabs: Dashboard, Reports, Map Monitor, Evacuation Centers, Analytics, User Management, Settings.
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
 
@@ -20,17 +21,24 @@ class AdminHomeScreen extends StatefulWidget {
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = [
-    const DashboardScreen(),
-    const ReportsManagementScreen(),
-    const MapMonitorScreen(),
-    const EvacuationCentersManagementScreen(),
-    const AnalyticsScreen(),
-    const AdminSettingsScreen(),
-  ];
+  void _navigateToTab(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final List<Widget> _screens = [
+      DashboardScreen(onNavigateToTab: _navigateToTab),
+      const ReportsManagementScreen(),
+      const MapMonitorScreen(),
+      const EvacuationCentersManagementScreen(),
+      const AnalyticsScreen(),
+      const UserManagementScreen(),
+      const AdminSettingsScreen(),
+    ];
+
     return Scaffold(
       body: _screens[_currentIndex],
       bottomNavigationBar: BottomNavigationBar(
@@ -65,6 +73,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.analytics),
             label: 'Analytics',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.people),
+            label: 'Users',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings),

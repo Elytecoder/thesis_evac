@@ -9,7 +9,10 @@ from rest_framework.response import Response
 
 from core.permissions.mdrrmo import IsMDRRMO
 from apps.evacuation.models import EvacuationCenter
-from apps.evacuation.serializers import EvacuationCenterSerializer
+from apps.evacuation.serializers import (
+    EvacuationCenterSerializer,
+    EvacuationCenterCreateSerializer,
+)
 from apps.hazards.models import HazardReport
 from apps.hazards.serializers import (
     HazardReportCreateSerializer,
@@ -21,6 +24,15 @@ from apps.routing.serializers import CalculateRouteRequestSerializer
 from apps.mobile_sync.services.report_service import process_new_report
 from apps.mobile_sync.services.route_service import calculate_safest_routes
 from apps.mobile_sync.services.bootstrap_service import get_bootstrap_data
+from apps.notifications.models import Notification
+
+
+def _report_hazard_json_500(detail: str) -> Response:
+    """Return a JSON 500 so the client never gets HTML."""
+    return Response(
+        {'error': 'Could not process report.', 'detail': detail},
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
 
 
 @api_view(['POST'])
@@ -30,22 +42,27 @@ def report_hazard(request):
     POST /api/report-hazard/
     Body: hazard_type, latitude, longitude, description?, photo_url?
     """
-    serializer = HazardReportCreateSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    data = serializer.validated_data
-    report = process_new_report(
-        user=request.user,
-        hazard_type=data['hazard_type'],
-        latitude=data['latitude'],
-        longitude=data['longitude'],
-        description=data.get('description', ''),
-        photo_url=data.get('photo_url', ''),
-    )
-    return Response(
-        HazardReportSerializer(report).data,
-        status=status.HTTP_201_CREATED,
-    )
+    try:
+        serializer = HazardReportCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        report = process_new_report(
+            user=request.user,
+            hazard_type=data['hazard_type'],
+            latitude=data['latitude'],
+            longitude=data['longitude'],
+            description=data.get('description', ''),
+            photo_url=data.get('photo_url', ''),
+            user_latitude=data.get('user_latitude'),
+            user_longitude=data.get('user_longitude'),
+        )
+        payload = HazardReportSerializer(report).data
+        return Response(payload, status=status.HTTP_201_CREATED)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return _report_hazard_json_500(str(e))
 
 
 @api_view(['GET'])
@@ -53,8 +70,17 @@ def report_hazard(request):
 def evacuation_centers(request):
     """
     GET /api/evacuation-centers/
+    Returns all operational evacuation centers by default.
+    Query params: ?include_inactive=true to include non-operational centers.
     """
-    qs = EvacuationCenter.objects.all()
+    include_inactive = request.GET.get('include_inactive', 'false').lower() == 'true'
+    
+    if include_inactive:
+        qs = EvacuationCenter.objects.all()
+    else:
+        # Only return operational centers for routing
+        qs = EvacuationCenter.objects.filter(is_operational=True)
+    
     serializer = EvacuationCenterSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -95,6 +121,72 @@ def calculate_route(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsMDRRMO])
+def mdrrmo_dashboard_stats(request):
+    """
+    GET /api/mdrrmo/dashboard-stats/
+    Returns counts for dashboard cards, hazard_distribution (verified only), and recent_activity.
+    MDRRMO only.
+    """
+    from django.db.models import Count
+    from django.utils import timezone
+    total_reports = HazardReport.objects.filter(auto_rejected=False).count()
+    pending_reports = HazardReport.objects.filter(
+        status=HazardReport.Status.PENDING,
+        auto_rejected=False,
+    ).count()
+    verified_hazards = HazardReport.objects.filter(
+        status=HazardReport.Status.APPROVED,
+    ).count()
+    total_evacuation_centers = EvacuationCenter.objects.count()
+    non_operational_centers = EvacuationCenter.objects.filter(is_operational=False).count()
+
+    # Hazard type distribution from verified (approved) reports only
+    hazard_distribution = dict(
+        HazardReport.objects.filter(status=HazardReport.Status.APPROVED)
+        .values('hazard_type')
+        .annotate(count=Count('id'))
+        .values_list('hazard_type', 'count')
+    )
+
+    # Recent activity: last 10 report-related events (submitted / approved / rejected)
+    recent_reports = (
+        HazardReport.objects.filter(auto_rejected=False)
+        .order_by('-created_at')[:10]
+        .select_related('user')
+    )
+    recent_activity = []
+    for r in recent_reports:
+        if r.status == HazardReport.Status.APPROVED:
+            activity_type = 'report_approved'
+            message = f'Report #{r.id} ({r.hazard_type.replace("_", " ")}) approved'
+        elif r.status == HazardReport.Status.REJECTED:
+            activity_type = 'report_rejected'
+            message = f'Report #{r.id} ({r.hazard_type.replace("_", " ")}) rejected'
+        else:
+            activity_type = 'report_submitted'
+            message = f'Report #{r.id} ({r.hazard_type.replace("_", " ")}) submitted'
+        location = f'{float(r.latitude):.4f}, {float(r.longitude):.4f}'
+        recent_activity.append({
+            'type': activity_type,
+            'message': message,
+            'timestamp': r.created_at.isoformat() if r.created_at else timezone.now().isoformat(),
+            'location': location,
+        })
+
+    return Response({
+        'total_reports': total_reports,
+        'pending_reports': pending_reports,
+        'verified_hazards': verified_hazards,
+        'high_risk_roads': 0,
+        'total_evacuation_centers': total_evacuation_centers,
+        'non_operational_centers': non_operational_centers,
+        'hazard_distribution': hazard_distribution,
+        'recent_activity': recent_activity,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
 def mdrrmo_pending_reports(request):
     """
     GET /api/mdrrmo/pending-reports/
@@ -110,11 +202,13 @@ def mdrrmo_pending_reports(request):
 def mdrrmo_approve_report(request):
     """
     POST /api/mdrrmo/approve-report/
-    Body: report_id, action ('approve' | 'reject')
+    Body: report_id, action ('approve' | 'reject'), admin_comment (optional)
     MDRRMO only.
     """
     report_id = request.data.get('report_id')
     action = request.data.get('action')
+    admin_comment = request.data.get('admin_comment', '')
+    
     if not report_id or action not in ('approve', 'reject'):
         return Response(
             {'error': 'report_id and action (approve|reject) required'},
@@ -124,9 +218,168 @@ def mdrrmo_approve_report(request):
         report = HazardReport.objects.get(pk=report_id)
     except HazardReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
-    report.status = HazardReport.Status.APPROVED if action == 'approve' else HazardReport.Status.REJECTED
-    report.save(update_fields=['status'])
+    
+    if action == 'approve':
+        report.status = HazardReport.Status.APPROVED
+        
+        # Create notification for resident
+        Notification.create_notification(
+            user=report.user,
+            notification_type=Notification.Type.REPORT_APPROVED,
+            title='Report Approved',
+            message=f'Your hazard report about {report.hazard_type} has been approved by MDRRMO.',
+            related_object_type='HazardReport',
+            related_object_id=report.id,
+            metadata={
+                'hazard_type': report.hazard_type,
+                'latitude': str(report.latitude),
+                'longitude': str(report.longitude),
+            }
+        )
+    else:
+        report.mark_rejected()
+        
+        # Create notification for resident
+        Notification.create_notification(
+            user=report.user,
+            notification_type=Notification.Type.REPORT_REJECTED,
+            title='Report Rejected',
+            message=f'Your hazard report about {report.hazard_type} was rejected after verification.',
+            related_object_type='HazardReport',
+            related_object_id=report.id,
+            metadata={
+                'hazard_type': report.hazard_type,
+                'reason': admin_comment if admin_comment else 'Did not meet validation criteria',
+            }
+        )
+    
+    if admin_comment:
+        report.admin_comment = admin_comment
+    
+    report.save()
     return Response(PendingReportSerializer(report).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_reports(request):
+    """
+    GET /api/my-reports/
+    Returns all reports submitted by the current user.
+    """
+    qs = HazardReport.objects.filter(
+        user=request.user,
+        auto_rejected=False  # Don't show auto-rejected reports
+    ).order_by('-created_at')
+    serializer = HazardReportSerializer(qs, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_my_report(request, report_id):
+    """
+    DELETE /api/my-reports/<report_id>/
+    Allows user to delete their own pending report.
+    """
+    try:
+        report = HazardReport.objects.get(pk=report_id, user=request.user)
+    except HazardReport.DoesNotExist:
+        return Response(
+            {'error': 'Report not found or access denied'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Only allow deletion of pending reports
+    if report.status != HazardReport.Status.PENDING:
+        return Response(
+            {'error': 'Can only delete pending reports'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    report.delete()
+    return Response({'message': 'Report deleted successfully'})
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def verified_hazards(request):
+    """
+    GET /api/verified-hazards/
+    Returns all approved hazard reports for map display.
+    """
+    qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED)
+    serializer = HazardReportSerializer(qs, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def restore_report(request):
+    """
+    POST /api/mdrrmo/restore-report/
+    Body: report_id, restoration_reason
+    Restores a rejected report back to pending status.
+    MDRRMO only.
+    """
+    report_id = request.data.get('report_id')
+    restoration_reason = request.data.get('restoration_reason', '')
+    
+    if not report_id or not restoration_reason:
+        return Response(
+            {'error': 'report_id and restoration_reason required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        report = HazardReport.objects.get(pk=report_id)
+    except HazardReport.DoesNotExist:
+        return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if report.status != HazardReport.Status.REJECTED:
+        return Response(
+            {'error': 'Can only restore rejected reports'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    report.restore(restoration_reason)
+    return Response(PendingReportSerializer(report).data)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def mdrrmo_delete_report(request, report_id: int):
+    """
+    DELETE /api/mdrrmo/reports/<report_id>/
+    MDRRMO can delete an approved or rejected report. Removes it from the system.
+    """
+    try:
+        report = HazardReport.objects.get(pk=report_id)
+    except HazardReport.DoesNotExist:
+        return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
+    if report.status == HazardReport.Status.PENDING:
+        return Response(
+            {'error': 'Cannot delete pending reports. Approve or reject them first.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    report.delete()
+    return Response({'message': 'Report deleted successfully'}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def mdrrmo_rejected_reports(request):
+    """
+    GET /api/mdrrmo/rejected-reports/
+    Returns all rejected reports for MDRRMO dashboard.
+    MDRRMO only.
+    """
+    qs = HazardReport.objects.filter(
+        status=HazardReport.Status.REJECTED,
+        auto_rejected=False  # Don't show auto-rejected reports
+    ).order_by('-rejected_at')
+    serializer = PendingReportSerializer(qs, many=True)
+    return Response(serializer.data)
 
 
 @api_view(['GET'])
@@ -138,3 +391,132 @@ def bootstrap_sync(request):
     """
     data = get_bootstrap_data()
     return Response(data)
+
+
+# ==================== Evacuation Center CRUD (MDRRMO) ====================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def create_evacuation_center(request):
+    """
+    POST /api/mdrrmo/evacuation-centers/
+    Create a new evacuation center.
+    MDRRMO only.
+    """
+    serializer = EvacuationCenterCreateSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    center = serializer.save()
+    return Response(
+        EvacuationCenterSerializer(center).data,
+        status=status.HTTP_201_CREATED
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def get_evacuation_center(request, center_id):
+    """
+    GET /api/mdrrmo/evacuation-centers/<center_id>/
+    Get details of a specific evacuation center.
+    MDRRMO only.
+    """
+    try:
+        center = EvacuationCenter.objects.get(pk=center_id)
+    except EvacuationCenter.DoesNotExist:
+        return Response(
+            {'error': 'Evacuation center not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    serializer = EvacuationCenterSerializer(center)
+    return Response(serializer.data)
+
+
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def update_evacuation_center(request, center_id):
+    """
+    PUT /api/mdrrmo/evacuation-centers/<center_id>/
+    Update an evacuation center.
+    MDRRMO only.
+    """
+    try:
+        center = EvacuationCenter.objects.get(pk=center_id)
+    except EvacuationCenter.DoesNotExist:
+        return Response(
+            {'error': 'Evacuation center not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    serializer = EvacuationCenterCreateSerializer(
+        center,
+        data=request.data,
+        partial=True
+    )
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    updated = serializer.save()
+    return Response(EvacuationCenterSerializer(updated).data)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def delete_evacuation_center(request, center_id):
+    """
+    DELETE /api/mdrrmo/evacuation-centers/<center_id>/
+    Delete an evacuation center.
+    MDRRMO only.
+    """
+    try:
+        center = EvacuationCenter.objects.get(pk=center_id)
+    except EvacuationCenter.DoesNotExist:
+        return Response(
+            {'error': 'Evacuation center not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    center.delete()
+    return Response({'message': 'Evacuation center deleted successfully'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def deactivate_evacuation_center(request, center_id):
+    """
+    POST /api/mdrrmo/evacuation-centers/<center_id>/deactivate/
+    Deactivate an evacuation center.
+    MDRRMO only.
+    """
+    try:
+        center = EvacuationCenter.objects.get(pk=center_id)
+    except EvacuationCenter.DoesNotExist:
+        return Response(
+            {'error': 'Evacuation center not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    center.deactivate()
+    return Response(EvacuationCenterSerializer(center).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def reactivate_evacuation_center(request, center_id):
+    """
+    POST /api/mdrrmo/evacuation-centers/<center_id>/reactivate/
+    Reactivate an evacuation center.
+    MDRRMO only.
+    """
+    try:
+        center = EvacuationCenter.objects.get(pk=center_id)
+    except EvacuationCenter.DoesNotExist:
+        return Response(
+            {'error': 'Evacuation center not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    center.reactivate()
+    return Response(EvacuationCenterSerializer(center).data)

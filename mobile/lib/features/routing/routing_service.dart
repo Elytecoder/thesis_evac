@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/api_config.dart';
+import '../../core/config/storage_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/storage_service.dart';
 import '../../models/evacuation_center.dart';
@@ -18,23 +21,51 @@ class RoutingService {
   final ApiClient _apiClient = ApiClient();
   final StorageService _storageService = StorageService();
 
+  /// Round to 7 decimals so backend DecimalField(max_digits=10, decimal_places=7) accepts it.
+  static double _roundTo7(double value) {
+    const k1e7 = 10000000.0;
+    return (value * k1e7).round() / k1e7;
+  }
+
+  /// Set auth token on API client so calculate-route (and other protected calls) succeed.
+  Future<void> _ensureAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(StorageConfig.authTokenKey);
+    if (token != null && token.isNotEmpty) {
+      _apiClient.setAuthToken(token);
+    }
+  }
+
   /// Get all evacuation centers.
   /// 
-  /// MOCK: Returns mock centers.
-  /// REAL: GET from /api/evacuation-centers/
+  /// IMPORTANT: Only returns OPERATIONAL evacuation centers.
+  /// Deactivated centers (is_operational = false) are excluded from routing.
+  /// This ensures residents cannot navigate to closed/unavailable centers.
+  /// 
+  /// MOCK: Returns mock centers (filtered by operational status).
+  /// REAL: GET from /api/evacuation-centers/?operational_only=true
   Future<List<EvacuationCenter>> getEvacuationCenters() async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 300));
-      return getMockEvacuationCenters();
+      final allCenters = getMockEvacuationCenters();
+      
+      // FILTER: Only return operational centers for routing
+      final operationalCenters = allCenters.where((center) => center.isOperational).toList();
+      
+      print('🏢 Loaded ${operationalCenters.length} operational centers (${allCenters.length - operationalCenters.length} deactivated)');
+      
+      return operationalCenters;
     }
 
     // REAL API CALL:
     try {
+      // Backend should filter by operational status
       final response = await _apiClient.get(ApiConfig.evacuationCentersEndpoint);
       
-      final List<dynamic> centersJson = response.data;
+      final raw = response.data;
+      final List<dynamic> centersJson = raw is List ? List<dynamic>.from(raw) : [];
       return centersJson
-          .map((json) => EvacuationCenter.fromJson(json))
+          .map((json) => EvacuationCenter.fromJson(Map<String, dynamic>.from(json as Map)))
           .toList();
     } catch (e) {
       throw Exception('Failed to fetch evacuation centers: $e');
@@ -47,27 +78,18 @@ class RoutingService {
   /// - Uses OSRM for real road-following routes (mock mode)
   /// - Caches routes for offline use
   /// - Falls back to cached routes when offline
-  /// - Uses Django backend in production mode
+  /// - Uses Django backend in production mode (returns RouteCalculationResult with no_safe_route, alternatives)
   /// 
-  /// Returns 3 routes sorted by safety (lowest risk first).
-  Future<List<Route>> calculateRoutes({
+  /// Returns result with routes (3 sorted by safety), noSafeRoute, message, recommendedAction, alternativeCenters.
+  Future<RouteCalculationResult> calculateRoutes({
     required double startLat,
     required double startLng,
     required int evacuationCenterId,
     required EvacuationCenter evacuationCenter,
   }) async {
-    // Validate location is in Philippines, use Bulan default if not
-    final isInPhilippines = startLat >= 4.0 && startLat <= 21.0 &&
-                           startLng >= 116.0 && startLng <= 127.0;
-    
-    double validStartLat = startLat;
-    double validStartLng = startLng;
-    
-    if (!isInPhilippines) {
-      print('⚠️ Start location outside Philippines ($startLat, $startLng), using Bulan default for routing');
-      validStartLat = 12.6699; // Bulan, Sorsogon
-      validStartLng = 123.8758;
-    }
+    // Use the provided start location (from map GPS); no override so routing uses your real position
+    final validStartLat = startLat;
+    final validStartLng = startLng;
     
     final routeKey = '${validStartLat.toStringAsFixed(4)},${validStartLng.toStringAsFixed(4)}-'
         '${evacuationCenter.latitude.toStringAsFixed(4)},${evacuationCenter.longitude.toStringAsFixed(4)}';
@@ -88,7 +110,7 @@ class RoutingService {
         // Cache routes for offline use
         await _cacheRoutes(routeKey, routes);
         
-        return routes;
+        return RouteCalculationResult(routes: routes);
       } catch (e) {
         print('❌ OSRM failed: $e');
         
@@ -96,7 +118,7 @@ class RoutingService {
         final cachedRoutes = await _getCachedRoutes(routeKey);
         if (cachedRoutes != null) {
           print('✅ Using cached routes (offline mode)');
-          return cachedRoutes;
+          return RouteCalculationResult(routes: cachedRoutes);
         }
         
         // Last resort: Show error, don't use geometric fallback
@@ -105,34 +127,62 @@ class RoutingService {
       }
     }
 
-    // REAL API CALL (Django backend with Modified Dijkstra):
+    // REAL API CALL (Django backend with Modified Dijkstra) - requires auth
+    // Backend accepts max_digits=10, decimal_places=7 — round coords to 7 decimals
     try {
+      await _ensureAuthToken();
+      final startLatRounded = _roundTo7(validStartLat);
+      final startLngRounded = _roundTo7(validStartLng);
       final response = await _apiClient.post(
         ApiConfig.calculateRouteEndpoint,
         data: {
-          'start_lat': startLat,
-          'start_lng': startLng,
+          'start_lat': startLatRounded,
+          'start_lng': startLngRounded,
           'evacuation_center_id': evacuationCenterId,
         },
       );
 
-      final List<dynamic> routesJson = response.data['routes'];
+      final data = response.data is Map ? Map<String, dynamic>.from(response.data as Map) : <String, dynamic>{};
+      final dynamic routesRaw = data['routes'];
+      final List<dynamic> routesJson = routesRaw is List ? List<dynamic>.from(routesRaw) : [];
       final routes = routesJson.map((json) => Route.fromJson(json)).toList();
+
+      final noSafeRoute = (data['no_safe_route'] as bool?) ?? false;
+      final message = data['message'] as String?;
+      final recommendedAction = data['recommended_action'] as String?;
+      final altRaw = data['alternative_centers'];
+      final List<AlternativeCenter> alternativeCenters = altRaw is List
+          ? (altRaw as List).map((e) => AlternativeCenter.fromJson(Map<String, dynamic>.from(e as Map))).toList()
+          : [];
       
       // Cache routes for offline use
       await _cacheRoutes(routeKey, routes);
       
-      return routes;
-    } catch (e) {
+      return RouteCalculationResult(
+        routes: routes,
+        noSafeRoute: noSafeRoute,
+        message: message,
+        recommendedAction: recommendedAction,
+        alternativeCenters: alternativeCenters,
+      );
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401) {
+        throw Exception('Please log in to calculate routes.');
+      }
       print('Backend failed, trying cache: $e');
-      
-      // Try cached routes
       final cachedRoutes = await _getCachedRoutes(routeKey);
       if (cachedRoutes != null) {
         print('Using cached routes (offline mode)');
-        return cachedRoutes;
+        return RouteCalculationResult(routes: cachedRoutes);
       }
-      
+      throw Exception('Failed to calculate routes and no cache available: $e');
+    } catch (e) {
+      print('Backend failed, trying cache: $e');
+      final cachedRoutes = await _getCachedRoutes(routeKey);
+      if (cachedRoutes != null) {
+        print('Using cached routes (offline mode)');
+        return RouteCalculationResult(routes: cachedRoutes);
+      }
       throw Exception('Failed to calculate routes and no cache available: $e');
     }
   }

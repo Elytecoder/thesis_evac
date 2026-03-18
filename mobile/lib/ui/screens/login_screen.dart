@@ -15,7 +15,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
   
@@ -24,9 +24,34 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void _showMdrrmoHint(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('MDRRMO Access'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'MDRRMO staff use the same login form with their work email and password.\n\n'
+            'If test users are set up on the backend (python manage.py create_test_users), you can use:\n\n'
+            'Email: admin@mdrrmo.bulan.gov.ph\n'
+            'Password: admin123\n\n'
+            'After login you will be taken to the MDRRMO dashboard.',
+            style: TextStyle(fontSize: 14),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _handleLogin() async {
@@ -38,7 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final User user = await _authService.login(
-        _usernameController.text.trim(),
+        _emailController.text.trim(),
         _passwordController.text,
       );
 
@@ -71,10 +96,10 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        
+        final message = e.toString().replaceFirst('Exception: ', '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Login failed: $e'),
+            content: Text(message),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
@@ -167,23 +192,30 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                // Username field
+                                // Email field
                                 TextFormField(
-                                  controller: _usernameController,
+                                  controller: _emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  autocorrect: false,
                                   decoration: InputDecoration(
-                                    labelText: 'Username',
-                                    prefixIcon: const Icon(Icons.person),
+                                    labelText: 'Email',
+                                    hintText: 'e.g., [email protected]',
+                                    prefixIcon: const Icon(Icons.email_outlined),
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
-                                      return 'Please enter your username';
+                                      return 'Email is required';
+                                    }
+                                    if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(value.trim())) {
+                                      return 'Enter a valid email address';
                                     }
                                     return null;
                                   },
                                   enabled: !_isLoading,
+                                  onChanged: (_) => setState(() {}),
                                 ),
                                 
                                 const SizedBox(height: 16),
@@ -213,18 +245,23 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   validator: (value) {
                                     if (value == null || value.isEmpty) {
-                                      return 'Please enter your password';
+                                      return 'Password is required';
                                     }
                                     return null;
                                   },
                                   enabled: !_isLoading,
+                                  onChanged: (_) => setState(() {}),
                                 ),
                                 
                                 const SizedBox(height: 24),
                                 
-                                // Login button
+                                // Login button (disabled when fields empty or loading)
                                 ElevatedButton(
-                                  onPressed: _isLoading ? null : _handleLogin,
+                                  onPressed: (_isLoading ||
+                                          _emailController.text.trim().isEmpty ||
+                                          _passwordController.text.isEmpty)
+                                      ? null
+                                      : _handleLogin,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.blue[700],
                                     foregroundColor: Colors.white,
@@ -285,40 +322,27 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 8),
+                                // MDRRMO staff hint
+                                TextButton(
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () => _showMdrrmoHint(context),
+                                  child: Text(
+                                    'MDRRMO staff? Log in here',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.white70,
+                                      decoration: TextDecoration.underline,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
                         ),
                         
                         const SizedBox(height: 24),
-                        
-                        // Mock mode notice
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: Colors.white.withOpacity(0.9),
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Mock Mode: Any username/password works',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.9),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),

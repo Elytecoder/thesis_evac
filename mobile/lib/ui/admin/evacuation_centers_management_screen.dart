@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import '../../features/admin/admin_mock_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../features/evacuation/evacuation_center_service.dart';
 import '../../models/evacuation_center.dart';
 import 'add_evacuation_center_screen.dart';
-import 'edit_evacuation_center_screen.dart';
+import 'evacuation_center_detail_screen.dart';
+import 'evacuation_center_map_view_screen.dart';
 
 /// Evacuation Centers Management Screen - Manage all evacuation centers.
 /// 
@@ -15,25 +17,66 @@ class EvacuationCentersManagementScreen extends StatefulWidget {
 }
 
 class _EvacuationCentersManagementScreenState extends State<EvacuationCentersManagementScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final EvacuationCenterService _evacuationCenterService = EvacuationCenterService();
   List<EvacuationCenter> _centers = [];
   bool _isLoading = true;
   String _searchQuery = '';
   String _selectedBarangay = 'all';
+  bool _filterOnlyNonOperational = false; // NEW: filter for non-operational centers
 
   final List<String> _barangayOptions = ['all', 'Zone 1', 'Zone 2', 'Zone 3', 'Zone 4', 'Zone 5', 'Zone 6'];
 
   @override
   void initState() {
     super.initState();
+    _checkDashboardFilter();
     _loadCenters();
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Check for dashboard filter whenever screen becomes visible
+    _checkAndApplyDashboardFilter();
+  }
+  
+  /// Check and apply dashboard filter if present (called on every screen visibility)
+  Future<void> _checkAndApplyDashboardFilter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final filterNonOperational = prefs.getBool('dashboard_centers_filter_non_operational') ?? false;
+    
+    if (filterNonOperational) {
+      print('🎯 Centers filter detected: non-operational only'); // Debug log
+      
+      setState(() {
+        _filterOnlyNonOperational = true;
+      });
+      
+      // Clear the flag after applying
+      await prefs.remove('dashboard_centers_filter_non_operational');
+    }
+  }
+  
+  /// Check if there's a filter request from the dashboard (for initState only)
+  Future<void> _checkDashboardFilter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final filterNonOperational = prefs.getBool('dashboard_centers_filter_non_operational') ?? false;
+    
+    if (filterNonOperational) {
+      setState(() {
+        _filterOnlyNonOperational = true;
+      });
+      
+      // Clear the flag after applying
+      await prefs.remove('dashboard_centers_filter_non_operational');
+    }
   }
 
   Future<void> _loadCenters() async {
     setState(() => _isLoading = true);
     
     try {
-      final centers = await _adminService.getEvacuationCenters();
+      final centers = await _evacuationCenterService.getEvacuationCenters(includeInactive: true);
       setState(() {
         _centers = centers;
         _isLoading = false;
@@ -45,12 +88,21 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
 
   List<EvacuationCenter> get _filteredCenters {
     return _centers.where((center) {
+      // Apply search filter
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
         if (!center.name.toLowerCase().contains(query)) {
           return false;
         }
       }
+      
+      // Apply non-operational filter if active
+      if (_filterOnlyNonOperational) {
+        if (center.isOperational) {
+          return false; // Exclude operational centers when filter is active
+        }
+      }
+      
       return true;
     }).toList();
   }
@@ -62,6 +114,7 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
         title: const Text('Evacuation Centers'),
         backgroundColor: const Color(0xFF1E3A8A),
         foregroundColor: Colors.white,
+        automaticallyImplyLeading: false, // Remove back button - main tab
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -97,7 +150,9 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _selectedBarangay,
+                  value: _barangayOptions.contains(_selectedBarangay)
+                      ? _selectedBarangay
+                      : _barangayOptions.first,
                   decoration: InputDecoration(
                     labelText: 'Filter by Barangay',
                     prefixIcon: const Icon(Icons.location_on, size: 20),
@@ -122,6 +177,47 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                     }
                   },
                 ),
+                
+                // Non-Operational Filter Chip
+                if (_filterOnlyNonOperational) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.orange[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange[300]!),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.filter_alt, size: 18, color: Colors.orange[700]),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Showing Non-Operational Centers Only',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.orange[900],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          color: Colors.orange[700],
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            setState(() {
+                              _filterOnlyNonOperational = false;
+                            });
+                          },
+                          tooltip: 'Clear filter',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -246,19 +342,31 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                         ),
                       ),
                       const SizedBox(height: 4),
+                      // Operational status badge
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.green,
+                          color: center.isOperational ? Colors.green : Colors.red,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: const Text(
-                          'ACTIVE',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              center.isOperational ? Icons.check_circle : Icons.cancel,
+                              size: 12,
+                              color: Colors.white,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              center.isOperational ? 'OPERATIONAL' : 'NOT OPERATIONAL',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -271,10 +379,10 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
             const Divider(height: 1),
             const SizedBox(height: 12),
             
-            _buildInfoRow(Icons.location_on, 'Barangay', 'Zone ${center.id}'),
-            _buildInfoRow(Icons.home, 'Address', center.description),
+            _buildInfoRow(Icons.location_on, 'Barangay', center.barangay ?? 'Zone ${center.id}'),
+            _buildInfoRow(Icons.home, 'Address', center.fullAddress),
             _buildInfoRow(Icons.gps_fixed, 'Coordinates', '${center.latitude.toStringAsFixed(4)}, ${center.longitude.toStringAsFixed(4)}'),
-            _buildInfoRow(Icons.phone, 'Contact', '0917-123-45${center.id}7'),
+            _buildInfoRow(Icons.phone, 'Contact', center.contactNumber ?? '0917-123-45${center.id}7'),
             
             const SizedBox(height: 12),
             
@@ -283,8 +391,11 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Map view coming soon')),
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => EvacuationCenterMapViewScreen(center: center),
+                        ),
                       );
                     },
                     icon: const Icon(Icons.map, size: 16),
@@ -301,7 +412,7 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                       final result = await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => EditEvacuationCenterScreen(center: center),
+                          builder: (context) => EvacuationCenterDetailScreen(center: center),
                         ),
                       );
                       
@@ -309,8 +420,8 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                         _loadCenters();
                       }
                     },
-                    icon: const Icon(Icons.edit, size: 16),
-                    label: const Text('Edit'),
+                    icon: const Icon(Icons.visibility, size: 16),
+                    label: const Text('View'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1E3A8A),
                       foregroundColor: Colors.white,

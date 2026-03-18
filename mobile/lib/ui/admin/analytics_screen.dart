@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../core/config/api_config.dart';
 import '../../features/admin/admin_mock_service.dart';
+import '../../features/hazards/hazard_service.dart';
+import '../../models/hazard_report.dart';
 
 /// Analytics Screen - Statistical analysis and charts for MDRRMO.
+/// When using real API, hazard distribution is derived from actual reports (empty when none).
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -11,6 +15,7 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final AdminMockService _adminService = AdminMockService();
+  final HazardService _hazardService = HazardService();
   Map<String, dynamic>? _analytics;
   bool _isLoading = true;
 
@@ -23,9 +28,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<void> _loadAnalytics() async {
     setState(() => _isLoading = true);
     try {
-      final analytics = await _adminService.getAnalytics();
+      if (ApiConfig.useMockData) {
+        final analytics = await _adminService.getAnalytics();
+        setState(() {
+          _analytics = analytics;
+          _isLoading = false;
+        });
+        return;
+      }
+      // Real API: hazard type distribution from verified (approved) reports only
+      final verified = await _hazardService.getVerifiedHazards();
+      final Map<String, int> hazardTypeCounts = {};
+      for (final r in verified) {
+        hazardTypeCounts[r.hazardType] = (hazardTypeCounts[r.hazardType] ?? 0) + 1;
+      }
+      final hazardTypeDistribution = hazardTypeCounts.map((k, v) => MapEntry(k, v));
       setState(() {
-        _analytics = analytics;
+        _analytics = {
+          'hazard_type_distribution': hazardTypeDistribution,
+          'road_risk_distribution': {
+            'high_risk': 0,
+            'moderate_risk': 0,
+            'low_risk': 0,
+          },
+        };
         _isLoading = false;
       });
     } catch (e) {
@@ -40,6 +66,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: const Text('Analytics'),
         backgroundColor: const Color(0xFF1E3A8A),
         foregroundColor: Colors.white,
+        automaticallyImplyLeading: false, // Remove back button - main tab
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -56,24 +83,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildSectionTitle('Most Dangerous Barangays'),
-                    const SizedBox(height: 12),
-                    _buildDangerousBarangaysCard(),
-                    
-                    const SizedBox(height: 24),
                     _buildSectionTitle('Hazard Type Distribution'),
                     const SizedBox(height: 12),
-                    _buildHazardDistributionCard(),
+                    _buildHazardDistributionPieChart(),
                     
                     const SizedBox(height: 24),
                     _buildSectionTitle('Road Risk Distribution'),
                     const SizedBox(height: 12),
                     _buildRoadRiskCard(),
-                    
-                    const SizedBox(height: 24),
-                    _buildSectionTitle('Model Statistics'),
-                    const SizedBox(height: 12),
-                    _buildModelStatsCard(),
                   ],
                 ),
               ),
@@ -163,8 +180,100 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
+  /// Build Hazard Distribution Pie Chart
+  Widget _buildHazardDistributionPieChart() {
+    final raw = _analytics?['hazard_type_distribution'];
+    final distribution = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    
+    if (distribution.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(32),
+        child: const Center(child: Text('No hazard data available')),
+      );
+    }
+    
+    final total = distribution.values.fold<int>(0, (sum, count) => sum + (count is int ? count : (count as num).toInt()));
+    
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          // Pie chart visualization
+          SizedBox(
+            height: 250,
+            child: CustomPaint(
+              size: const Size(250, 250),
+              painter: PieChartPainter(
+                distribution.map((key, value) => MapEntry(
+                  key,
+                  (value is int ? value : (value as num).toInt()) / total,
+                )),
+                distribution.map((key, value) => MapEntry(
+                  key,
+                  _getHazardColor(key),
+                )),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Legend
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: distribution.entries.map((entry) {
+              final count = entry.value is int ? entry.value as int : (entry.value as num).toInt();
+              final percentage = (count / total * 100).toStringAsFixed(1);
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: _getHazardColor(entry.key),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${entry.key}: $count ($percentage%)',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHazardDistributionCard() {
-    final distribution = _analytics?['hazard_type_distribution'] as Map<String, dynamic>? ?? {};
+    final raw = _analytics?['hazard_type_distribution'];
+    final distribution = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     return Container(
       decoration: BoxDecoration(
@@ -198,7 +307,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildRoadRiskCard() {
-    final distribution = _analytics?['road_risk_distribution'] as Map<String, dynamic>? ?? {};
+    final raw = _analytics?['road_risk_distribution'];
+    final distribution = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     return Container(
       decoration: BoxDecoration(
@@ -251,7 +361,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildModelStatsCard() {
-    final stats = _analytics?['model_statistics'] as Map<String, dynamic>? ?? {};
+    final raw = _analytics?['model_statistics'];
+    final stats = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
     
     return Container(
       decoration: BoxDecoration(
@@ -296,12 +407,38 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Color _getHazardColor(String type) {
-    switch (type) {
-      case 'flood': return Colors.blue;
-      case 'landslide': return Colors.brown;
-      case 'fire': return Colors.red;
-      case 'storm': return Colors.purple;
-      default: return Colors.grey;
+    switch (type.toLowerCase()) {
+      case 'flooded_road':
+      case 'flooded road':
+        return Colors.blue;
+      case 'landslide':
+        return Colors.brown;
+      case 'fallen_tree':
+      case 'fallen tree':
+        return Colors.green[700]!;
+      case 'road_damage':
+      case 'road damage':
+        return Colors.grey[700]!;
+      case 'fallen_electric_post':
+      case 'fallen electric post / wires':
+        return Colors.amber[700]!;
+      case 'road_blocked':
+      case 'road blocked':
+        return Colors.red;
+      case 'bridge_damage':
+      case 'bridge damage':
+        return Colors.orange;
+      case 'storm_surge':
+      case 'storm surge':
+        return Colors.purple;
+      case 'flood':
+        return Colors.blue;
+      case 'fire':
+        return Colors.red;
+      case 'storm':
+        return Colors.purple;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -314,4 +451,53 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       default: return Icons.warning;
     }
   }
+}
+
+/// Custom Pie Chart Painter
+class PieChartPainter extends CustomPainter {
+  final Map<String, double> data; // percentages
+  final Map<String, Color> colors;
+
+  PieChartPainter(this.data, this.colors);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width * 0.4;
+    double startAngle = -90 * (3.14159 / 180); // Start from top
+
+    data.forEach((key, percentage) {
+      final sweepAngle = 2 * 3.14159 * percentage;
+      final paint = Paint()
+        ..color = colors[key] ?? Colors.grey
+        ..style = PaintingStyle.fill;
+
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        true,
+        paint,
+      );
+
+      // Draw white border between segments
+      final borderPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        startAngle,
+        sweepAngle,
+        true,
+        borderPaint,
+      );
+
+      startAngle += sweepAngle;
+    });
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

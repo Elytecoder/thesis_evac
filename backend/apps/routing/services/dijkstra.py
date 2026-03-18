@@ -1,11 +1,13 @@
 """
 Modified Dijkstra: weight = base_distance + (predicted_risk_score × risk_multiplier).
-Returns 3 safest routes with total risk and risk level (Green / Yellow / Red).
+Returns up to k distinct routes by reusing Dijkstra multiple times: run once for the best
+path, then penalize edges used in that path and run again to get alternatives. No new
+algorithm; only edge costs are adjusted temporarily via a penalty dict (graph is not mutated).
 """
 import heapq
 from collections import defaultdict
 from decimal import Decimal
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 # Risk multiplier to emphasize safety over pure distance
 DEFAULT_RISK_MULTIPLIER = 500.0
@@ -44,7 +46,8 @@ class ModifiedDijkstraService:
             e_lat = _float(seg.end_lat)
             e_lng = _float(seg.end_lng)
             dist = _float(seg.base_distance)
-            risk = _float(getattr(seg, 'predicted_risk_score', 0))
+            # Use effective_risk (base + hazard proximity) when set; else predicted_risk_score
+            risk = _float(getattr(seg, 'effective_risk', getattr(seg, 'predicted_risk_score', 0)))
             weight = dist + risk * self.risk_multiplier
             sk, ek = _key(s_lat, s_lng), _key(e_lat, e_lng)
             nodes.add(sk)
@@ -54,26 +57,23 @@ class ModifiedDijkstraService:
             adj[ek].append((sk, weight, dist, risk))
         return dict(adj), nodes
 
-    def dijkstra_k_routes(
+    def _dijkstra_one(
         self,
         graph: dict,
         start_key: str,
         end_key: str,
-        k: int = 3,
-    ) -> List[Dict[str, Any]]:
+        forbidden_edges: set = None,
+        edge_penalty: dict = None,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Return up to k safest routes from start to end.
-        Each route: {path_keys, total_distance, total_risk, weight, risk_level}.
+        Run Dijkstra and return a single route dict, or None if no path.
+        forbidden_edges: set of (u, v) to exclude entirely.
+        edge_penalty: dict (u,v) -> extra weight so next path prefers to avoid those edges (allows shared tail).
         """
         if start_key not in graph or end_key not in graph:
-            # Return empty if nodes not in graph
-            return []
-        # K-shortest paths by weight (modified Dijkstra: we want min weight = safest)
-        # Simplified: run Dijkstra once for shortest, then we do k iterations to get k paths
-        # For thesis we return 3 routes: best, and 2 alternatives by skipping edges
-        routes = []
-        prev_best = None
-        # Get single shortest path first
+            return None
+        forbidden_edges = forbidden_edges or set()
+        edge_penalty = edge_penalty or {}
         dist = {start_key: 0}
         risk_sum = {start_key: 0}
         path_dist = {start_key: 0}
@@ -90,18 +90,18 @@ class ModifiedDijkstraService:
                     path.append(cur)
                     cur = parent.get(cur)
                 path.reverse()
-                total_risk = risk_sum.get(u, 0)
-                total_dist = path_dist.get(u, 0)
-                routes.append({
+                return {
                     'path_keys': path,
-                    'total_distance': total_dist,
-                    'total_risk': total_risk,
+                    'total_distance': path_dist.get(u, 0),
+                    'total_risk': risk_sum.get(u, 0),
                     'weight': dist[u],
-                    'risk_level': self._risk_level(total_risk),
-                })
-                break
+                    'risk_level': self._risk_level(risk_sum.get(u, 0)),
+                }
             for v, w, d_edge, r_edge in graph[u]:
-                new_d = dist[u] + w
+                if (u, v) in forbidden_edges:
+                    continue
+                penalty = edge_penalty.get((u, v), 0)
+                new_d = dist[u] + w + penalty
                 new_risk = risk_sum[u] + r_edge
                 new_path_dist = path_dist[u] + d_edge
                 if new_d < dist.get(v, float('inf')):
@@ -110,20 +110,60 @@ class ModifiedDijkstraService:
                     path_dist[v] = new_path_dist
                     parent[v] = u
                     heapq.heappush(pq, (new_d, v))
+        return None
 
-        if not routes:
+    def _path_edges(self, path_keys: list) -> set:
+        """Return set of (u, v) and (v, u) edges for the path."""
+        if not path_keys or len(path_keys) < 2:
+            return set()
+        edges = set()
+        for i in range(len(path_keys) - 1):
+            u, v = path_keys[i], path_keys[i + 1]
+            edges.add((u, v))
+            edges.add((v, u))
+        return edges
+
+    # Penalty added to each edge of a previously used path so next run prefers different edges.
+    # Applied only at query time via edge_penalty dict; graph/segments are never mutated → no reset needed.
+    PENALTY_VALUE = 500.0
+
+    def dijkstra_k_routes(
+        self,
+        graph: dict,
+        start_key: str,
+        end_key: str,
+        k: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return up to k distinct routes by reusing Dijkstra: run once, penalize used edges, run again.
+        Does not modify Dijkstra logic or the graph; only adjusts effective edge cost via penalty dict.
+        """
+        if start_key not in graph or end_key not in graph:
             return []
 
-        # For k=3 we need 3 routes. Simple approach: also return by least risk and by least distance
-        best = routes[0]
-        # Build path with (lat, lng) for response
-        result = [best]
-        # Add two more "alternative" routes: we could run yen's algorithm; for mock we duplicate with note
-        for _ in range(2):
-            # Placeholder: same route with slightly different risk level for demo
-            alt = {**best, 'path_keys': best['path_keys'][:], 'alternative': True}
-            result.append(alt)
-        return result[:k]
+        # 1) RUN DIJKSTRA (FIRST ROUTE)
+        routes: List[Dict[str, Any]] = []
+        edge_penalty: dict = {}  # (u, v) -> extra cost; temporary, not persisted
+
+        for _ in range(k):
+            best = self._dijkstra_one(
+                graph, start_key, end_key,
+                edge_penalty=edge_penalty if edge_penalty else None,
+            )
+            if best is None:
+                break
+            path_keys = tuple(best.get('path_keys', []))
+            if not path_keys:
+                break
+            # 6) ENSURE UNIQUE ROUTES: skip if identical to any previous route
+            if any(tuple(r.get('path_keys', [])) == path_keys for r in routes):
+                break
+            routes.append(best)
+            # 2) PENALIZE USED EDGES: for each edge in this path, add penalty so next run prefers alternatives
+            for e in self._path_edges(best['path_keys']):
+                edge_penalty[e] = self.PENALTY_VALUE
+        # 5) No reset needed: graph was never mutated; edge_penalty is local to this call.
+        return routes
 
     def _risk_level(self, total_risk: float) -> str:
         if total_risk < 0.3:

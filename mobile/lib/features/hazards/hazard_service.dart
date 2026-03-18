@@ -1,4 +1,6 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/api_config.dart';
+import '../../core/config/storage_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/storage_service.dart';
 import '../../models/hazard_report.dart';
@@ -16,17 +18,48 @@ class HazardService {
   final ApiClient _apiClient = ApiClient();
   final StorageService _storageService = StorageService();
 
+  Future<void> _ensureAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(StorageConfig.authTokenKey);
+    if (token != null && token.isNotEmpty) {
+      _apiClient.setAuthToken(token);
+    }
+  }
+
+  /// Extract list from API response (handles raw list or wrapped in 'results'/'data').
+  static List<dynamic> _extractList(dynamic raw) {
+    if (raw is List) return List<dynamic>.from(raw);
+    if (raw is Map) {
+      if (raw['results'] is List) return List<dynamic>.from(raw['results'] as List);
+      if (raw['data'] is List) return List<dynamic>.from(raw['data'] as List);
+    }
+    return [];
+  }
+
+  /// Parse one JSON map to HazardReport, return null on error.
+  static HazardReport? _tryParseReport(dynamic json) {
+    try {
+      if (json is! Map) return null;
+      return HazardReport.fromJson(Map<String, dynamic>.from(json));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Submit a hazard report.
   /// 
   /// FEATURES:
   /// - Submits immediately if online
   /// - Queues for later if offline
   /// - Returns optimistic response for offline submissions
+  /// - Captures user's location for proximity validation
   Future<HazardReport> submitHazardReport({
     required String hazardType,
     required double latitude,
     required double longitude,
     required String description,
+    double? userLatitude,
+    double? userLongitude,
     String? photoUrl,
     String? videoUrl,
   }) async {
@@ -67,6 +100,7 @@ class HazardService {
     }
 
     // REAL API CALL:
+    await _ensureAuthToken();
     try {
       final response = await _apiClient.post(
         ApiConfig.reportHazardEndpoint,
@@ -75,14 +109,37 @@ class HazardService {
           'latitude': latitude,
           'longitude': longitude,
           'description': description,
+          if (userLatitude != null) 'user_latitude': userLatitude,
+          if (userLongitude != null) 'user_longitude': userLongitude,
           if (photoUrl != null) 'photo_url': photoUrl,
           if (videoUrl != null) 'video_url': videoUrl,
         },
       );
 
-      return HazardReport.fromJson(response.data);
+      final data = response.data;
+      if (data is! Map) throw Exception('Invalid report response');
+      return HazardReport.fromJson(Map<String, dynamic>.from(data as Map));
     } catch (e) {
-      // Offline - queue for later
+      // Auth failures: do NOT queue — report never reached the server. User must log in.
+      if (e is ApiException) {
+        if (e.statusCode == 401) {
+          throw Exception('Please log in to submit a report. Your session may have expired.');
+        }
+        if (e.statusCode == 403) {
+          throw Exception('You do not have permission to submit reports. Please log in as a resident.');
+        }
+        // Show server or client error message; do not queue on 4xx/5xx
+        if (e.statusCode != null && e.statusCode! >= 400) {
+          throw Exception(e.message);
+        }
+      }
+      // Location/proximity message
+      if (e.toString().contains('location does not match') ||
+          e.toString().contains('outside') ||
+          e.toString().contains('radius')) {
+        throw Exception('Your location does not match the accepted kilometer radius of the reported area.');
+      }
+      // Only queue on real network/connection errors
       print('Offline: Queuing hazard report for later submission');
       return await _queueHazardReport(
         hazardType: hazardType,
@@ -228,13 +285,11 @@ class HazardService {
     }
 
     // REAL API CALL:
+    await _ensureAuthToken();
     try {
       final response = await _apiClient.get(ApiConfig.pendingReportsEndpoint);
-      
-      final List<dynamic> reportsJson = response.data;
-      return reportsJson
-          .map((json) => HazardReport.fromJson(json))
-          .toList();
+      final list = _extractList(response.data);
+      return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
     } catch (e) {
       throw Exception('Failed to fetch pending reports: $e');
     }
@@ -269,19 +324,154 @@ class HazardService {
     }
 
     // REAL API CALL:
+    await _ensureAuthToken();
     try {
       final response = await _apiClient.post(
         ApiConfig.approveReportEndpoint,
         data: {
           'report_id': reportId,
           'action': approve ? 'approve' : 'reject',
-          if (comment != null) 'comment': comment,
+          if (comment != null) 'admin_comment': comment,
         },
       );
 
       return HazardReport.fromJson(response.data);
     } catch (e) {
       throw Exception('Failed to update report: $e');
+    }
+  }
+
+  /// Get user's own reports.
+  /// 
+  /// REAL: GET from /api/my-reports/
+  Future<List<HazardReport>> getMyReports() async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      // Return empty list for mock mode
+      return [];
+    }
+
+    // REAL API CALL:
+    await _ensureAuthToken();
+    try {
+      final response = await _apiClient.get(ApiConfig.myReportsEndpoint);
+      final list = _extractList(response.data);
+      return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
+    } catch (e) {
+      throw Exception('Failed to fetch your reports: $e');
+    }
+  }
+
+  /// Delete user's own pending report.
+  /// 
+  /// REAL: DELETE /api/my-reports/{id}/
+  Future<void> deleteMyReport(int reportId) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      print('Mock: Deleted report $reportId');
+      return;
+    }
+
+    // REAL API CALL:
+    await _ensureAuthToken();
+    try {
+      await _apiClient.delete(
+        ApiConfig.getUrlWithId(ApiConfig.myReportsEndpoint, reportId),
+      );
+    } catch (e) {
+      throw Exception('Failed to delete report: $e');
+    }
+  }
+
+  /// Get all verified (approved) hazards for map display.
+  /// 
+  /// REAL: GET from /api/verified-hazards/
+  Future<List<HazardReport>> getVerifiedHazards() async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      // Return empty list for mock mode
+      return [];
+    }
+
+    // REAL API CALL:
+    try {
+      final response = await _apiClient.get(ApiConfig.verifiedHazardsEndpoint);
+      final list = _extractList(response.data);
+      return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
+    } catch (e) {
+      throw Exception('Failed to fetch verified hazards: $e');
+    }
+  }
+
+  /// Get rejected reports (MDRRMO only).
+  /// 
+  /// REAL: GET from /api/mdrrmo/rejected-reports/
+  Future<List<HazardReport>> getRejectedReports() async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      return [];
+    }
+
+    // REAL API CALL:
+    await _ensureAuthToken();
+    try {
+      final response = await _apiClient.get(ApiConfig.rejectedReportsEndpoint);
+      final list = _extractList(response.data);
+      return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
+    } catch (e) {
+      throw Exception('Failed to fetch rejected reports: $e');
+    }
+  }
+
+  /// Delete an approved or rejected report (MDRRMO only). Removes from system.
+  /// 
+  /// REAL: DELETE /api/mdrrmo/reports/{id}/
+  Future<void> deleteReportMdrrmo(int reportId) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      return;
+    }
+    await _ensureAuthToken();
+    await _apiClient.delete('${ApiConfig.mdrrmoDeleteReportEndpoint}$reportId/');
+  }
+
+  /// Restore a rejected report (MDRRMO only).
+  /// 
+  /// REAL: POST to /api/mdrrmo/restore-report/
+  Future<HazardReport> restoreReport({
+    required int reportId,
+    required String restorationReason,
+  }) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      return HazardReport(
+        id: reportId,
+        userId: 3,
+        hazardType: 'flood',
+        latitude: 12.6700,
+        longitude: 123.8755,
+        description: 'Restored report',
+        status: HazardStatus.pending,
+        naiveBayesScore: 0.92,
+        consensusScore: 0.88,
+        createdAt: DateTime.now(),
+      );
+    }
+
+    // REAL API CALL:
+    await _ensureAuthToken();
+    try {
+      final response = await _apiClient.post(
+        ApiConfig.restoreReportEndpoint,
+        data: {
+          'report_id': reportId,
+          'restoration_reason': restorationReason,
+        },
+      );
+
+      return HazardReport.fromJson(response.data);
+    } catch (e) {
+      throw Exception('Failed to restore report: $e');
     }
   }
 }

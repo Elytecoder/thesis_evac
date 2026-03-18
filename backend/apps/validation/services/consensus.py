@@ -1,21 +1,30 @@
 """
-Consensus scoring: increase confidence when multiple reports exist within radius.
-Combines with Naive Bayes score for final validated hazard score.
+Nearby-report counting for hazard reports.
+
+Validation is now fully handled by Naive Bayes; consensus is no longer
+a separate scoring formula. This module only provides the count of
+similar reports within radius and time window, which is passed as a
+feature (nearby_similar_report_count_category) to Naive Bayes.
 """
 from decimal import Decimal
 from typing import Optional
+from datetime import timedelta
+from django.utils import timezone
 
 from core.utils.geo import within_radius
 
 
-# Default radius in meters for counting nearby reports
+# Radius in meters for counting nearby reports (same hazard area).
 CONSENSUS_RADIUS_METERS = 50.0
+# Time window: only count reports within this many hours.
+NEARBY_TIME_WINDOW_HOURS = 1
 
 
 class ConsensusScoringService:
     """
-    Computes consensus score by counting reports within radius and boosting
-    the Naive Bayes score when multiple users report the same area.
+    Counts nearby reports within radius and optional time window.
+    Used only to compute nearby_similar_report_count_category for Naive Bayes.
+    No combined_score or percentage boost logic.
     """
 
     def __init__(self, radius_m: float = CONSENSUS_RADIUS_METERS):
@@ -27,15 +36,21 @@ class ConsensusScoringService:
         lng: float,
         report_queryset,
         exclude_report_id: Optional[int] = None,
+        time_window_hours: Optional[float] = None,
     ) -> int:
         """
-        Count reports (from queryset) within self.radius_m of (lat, lng).
-        Optionally exclude one report by id (e.g. the current report).
+        Count reports within self.radius_m of (lat, lng).
+        If time_window_hours is set, only count reports created within that window.
+        Optionally exclude one report by id.
         """
         lat_f = float(lat) if isinstance(lat, Decimal) else lat
         lng_f = float(lng) if isinstance(lng, Decimal) else lng
+        qs = report_queryset
+        if time_window_hours is not None:
+            since = timezone.now() - timedelta(hours=time_window_hours)
+            qs = qs.filter(created_at__gte=since)
         count = 0
-        for r in report_queryset:
+        for r in qs:
             if exclude_report_id is not None and r.id == exclude_report_id:
                 continue
             r_lat = float(r.latitude)
@@ -43,18 +58,3 @@ class ConsensusScoringService:
             if within_radius(lat_f, lng_f, r_lat, r_lng, self.radius_m):
                 count += 1
         return count
-
-    def combined_score(
-        self,
-        naive_bayes_score: float,
-        nearby_count: int,
-        alpha: float = 0.7,
-    ) -> float:
-        """
-        Combine Naive Bayes score with consensus boost.
-        consensus_boost: higher when nearby_count is higher (capped).
-        final = alpha * nb_score + (1 - alpha) * consensus_boost
-        """
-        # Simple boost: 0.1 per nearby report, max 0.3
-        consensus_boost = min(0.3, nearby_count * 0.1)
-        return alpha * naive_bayes_score + (1 - alpha) * (0.5 + consensus_boost)

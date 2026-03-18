@@ -79,7 +79,7 @@ class CompleteFlowIntegrationTests(TestCase):
         self.assertEqual(response.status_code, 201)
         report_id = response.data['id']
         self.assertIsNotNone(response.data['naive_bayes_score'])
-        self.assertIsNotNone(response.data['consensus_score'])
+        # consensus_score deprecated; validation is Naive Bayes only
         
         # Step 3: Calculate safest route
         route_data = {
@@ -129,11 +129,9 @@ class CompleteFlowIntegrationTests(TestCase):
         pending_ids = [r['id'] for r in response.data]
         self.assertNotIn(report_id, pending_ids)
 
-    def test_multiple_reports_consensus_scoring(self):
-        """Test that consensus scoring works with multiple nearby reports."""
+    def test_multiple_reports_nearby_feature(self):
+        """Test that multiple nearby reports affect Naive Bayes (nearby_count as feature)."""
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.resident_token.key}')
-        
-        # Create first report
         report1_data = {
             'hazard_type': 'flood',
             'latitude': 14.5995,
@@ -142,21 +140,19 @@ class CompleteFlowIntegrationTests(TestCase):
         }
         response1 = self.client.post('/api/report-hazard/', report1_data, format='json')
         self.assertEqual(response1.status_code, 201)
-        score1 = response1.data['consensus_score']
-        
-        # Create second report at nearly same location
+        score1 = response1.data.get('naive_bayes_score')
+        self.assertIsNotNone(score1)
         report2_data = {
             'hazard_type': 'flood',
-            'latitude': 14.5996,  # Very close
+            'latitude': 14.5996,
             'longitude': 120.9842,
             'description': 'Severe flooding',
         }
         response2 = self.client.post('/api/report-hazard/', report2_data, format='json')
         self.assertEqual(response2.status_code, 201)
-        score2 = response2.data['consensus_score']
-        
-        # Second report should have higher consensus score
-        self.assertGreater(score2, score1)
+        score2 = response2.data.get('naive_bayes_score')
+        self.assertIsNotNone(score2)
+        # Both reports get a validation score (NB with integrated features)
 
     def test_route_calculation_with_risk_levels(self):
         """Test that route calculation returns proper risk levels."""

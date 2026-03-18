@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework.authtoken',
+    'corsheaders',  # Added for CORS support
     'apps.users',
     'apps.evacuation',
     'apps.hazards',
@@ -29,12 +30,16 @@ INSTALLED_APPS = [
     'apps.risk_prediction',
     'apps.routing',
     'apps.mobile_sync',
+    'apps.system_logs',
+    'apps.notifications',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # Added for CORS - must be before CommonMiddleware
     'django.middleware.common.CommonMiddleware',
+    'config.middleware.DisableCSRFForAPIMiddleware',  # Disable CSRF for /api/ endpoints
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -42,6 +47,12 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'config.urls'
+
+# Exempt API endpoints from CSRF checks (API uses Token authentication instead)
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+]
 
 TEMPLATES = [
     {
@@ -88,6 +99,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Custom user model
 AUTH_USER_MODEL = 'users.User'
 
+# Authenticate by email (backend finds user by email, then checks password)
+AUTHENTICATION_BACKENDS = ['apps.users.backends.EmailBackend']
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -101,5 +115,36 @@ REST_FRAMEWORK = {
     ],
 }
 
+# CORS settings for web browser access
+# Allow all localhost origins for development
+CORS_ALLOW_ALL_ORIGINS = True  # Development only - restrict in production
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
 # Path to mock data (replace with real MDRRMO data later)
 MOCK_DATA_DIR = BASE_DIR / 'mock_data'
+
+# System logs retention: delete logs older than this many days.
+# Set to 0 to keep logs forever (no auto-deletion).
+SYSTEM_LOG_RETENTION_DAYS = int(os.environ.get('SYSTEM_LOG_RETENTION_DAYS', '90'))

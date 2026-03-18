@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
 import '../../features/routing/routing_service.dart';
 import 'route_danger_details_screen.dart';
+import 'live_navigation_screen.dart';
 
 /// Screen showing 3 calculated routes with risk levels
 class RoutesSelectionScreen extends StatefulWidget {
@@ -24,6 +26,8 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
   final RoutingService _routingService = RoutingService();
   List<app_route.Route>? _routes;
   bool _isLoading = true;
+  app_route.RouteCalculationResult? _routeResult;
+  bool _noSafeRouteModalDismissed = false;
 
   @override
   void initState() {
@@ -33,7 +37,7 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
 
   Future<void> _loadRoutes() async {
     try {
-      final routes = await _routingService.calculateRoutes(
+      final result = await _routingService.calculateRoutes(
         startLat: widget.userLocation.latitude,
         startLng: widget.userLocation.longitude,
         evacuationCenterId: widget.evacuationCenter.id,
@@ -42,9 +46,13 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
 
       if (mounted) {
         setState(() {
-          _routes = routes;
+          _routeResult = result;
+          _routes = result.routes;
           _isLoading = false;
         });
+        if (result.noSafeRoute && !_noSafeRouteModalDismissed) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _showNoSafeRouteModal(result));
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -62,10 +70,62 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
     }
   }
 
+  void _showNoSafeRouteModal(app_route.RouteCalculationResult result) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(Icons.warning_amber_rounded, size: 48, color: Colors.orange[700]),
+        title: const Text('No Safe Route Available'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(result.message ?? 'All routes to this evacuation center are currently high-risk.'),
+              if (result.recommendedAction != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  result.recommendedAction!,
+                  style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[800]),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() => _noSafeRouteModalDismissed = true);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('View Routes Anyway'),
+          ),
+          FilledButton(
+            onPressed: () {
+              setState(() => _noSafeRouteModalDismissed = true);
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pop(); // Back to evacuation center list
+            },
+            child: const Text('Try Other Evacuation Centers'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _onRouteSelected(app_route.Route route) {
     if (route.riskLevel == app_route.RiskLevel.green) {
-      // Safe route - start navigation
-      Navigator.pop(context, route);
+      // Safe route - launch live navigation
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LiveNavigationScreen(
+            startLocation: widget.userLocation,
+            destination: widget.evacuationCenter,
+          ),
+        ),
+      );
     } else {
       // Dangerous route - show warning
       Navigator.push(
@@ -79,7 +139,16 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
         ),
       ).then((result) {
         if (result != null) {
-          Navigator.pop(context, result);
+          // If user accepts the risky route, start navigation
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => LiveNavigationScreen(
+                startLocation: widget.userLocation,
+                destination: widget.evacuationCenter,
+              ),
+            ),
+          );
         }
       });
     }
@@ -197,7 +266,7 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
 
                 const SizedBox(height: 16),
 
-                // Routes list
+                // Routes list – show all returned routes (2–3 when backend provides alternatives)
                 Expanded(
                   child: _routes == null || _routes!.isEmpty
                       ? const Center(
@@ -217,10 +286,38 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
     );
   }
 
+  /// Backend sends total_distance in meters. Return km for display; if 0, compute from path.
+  double _displayDistanceKm(app_route.Route route) {
+    if (route.totalDistance > 0) {
+      return route.totalDistance / 1000;
+    }
+    if (route.path.length < 2) return 0;
+    double meters = 0;
+    for (int i = 1; i < route.path.length; i++) {
+      meters += Geolocator.distanceBetween(
+        route.path[i - 1].latitude,
+        route.path[i - 1].longitude,
+        route.path[i].latitude,
+        route.path[i].longitude,
+      );
+    }
+    return meters / 1000;
+  }
+
+  /// Backend total_risk is sum of segment risks (can exceed 1). Cap at 1 for display (0–100%).
+  double _displayRisk(app_route.Route route) {
+    return route.totalRisk.clamp(0.0, 1.0);
+  }
+
   Widget _buildRouteCard(app_route.Route route, int index) {
     final isGreen = route.riskLevel == app_route.RiskLevel.green;
     final isYellow = route.riskLevel == app_route.RiskLevel.yellow;
     final isRed = route.riskLevel == app_route.RiskLevel.red;
+    final isHighRisk = route.riskLabel == 'High Risk';
+    final possiblyBlocked = route.possiblyBlocked;
+
+    final distanceKm = _displayDistanceKm(route);
+    final riskForDisplay = _displayRisk(route);
 
     Color bgColor = isGreen
         ? Colors.green[50]!
@@ -232,14 +329,15 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
         ? Colors.green[700]!
         : (isYellow ? Colors.orange[700]! : Colors.red[700]!);
 
-    String routeName = isGreen
-        ? 'Northern Bypass'
-        : (isYellow ? 'Central Avenue' : 'River Road');
+    String routeName = 'Route ${index + 1}';
+    if (index == 0 && !isHighRisk) routeName += ' (Safest)';
+    else if (isHighRisk) routeName += ' (${route.riskLabel})';
+    else routeName += ' (${route.riskLabel})';
     String routeDesc = isGreen
-        ? 'Safest route - Elevated roads, no flood zones'
+        ? 'Lowest risk – recommended'
         : (isYellow
-            ? 'Some flooding reported, proceed with caution'
-            : 'High flood risk - Avoid if possible');
+            ? 'Moderate risk – proceed with caution'
+            : 'Higher risk – avoid if possible');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -266,13 +364,37 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      routeName,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: iconColor,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            routeName,
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: iconColor,
+                            ),
+                          ),
+                        ),
+                        if (possiblyBlocked) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.red[100],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'Possibly Blocked',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.red[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     Text(
                       routeDesc,
@@ -308,7 +430,7 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${route.totalDistance.toStringAsFixed(1)} km',
+                      '${distanceKm.toStringAsFixed(1)} km',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -336,11 +458,19 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${(route.totalRisk * 100).toStringAsFixed(0)}%',
+                      '${(riskForDisplay * 100).toStringAsFixed(0)}%',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: iconColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Verified hazards & road risk',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey[600],
                       ),
                     ),
                   ],
@@ -353,7 +483,7 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
-              value: route.totalRisk,
+              value: riskForDisplay,
               backgroundColor: Colors.grey[200],
               color: iconColor,
               minHeight: 8,

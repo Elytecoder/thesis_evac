@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../features/admin/admin_mock_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 import 'report_detail_screen.dart';
 
@@ -14,7 +15,7 @@ class ReportsManagementScreen extends StatefulWidget {
 }
 
 class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
-  final AdminMockService _adminService = AdminMockService();
+  final HazardService _hazardService = HazardService();
   List<HazardReport> _reports = [];
   bool _isLoading = true;
   
@@ -28,16 +29,88 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _loadReports();
+    _initializeScreen();
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Check for dashboard filter whenever screen becomes visible
+    _checkAndApplyDashboardFilter();
+  }
+  
+  /// Initialize screen with filter check and data loading
+  Future<void> _initializeScreen() async {
+    await _checkDashboardFilter(); // Wait for filter to be set first
+    await _loadReports(); // Then load reports with the filter
+  }
+  
+  /// Check and apply dashboard filter if present (called on every screen visibility)
+  Future<void> _checkAndApplyDashboardFilter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final shouldApplyFilter = prefs.getBool('should_apply_reports_filter') ?? false;
+    
+    if (shouldApplyFilter) {
+      final filter = prefs.getString('dashboard_reports_filter');
+      if (filter != null && _statusOptions.contains(filter)) {
+        print('🎯 Reports filter detected and applying: $filter'); // Debug log
+        
+        setState(() {
+          _selectedStatus = filter;
+        });
+        
+        // Clear the flags after applying
+        await prefs.remove('should_apply_reports_filter');
+        await prefs.remove('dashboard_reports_filter');
+        
+        // Reload reports with the new filter
+        await _loadReports();
+      }
+    }
+  }
+  
+  /// Check if there's a filter request from the dashboard (for initState only)
+  Future<void> _checkDashboardFilter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final shouldApplyFilter = prefs.getBool('should_apply_reports_filter') ?? false;
+    
+    if (shouldApplyFilter) {
+      final filter = prefs.getString('dashboard_reports_filter');
+      if (filter != null && _statusOptions.contains(filter)) {
+        setState(() {
+          _selectedStatus = filter;
+        });
+        
+        print('🎯 Reports filter applied in initState: $filter'); // Debug log
+      }
+      
+      // Clear the flags after applying
+      await prefs.remove('should_apply_reports_filter');
+      await prefs.remove('dashboard_reports_filter');
+    }
   }
 
   Future<void> _loadReports() async {
     setState(() => _isLoading = true);
     
     try {
-      final reports = await _adminService.getReports(
-        status: _selectedStatus == 'all' ? null : _selectedStatus,
-      );
+      List<HazardReport> reports = [];
+      final status = _selectedStatus == 'all' ? null : _selectedStatus;
+      if (status == null || status == 'pending') {
+        reports.addAll(await _hazardService.getPendingReports());
+      }
+      if (status == null || status == 'rejected') {
+        reports.addAll(await _hazardService.getRejectedReports());
+      }
+      if (status == null || status == 'approved') {
+        reports.addAll(await _hazardService.getVerifiedHazards());
+      }
+      // Sort by created_at descending
+      reports.sort((a, b) {
+        final at = a.createdAt ?? DateTime(0);
+        final bt = b.createdAt ?? DateTime(0);
+        return bt.compareTo(at);
+      });
       
       setState(() {
         _reports = reports;
@@ -55,6 +128,176 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
         );
       }
     }
+  }
+
+  /// Delete approved or rejected report (MDRRMO only). Removes from system.
+  Future<void> _deleteReport(HazardReport report) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Report'),
+        content: Text(
+          'This report will be permanently removed from the system. '
+          'This action cannot be undone. Continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || report.id == null) return;
+    try {
+      await _hazardService.deleteReportMdrrmo(report.id!);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Report deleted.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadReports();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Show restore modal for rejected reports
+  /// Allows MDRRMO to restore rejected reports back to pending status with a reason
+  Future<void> _showRestoreModal(HazardReport report) async {
+    final TextEditingController reasonController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.restore, color: Colors.green[700], size: 28),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Restore Hazard Report',
+                style: TextStyle(fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Please provide your reason for the restoration of this hazard report.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[700],
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: reasonController,
+                decoration: InputDecoration(
+                  labelText: 'Restoration Reason *',
+                  hintText: 'Enter reason for restoring this report',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  prefixIcon: const Icon(Icons.edit_note),
+                ),
+                maxLines: 3,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please provide a reason for restoration';
+                  }
+                  if (value.trim().length < 10) {
+                    return 'Reason must be at least 10 characters';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              reasonController.dispose();
+              Navigator.pop(context, false);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(context, true);
+              }
+            },
+            icon: const Icon(Icons.check),
+            label: const Text('Submit'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // Perform restoration
+      try {
+        await _hazardService.restoreReport(
+          reportId: report.id ?? 0,
+          restorationReason: reasonController.text.trim(),
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Report successfully restored and moved to Pending'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          
+          // Reload reports to reflect change
+          _loadReports();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ Failed to restore report: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    }
+
+    reasonController.dispose();
   }
 
   List<HazardReport> get _filteredReports {
@@ -79,6 +322,7 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
         title: const Text('Reports Management'),
         backgroundColor: const Color(0xFF1E3A8A),
         foregroundColor: Colors.white,
+        automaticallyImplyLeading: false, // Remove back button - main tab
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -404,56 +648,121 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                 
                 const SizedBox(height: 12),
                 
-                // AI Scores
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildScoreIndicator(
-                        'Naive Bayes',
-                        report.naiveBayesScore ?? 0.0,
-                        Colors.blue,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildScoreIndicator(
-                        'Consensus',
-                        report.consensusScore ?? 0.0,
-                        Colors.purple,
-                      ),
-                    ),
-                  ],
+                // Validation score (Naive Bayes only; Consensus is not used for report validation)
+                _buildScoreIndicator(
+                  'Validation',
+                  report.naiveBayesScore ?? 0.0,
+                  Colors.blue,
                 ),
                 
                 const SizedBox(height: 12),
                 
-                // View Details Button
+                // View Details, Restore (rejected only), Delete (approved/rejected only)
                 SizedBox(
                   width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final result = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => ReportDetailScreen(report: report),
-                        ),
-                      );
-                      
-                      // Reload if report was updated
-                      if (result == true) {
-                        _loadReports();
-                      }
-                    },
-                    icon: const Icon(Icons.visibility, size: 16),
-                    label: const Text('View Details'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF1E3A8A),
-                      side: const BorderSide(color: Color(0xFF1E3A8A)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
+                  child: report.status == HazardStatus.rejected
+                      ? Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final result = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ReportDetailScreen(report: report),
+                                    ),
+                                  );
+                                  if (result == true) _loadReports();
+                                },
+                                icon: const Icon(Icons.visibility, size: 16),
+                                label: const Text('View'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF1E3A8A),
+                                  side: const BorderSide(color: Color(0xFF1E3A8A)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: () => _showRestoreModal(report),
+                                icon: const Icon(Icons.restore, size: 16),
+                                label: const Text('Restore'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              onPressed: () => _deleteReport(report),
+                              icon: const Icon(Icons.delete_outline, size: 22),
+                              tooltip: 'Delete report',
+                              color: Colors.red[700],
+                            ),
+                          ],
+                        )
+                      : report.status == HazardStatus.approved
+                          ? Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () async {
+                                      final result = await Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => ReportDetailScreen(report: report),
+                                        ),
+                                      );
+                                      if (result == true) _loadReports();
+                                    },
+                                    icon: const Icon(Icons.visibility, size: 16),
+                                    label: const Text('View Details'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFF1E3A8A),
+                                      side: const BorderSide(color: Color(0xFF1E3A8A)),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  onPressed: () => _deleteReport(report),
+                                  icon: const Icon(Icons.delete_outline, size: 22),
+                                  tooltip: 'Delete report',
+                                  color: Colors.red[700],
+                                ),
+                              ],
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: () async {
+                                final result = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ReportDetailScreen(report: report),
+                                  ),
+                                );
+                                if (result == true) _loadReports();
+                              },
+                              icon: const Icon(Icons.visibility, size: 16),
+                              label: const Text('View Details'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF1E3A8A),
+                                side: const BorderSide(color: Color(0xFF1E3A8A)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
                 ),
               ],
             ),
