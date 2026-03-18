@@ -67,7 +67,8 @@ class AuthService {
 
       return {
         'message': response.data['message'],
-        'dev_code': response.data['dev_code'], // Only in development
+        'dev_code': response.data['dev_code'],
+        'code': response.data['code'],
       };
     } on ApiException catch (e) {
       // Pass through the specific error message from the API

@@ -63,7 +63,7 @@ def send_verification_code(request):
         verification = EmailVerificationCode.create_verification(email)
         print(f"Verification code created: {verification.code}")
         
-        # Print to console
+        # Print to console (for server logs)
         print(f"\n{'='*50}")
         print(f"EMAIL VERIFICATION CODE")
         print(f"Email: {email}")
@@ -71,10 +71,13 @@ def send_verification_code(request):
         print(f"Expires in: 5 minutes")
         print(f"{'='*50}\n")
         
+        # Return code so app can show it when email is not configured (e.g. Render demo).
+        # When you add real email (SMTP/SendGrid), remove 'code' and 'dev_code' from the response.
         response_data = {
             'message': 'Verification code sent to your email',
             'expires_in': '5 minutes',
-            'dev_code': verification.code if settings.DEBUG else None,
+            'dev_code': verification.code,
+            'code': verification.code,
         }
         print(f"Returning success response: {response_data}")
         

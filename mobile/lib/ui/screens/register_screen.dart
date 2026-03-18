@@ -107,15 +107,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isSendingCode = true);
 
     try {
-      await _authService.sendVerificationCode(email);
+      final result = await _authService.sendVerificationCode(email);
       
       if (mounted) {
         setState(() {
           _codeSent = true;
           _isSendingCode = false;
+          // Pre-fill code if API returned it (e.g. when email is not configured on server)
+          final code = result['dev_code'] ?? result['code'];
+          if (code != null && code.toString().trim().isNotEmpty) {
+            _verificationCodeController.text = code.toString().trim();
+          }
         });
-        
-        _showSuccess('Verification code sent to your email!');
+        final code = result['dev_code'] ?? result['code'];
+        if (code != null && code.toString().trim().isNotEmpty) {
+          _showSuccess('Your verification code: $code');
+        } else {
+          _showSuccess('Verification code sent to your email!');
+        }
       }
     } catch (e) {
       if (mounted) {

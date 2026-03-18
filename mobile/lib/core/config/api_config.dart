@@ -1,32 +1,18 @@
 /// API configuration for backend communication.
-/// 
-/// IMPORTANT: Set useMockData = false to connect to real backend.
+///
+/// Exported app (APK) uses Render by default.
+/// Change [renderBaseUrl] if your Render service has a different URL.
 
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
 
 class ApiConfig {
-  /// Toggle between mock data and real API calls
-  /// Set to false when backend is running and ready
-  static const bool useMockData = false; // Changed to false to use real API
-  
-  /// Backend base URL - automatically detects platform
-  /// Web (Chrome): http://localhost:8000/api
-  /// Android emulator: http://10.0.2.2:8000/api
-  /// Physical device: http://192.168.x.x:8000/api
-  static String get baseUrl {
-    if (kIsWeb) {
-      // Web platform (Chrome, Firefox, etc.)
-      return 'http://localhost:8000/api';
-    } else {
-      // Mobile platform (Android/iOS)
-      // For Android emulator
-      return 'http://10.0.2.2:8000/api';
-      
-      // For physical device, uncomment and set your computer's IP:
-      // return 'http://192.168.1.100:8000/api';
-    }
-  }
+  /// Use real backend (Render). Set to false only for offline/mock testing.
+  static const bool useMockData = false;
+
+  /// Render backend URL (no trailing slash). Replace with your actual URL if different.
+  static const String renderBaseUrl = 'https://thesis-evac.onrender.com/api';
+
+  /// Backend base URL. Exported APK and all builds use Render.
+  static String get baseUrl => renderBaseUrl;
   
   /// Authentication endpoints
   static const String sendVerificationCodeEndpoint = '/auth/send-verification-code/';
