@@ -1,5 +1,8 @@
 Django>=4.2,<5
 djangorestframework>=3.14
+django-cors-headers>=4.0
+whitenoise>=6.5
+gunicorn>=21.0
 # Token auth is built into DRF (rest_framework.authtoken)
 # For Random Forest (optional; falls back to constant risk if not installed)
 scikit-learn>=1.3

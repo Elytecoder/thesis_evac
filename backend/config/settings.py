@@ -9,9 +9,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-production')
 
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = ['*']
+# Render sets RENDER_EXTERNAL_HOSTNAME; locally allow 127.0.0.1 and localhost
+_allowed = os.environ.get('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
+if os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+    _allowed.append(os.environ['RENDER_EXTERNAL_HOSTNAME'])
+ALLOWED_HOSTS = [h.strip() for h in _allowed if h.strip()]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -36,6 +40,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',  # Added for CORS - must be before CommonMiddleware
     'django.middleware.common.CommonMiddleware',
@@ -52,7 +57,13 @@ ROOT_URLCONF = 'config.urls'
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
+    'https://127.0.0.1:8000',
 ]
+# Add Render app URL when deployed (e.g. https://your-service.onrender.com)
+if os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+    _host = os.environ['RENDER_EXTERNAL_HOSTNAME']
+    CSRF_TRUSTED_ORIGINS.append(f'https://{_host}')
+    CSRF_TRUSTED_ORIGINS.append(f'http://{_host}')
 
 TEMPLATES = [
     {
@@ -93,6 +104,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
