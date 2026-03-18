@@ -2,7 +2,18 @@
 
 AI-Powered Mobile Application for Intelligent Evacuation Route Recommendation Using Machine Learning and Risk-Weighted Routing.
 
-**Django + Django REST Framework.** SQLite, mock data, schema only. No frontend, no production deployment config.
+**Django + Django REST Framework.** SQLite, mock data, schema only. Ready for Render deployment.
+
+---
+
+## Deploy on Render
+
+1. **New Web Service** → Connect this repo, set **Root Directory** to `backend`.
+2. **Build Command:** `pip install -r requirements.txt && python manage.py migrate --noinput && python manage.py collectstatic --noinput`
+3. **Start Command:** `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`
+4. **Environment:** Set `DJANGO_SECRET_KEY` (generate a long random string). Optionally `DJANGO_DEBUG=False`. Render sets `RENDER_EXTERNAL_HOSTNAME` and `PORT` automatically.
+
+Or use the repo-root **render.yaml** Blueprint (it points `rootDir` to `backend`).
 
 ---
 

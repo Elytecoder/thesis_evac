@@ -1,0 +1,16 @@
+# Render Blueprint - Django backend
+# In Render dashboard: set "Root Directory" to "backend" for this service.
+services:
+  - type: web
+    name: thesis-evac-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && python manage.py migrate --noinput && python manage.py collectstatic --noinput
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
