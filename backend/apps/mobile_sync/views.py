@@ -2,11 +2,13 @@
 API views for mobile app. Thin layer; business logic in services.
 All responses are JSON only.
 """
+from django.conf import settings as django_settings
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
+from apps.hazards import hazard_media
 from core.permissions.mdrrmo import IsMDRRMO
 from apps.evacuation.models import EvacuationCenter
 from apps.evacuation.serializers import (
@@ -35,27 +37,94 @@ def _report_hazard_json_500(detail: str) -> Response:
     )
 
 
+def _optional_form_float(data, key):
+    v = data.get(key)
+    if v is None or v == '':
+        return None
+    return v
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def report_hazard(request):
     """
     POST /api/report-hazard/
-    Body: hazard_type, latitude, longitude, description?, photo_url?
+    JSON: hazard_type, latitude, longitude, description?, photo_url?, video_url?, user_latitude?, user_longitude?
+    Multipart: same fields as form + optional files photo (image), video (mp4 when enabled).
+    Media saved under MEDIA_ROOT/hazards/; DB stores absolute URLs.
     """
     try:
-        serializer = HazardReportCreateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        data = serializer.validated_data
+        video_enabled = django_settings.HAZARD_VIDEO_UPLOAD_ENABLED
+        ct = (request.content_type or '').lower()
+
+        if 'multipart/form-data' in ct:
+            payload = {
+                'hazard_type': request.data.get('hazard_type'),
+                'latitude': request.data.get('latitude'),
+                'longitude': request.data.get('longitude'),
+                'description': request.data.get('description') or '',
+                'photo_url': '',
+                'video_url': '',
+                'user_latitude': _optional_form_float(request.data, 'user_latitude'),
+                'user_longitude': _optional_form_float(request.data, 'user_longitude'),
+            }
+            serializer = HazardReportCreateSerializer(data=payload)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            validated = serializer.validated_data
+
+            photo_url = ''
+            if 'photo' in request.FILES:
+                ok, result = hazard_media.save_uploaded_image(request.FILES['photo'], request)
+                if not ok:
+                    return Response({'error': result}, status=status.HTTP_400_BAD_REQUEST)
+                photo_url = result
+
+            video_url = ''
+            if 'video' in request.FILES:
+                if not video_enabled:
+                    return Response(
+                        {'error': hazard_media.INVALID_FILE_ERROR},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                ok, result = hazard_media.save_uploaded_video(request.FILES['video'], request)
+                if not ok:
+                    return Response({'error': result}, status=status.HTTP_400_BAD_REQUEST)
+                video_url = result
+        else:
+            serializer = HazardReportCreateSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            validated = serializer.validated_data
+            photo_url = validated.get('photo_url') or ''
+            video_url = validated.get('video_url') or ''
+
+            if photo_url:
+                ok, out = hazard_media.process_data_url_photo(photo_url, request)
+                if not ok:
+                    return Response({'error': out}, status=status.HTTP_400_BAD_REQUEST)
+                photo_url = out
+            if video_url:
+                if video_url.strip().startswith('data:') and not video_enabled:
+                    return Response(
+                        {'error': hazard_media.INVALID_FILE_ERROR},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                ok, out = hazard_media.process_data_url_video(video_url, request)
+                if not ok:
+                    return Response({'error': out}, status=status.HTTP_400_BAD_REQUEST)
+                video_url = out
+
         report = process_new_report(
             user=request.user,
-            hazard_type=data['hazard_type'],
-            latitude=data['latitude'],
-            longitude=data['longitude'],
-            description=data.get('description', ''),
-            photo_url=data.get('photo_url', ''),
-            user_latitude=data.get('user_latitude'),
-            user_longitude=data.get('user_longitude'),
+            hazard_type=validated['hazard_type'],
+            latitude=validated['latitude'],
+            longitude=validated['longitude'],
+            description=validated.get('description', ''),
+            photo_url=photo_url,
+            video_url=video_url,
+            user_latitude=validated.get('user_latitude'),
+            user_longitude=validated.get('user_longitude'),
         )
         payload = HazardReportSerializer(report).data
         return Response(payload, status=status.HTTP_201_CREATED)

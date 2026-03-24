@@ -32,6 +32,7 @@ dependencies:
   
   # Media picker
   image_picker: ^1.0.7
+  flutter_image_compress: ^2.3.0
   
   # Voice guidance - Temporarily disabled for build compatibility
   # flutter_tts: ^4.0.2
@@ -41,6 +42,9 @@ dependencies:
   
   # Date formatting
   intl: ^0.19.0
+
+  # Open http(s) media links (e.g. hosted video) from MDRRMO report detail
+  url_launcher: ^6.2.5
 
 dev_dependencies:
   flutter_test:

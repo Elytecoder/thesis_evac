@@ -12,7 +12,8 @@ def _round_coord(value):
 
 class HazardReportCreateSerializer(serializers.ModelSerializer):
     """For POST /api/report-hazard/. Accepts floats for coords; rounds to 7 decimal places for DB."""
-    photo_url = serializers.URLField(required=False, allow_blank=True)
+    photo_url = serializers.CharField(required=False, allow_blank=True)
+    video_url = serializers.CharField(required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
     latitude = serializers.FloatField()
     longitude = serializers.FloatField()
@@ -21,7 +22,10 @@ class HazardReportCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = HazardReport
-        fields = ('hazard_type', 'latitude', 'longitude', 'description', 'photo_url', 'user_latitude', 'user_longitude')
+        fields = (
+            'hazard_type', 'latitude', 'longitude', 'description',
+            'photo_url', 'video_url', 'user_latitude', 'user_longitude',
+        )
 
     def validate_latitude(self, value):
         return _round_coord(value)
@@ -42,7 +46,7 @@ class HazardReportSerializer(serializers.ModelSerializer):
         model = HazardReport
         fields = (
             'id', 'user', 'hazard_type', 'latitude', 'longitude',
-            'description', 'photo_url', 'status', 'naive_bayes_score',
+            'description', 'photo_url', 'video_url', 'status', 'naive_bayes_score',
             'consensus_score', 'validation_breakdown', 'created_at',
         )
 
@@ -53,6 +57,9 @@ class PendingReportSerializer(serializers.ModelSerializer):
         model = HazardReport
         fields = (
             'id', 'user', 'hazard_type', 'latitude', 'longitude',
-            'description', 'status', 'naive_bayes_score', 'consensus_score',
+            'description', 'photo_url', 'video_url', 'status',
+            'naive_bayes_score', 'consensus_score',
             'validation_breakdown', 'created_at',
+            'auto_rejected', 'admin_comment', 'user_latitude', 'user_longitude',
+            'rejected_at', 'restoration_reason', 'restored_at', 'deletion_scheduled_at',
         )

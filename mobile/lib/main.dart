@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'core/storage/storage_service.dart';
-import 'ui/screens/welcome_screen.dart';
+import 'ui/screens/auth_gate_screen.dart';
 
 /// Main Entry Point
 ///
@@ -40,8 +40,8 @@ class EvacuationApp extends StatelessWidget {
           foregroundColor: Colors.white,
         ),
       ),
-      // Start with welcome screen
-      home: const WelcomeScreen(),
+      // Restore session from token when possible (avoids login after camera/gallery / process restart)
+      home: const AuthGateScreen(),
     );
   }
 }

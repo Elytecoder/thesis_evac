@@ -1,14 +1,21 @@
 """
 Tests for mobile sync API endpoints.
 """
+import io
+import tempfile
 from decimal import Decimal
-from django.test import TestCase
-from rest_framework.test import APIClient
+from pathlib import Path
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+from PIL import Image
 from rest_framework.authtoken.models import Token
-from apps.users.models import User
+from rest_framework.test import APIClient
+
 from apps.evacuation.models import EvacuationCenter
-from apps.hazards.models import HazardReport, BaselineHazard
+from apps.hazards.models import BaselineHazard, HazardReport
 from apps.routing.models import RoadSegment
+from apps.users.models import User
 
 
 class ReportHazardAPITests(TestCase):
@@ -19,9 +26,12 @@ class ReportHazardAPITests(TestCase):
         self.client = APIClient()
         self.user = User.objects.create_user(
             username='testuser',
+            email='testuser@example.com',
             password='testpass123',
             role=User.Role.RESIDENT,
         )
+        self.user.is_active = True
+        self.user.save(update_fields=['is_active'])
         self.token = Token.objects.create(user=self.user)
 
     def test_report_hazard_success(self):
@@ -73,6 +83,45 @@ class ReportHazardAPITests(TestCase):
         response = self.client.post('/api/report-hazard/', data, format='json')
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['description'], 'Fire on 2nd floor')
+
+    @override_settings(MEDIA_ROOT=Path(tempfile.mkdtemp()))
+    def test_report_hazard_multipart_photo_saved(self):
+        """Small PNG as multipart file is stored and URL returned."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        buf = io.BytesIO()
+        Image.new('RGB', (8, 8), color=(200, 100, 50)).save(buf, format='PNG')
+        buf.seek(0)
+        photo = SimpleUploadedFile('hazard.png', buf.read(), content_type='image/png')
+        data = {
+            'hazard_type': 'flood',
+            'latitude': '14.5995',
+            'longitude': '120.9842',
+            'description': 'Heavy flooding on Main Street',
+            'photo': photo,
+        }
+        response = self.client.post('/api/report-hazard/', data, format='multipart')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIn('photo_url', response.data)
+        self.assertTrue(str(response.data['photo_url']).startswith('http'))
+        self.assertIn('/media/hazards/', response.data['photo_url'])
+
+    def test_report_hazard_multipart_invalid_image_type(self):
+        """Corrupt / invalid image rejected with standard error message."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        bad = SimpleUploadedFile('x.jpg', b'not-a-valid-jpeg', content_type='image/jpeg')
+        data = {
+            'hazard_type': 'flood',
+            'latitude': '14.5995',
+            'longitude': '120.9842',
+            'description': 'Heavy flooding on Main Street',
+            'photo': bad,
+        }
+        response = self.client.post('/api/report-hazard/', data, format='multipart')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data.get('error'),
+            'Invalid file. Must be under size limit and correct format.',
+        )
 
 
 class EvacuationCentersAPITests(TestCase):

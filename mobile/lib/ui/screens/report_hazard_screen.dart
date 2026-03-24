@@ -1,9 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-import '../../core/config/storage_config.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/config/api_config.dart';
+import '../../core/config/hazard_media_config.dart';
+import '../../core/config/storage_config.dart';
+import '../../features/hazards/hazard_media_helper.dart';
 import '../../features/hazards/hazard_service.dart';
 
 /// Screen for reporting hazards
@@ -32,6 +37,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
   bool _isSubmitting = false;
   XFile? _selectedImage;
   XFile? _selectedVideo;
+  PreparedHazardImage? _preparedPhoto;
+  /// In-memory preview bytes (compressed JPEG after validation).
+  Uint8List? _imagePreviewBytes;
 
   /// Maximum distance (km) from your location to the report location. Matches backend rule.
   static const double _maxAcceptableDistanceKm = 1.0;
@@ -54,20 +62,44 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     super.dispose();
   }
 
+  Future<void> _onImagePicked(XFile image) async {
+    try {
+      final prepared = await prepareImageForUpload(image);
+      if (!mounted) return;
+      setState(() {
+        _selectedImage = image;
+        _preparedPhoto = prepared;
+        _imagePreviewBytes = prepared.bytes;
+      });
+    } on HazardMediaValidationException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick image: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _pickImage() async {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 85,
+        imageQuality: 95,
       );
-      
-      if (image != null) {
-        setState(() {
-          _selectedImage = image;
-        });
-      }
+      if (image != null) await _onImagePicked(image);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -84,16 +116,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1920,
-        maxHeight: 1080,
-        imageQuality: 85,
+        imageQuality: 95,
       );
-      
-      if (image != null) {
-        setState(() {
-          _selectedImage = image;
-        });
-      }
+      if (image != null) await _onImagePicked(image);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -106,17 +131,20 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     }
   }
 
-  Future<void> _pickVideo() async {
+  Future<void> _onVideoPicked(XFile video) async {
     try {
-      final XFile? video = await _picker.pickVideo(
-        source: ImageSource.camera,
-        maxDuration: const Duration(seconds: 30),
-      );
-      
-      if (video != null) {
-        setState(() {
-          _selectedVideo = video;
-        });
+      await validateVideoForUpload(video);
+      if (!mounted) return;
+      setState(() => _selectedVideo = video);
+    } on HazardMediaValidationException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -130,18 +158,34 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     }
   }
 
+  Future<void> _pickVideo() async {
+    if (!HazardMediaConfig.videoUploadEnabled) return;
+    try {
+      final XFile? video = await _picker.pickVideo(
+        source: ImageSource.camera,
+        maxDuration: const Duration(seconds: HazardMediaConfig.maxVideoSeconds),
+      );
+      if (video != null) await _onVideoPicked(video);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to pick video: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _pickVideoFromGallery() async {
+    if (!HazardMediaConfig.videoUploadEnabled) return;
     try {
       final XFile? video = await _picker.pickVideo(
         source: ImageSource.gallery,
-        maxDuration: const Duration(seconds: 30),
+        maxDuration: const Duration(seconds: HazardMediaConfig.maxVideoSeconds),
       );
-      
-      if (video != null) {
-        setState(() {
-          _selectedVideo = video;
-        });
-      }
+      if (video != null) await _onVideoPicked(video);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -165,7 +209,8 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
               title: const Text('Take Photo'),
               onTap: () {
                 Navigator.pop(context);
-                _pickImage();
+                // Run after the sheet closes so route/modal stack is stable (web / camera).
+                WidgetsBinding.instance.addPostFrameCallback((_) => _pickImage());
               },
             ),
             ListTile(
@@ -173,25 +218,27 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
               title: const Text('Choose from Gallery'),
               onTap: () {
                 Navigator.pop(context);
-                _pickImageFromGallery();
+                WidgetsBinding.instance.addPostFrameCallback((_) => _pickImageFromGallery());
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.videocam),
-              title: const Text('Record Video'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickVideo();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.video_library),
-              title: const Text('Choose Video from Gallery'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickVideoFromGallery();
-              },
-            ),
+            if (HazardMediaConfig.videoUploadEnabled) ...[
+              ListTile(
+                leading: const Icon(Icons.videocam),
+                title: const Text('Record Video'),
+                onTap: () {
+                  Navigator.pop(context);
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _pickVideo());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.video_library),
+                title: const Text('Choose Video from Gallery'),
+                onTap: () {
+                  Navigator.pop(context);
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _pickVideoFromGallery());
+                },
+              ),
+            ],
           ],
         ),
       ),
@@ -221,28 +268,40 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     setState(() => _isSubmitting = true);
 
     try {
-      // In mock mode, we'll just pass placeholder URLs
-      // In real implementation, you would:
-      // 1. Upload image/video to storage (e.g., Firebase Storage, AWS S3)
-      // 2. Get the URL
-      // 3. Pass the URL to the backend
-      
       String? photoUrl;
       String? videoUrl;
-      
-      if (_selectedImage != null) {
-        // MOCK: In real app, upload to storage and get URL
-        photoUrl = 'https://example.com/uploads/${_selectedImage!.name}';
-        debugPrint('Image selected: ${_selectedImage!.path}');
-      }
-      
-      if (_selectedVideo != null) {
-        // MOCK: In real app, upload to storage and get URL
-        videoUrl = 'https://example.com/uploads/${_selectedVideo!.name}';
-        debugPrint('Video selected: ${_selectedVideo!.path}');
+      Uint8List? videoBytes;
+      String? videoFilename;
+
+      if (ApiConfig.useMockData) {
+        if (_selectedImage != null) {
+          photoUrl = 'https://example.com/uploads/${_selectedImage!.name}';
+        }
+        if (_selectedVideo != null) {
+          videoUrl = 'https://example.com/uploads/${_selectedVideo!.name}';
+        }
+      } else {
+        if (HazardMediaConfig.videoUploadEnabled && _selectedVideo != null) {
+          try {
+            await validateVideoForUpload(_selectedVideo!);
+          } on HazardMediaValidationException catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(e.message),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+            setState(() => _isSubmitting = false);
+            return;
+          }
+          videoBytes = await _selectedVideo!.readAsBytes();
+          videoFilename = _selectedVideo!.name;
+        }
       }
 
-      final report = await _hazardService.submitHazardReport(
+      await _hazardService.submitHazardReport(
         hazardType: _selectedHazardType,
         latitude: widget.location.latitude,
         longitude: widget.location.longitude,
@@ -251,6 +310,10 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
         userLongitude: widget.userLocation?.longitude,
         photoUrl: photoUrl,
         videoUrl: videoUrl,
+        photoBytes: ApiConfig.useMockData ? null : _preparedPhoto?.bytes,
+        photoFilename: ApiConfig.useMockData ? null : _preparedPhoto?.filename,
+        videoBytes: ApiConfig.useMockData ? null : videoBytes,
+        videoFilename: ApiConfig.useMockData ? null : videoFilename,
       );
 
       if (mounted) {
@@ -272,8 +335,13 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Your hazard report has been submitted successfully.',
-                  style: TextStyle(fontSize: 16),
+                  'Report submitted successfully',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Your hazard report has been received.',
+                  style: TextStyle(fontSize: 15),
                 ),
                 if (_selectedImage != null || _selectedVideo != null) ...[
                   const SizedBox(height: 12),
@@ -583,7 +651,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                           ),
                         ),
                         Text(
-                          'Photo or Video',
+                          HazardMediaConfig.videoUploadEnabled
+                              ? 'JPG/PNG max 2 MB · MP4 max 10 MB / 10 s'
+                              : 'JPG or PNG, max 2 MB',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey[600],
@@ -607,15 +677,22 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                             if (_selectedImage != null)
                               Row(
                                 children: [
-                                  Container(
-                                    width: 60,
-                                    height: 60,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(8),
-                                      image: DecorationImage(
-                                        image: FileImage(File(_selectedImage!.path)),
-                                        fit: BoxFit.cover,
-                                      ),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: SizedBox(
+                                      width: 60,
+                                      height: 60,
+                                      child: _imagePreviewBytes != null
+                                          ? Image.memory(
+                                              _imagePreviewBytes!,
+                                              fit: BoxFit.cover,
+                                            )
+                                          : const ColoredBox(
+                                              color: Color(0xFFE0E0E0),
+                                              child: Center(
+                                                child: Icon(Icons.image, color: Colors.grey),
+                                              ),
+                                            ),
                                     ),
                                   ),
                                   const SizedBox(width: 12),
@@ -646,6 +723,8 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                                     onPressed: () {
                                       setState(() {
                                         _selectedImage = null;
+                                        _preparedPhoto = null;
+                                        _imagePreviewBytes = null;
                                       });
                                     },
                                   ),
@@ -718,7 +797,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                       label: Text(
                         _selectedImage != null || _selectedVideo != null
                             ? 'Change Media'
-                            : 'Add Photo or Video',
+                            : HazardMediaConfig.videoUploadEnabled
+                                ? 'Add Photo or Video'
+                                : 'Add Photo',
                       ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(

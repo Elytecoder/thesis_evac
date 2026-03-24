@@ -148,6 +148,49 @@ class AuthService {
     }
   }
 
+  /// Permanently delete the current user's account (resident only on server).
+  ///
+  /// Connects to Django API endpoint: POST /api/auth/delete-account/
+  /// Body: {password} — must match current password.
+  /// After success, clears local auth (token already invalidated on server).
+  Future<void> deleteAccount({required String password}) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 400));
+      await clearAuthToken();
+      _apiClient.clearAuthToken();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('current_username');
+      await prefs.remove('current_email');
+      await prefs.remove('user_profile');
+      return;
+    }
+
+    await _ensureAuthToken();
+    try {
+      await _apiClient.post(
+        ApiConfig.deleteAccountEndpoint,
+        data: {'password': password},
+      );
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) {
+        throw Exception(
+          'This server does not expose account deletion yet. Deploy the latest backend '
+          '(POST /api/auth/delete-account/) or contact support.',
+        );
+      }
+      throw Exception(e.message);
+    } catch (e) {
+      throw Exception('Failed to delete account. Please try again.');
+    }
+
+    await clearAuthToken();
+    _apiClient.clearAuthToken();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('current_username');
+    await prefs.remove('current_email');
+    await prefs.remove('user_profile');
+  }
+
   /// Logout current user.
   /// 
   /// Connects to Django API endpoint: POST /api/auth/logout/

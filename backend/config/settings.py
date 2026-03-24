@@ -122,6 +122,11 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.MultiPartParser',
+        'rest_framework.parsers.FormParser',
+    ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
@@ -160,3 +165,19 @@ MOCK_DATA_DIR = BASE_DIR / 'mock_data'
 # System logs retention: delete logs older than this many days.
 # Set to 0 to keep logs forever (no auto-deletion).
 SYSTEM_LOG_RETENTION_DAYS = int(os.environ.get('SYSTEM_LOG_RETENTION_DAYS', '90'))
+
+# Hazard reports: multipart file uploads + legacy JSON (e.g. offline sync). Video cap when enabled.
+# Large enough for ~10 MB video as base64 in JSON when HAZARD_VIDEO_UPLOAD is enabled (sync edge case).
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('DATA_UPLOAD_MAX_MEMORY_BYTES', str(20 * 1024 * 1024)))
+FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Hazard media limits (enforced in apps.hazards.hazard_media and serializers).
+HAZARD_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+HAZARD_VIDEO_MAX_BYTES = 10 * 1024 * 1024
+HAZARD_VIDEO_MAX_DURATION_SEC = 10
+# MP4 hazard clips: on by default; set HAZARD_VIDEO_UPLOAD=0 or false to disable.
+_hazard_video_flag = os.environ.get('HAZARD_VIDEO_UPLOAD', 'true').strip().lower()
+HAZARD_VIDEO_UPLOAD_ENABLED = _hazard_video_flag not in ('0', 'false', 'no', 'off')

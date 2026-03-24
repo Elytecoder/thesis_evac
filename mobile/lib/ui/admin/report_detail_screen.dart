@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
+import '../widgets/report_media_preview.dart';
 
 /// Report Detail Screen - View full report details and make approval decisions.
 /// 
@@ -559,43 +560,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           style: const TextStyle(fontSize: 14),
         ),
 
-        if (report.photoUrl != null || report.videoUrl != null) ...[
+        if (reportHasMedia(report)) ...[
           const SizedBox(height: 16),
-          const Text(
-            'Uploaded Media',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              if (report.photoUrl != null)
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.image, size: 32, color: Colors.white),
-                ),
-              if (report.videoUrl != null) ...[
-                const SizedBox(width: 8),
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.videocam, size: 32, color: Colors.white),
-                ),
-              ],
-            ],
-          ),
+          ReportMediaSection(report: report),
         ],
       ],
     );

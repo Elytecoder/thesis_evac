@@ -16,6 +16,7 @@ from .serializers import (
     UserLoginSerializer,
     UserProfileUpdateSerializer,
     PasswordChangeSerializer,
+    DeleteAccountSerializer,
 )
 from .models import EmailVerificationCode
 from apps.system_logs.models import SystemLog
@@ -298,3 +299,56 @@ def change_password(request):
         'message': 'Password changed successfully',
         'token': token.key,
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def delete_account(request):
+    """
+    POST /api/auth/delete-account/
+    Permanently delete the authenticated user's account (residents only).
+    Body: {password} — must match current password.
+    """
+    serializer = DeleteAccountSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    user = request.user
+    if user.role == User.Role.MDRRMO:
+        return Response(
+            {'error': 'MDRRMO accounts cannot be deleted from the app.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not user.check_password(serializer.validated_data['password']):
+        return Response(
+            {'error': 'Password is incorrect.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    email = user.email
+    user_id_log = user.id
+    username = user.username
+
+    SystemLog.log_action(
+        action=SystemLog.Action.USER_DELETED,
+        module=SystemLog.Module.AUTHENTICATION,
+        user=user,
+        description=f'User deleted own account: {email}',
+        related_object_type='User',
+        related_object_id=user_id_log,
+        ip_address=request.META.get('REMOTE_ADDR'),
+        user_agent=request.META.get('HTTP_USER_AGENT', ''),
+    )
+
+    try:
+        user.auth_token.delete()
+    except Exception:
+        pass
+
+    user.delete()
+
+    return Response(
+        {'message': 'Account deleted successfully.'},
+        status=status.HTTP_200_OK,
+    )

@@ -76,8 +76,8 @@ class HazardReport {
       userLatitude: json['user_latitude'] != null ? double.tryParse(json['user_latitude'].toString()) : null,
       userLongitude: json['user_longitude'] != null ? double.tryParse(json['user_longitude'].toString()) : null,
       description: json['description'] as String? ?? '',
-      photoUrl: json['photo_url'] as String?,
-      videoUrl: json['video_url'] as String?,
+      photoUrl: _nonEmptyString(json['photo_url']),
+      videoUrl: _nonEmptyString(json['video_url']),
       status: HazardStatus.fromString(json['status'] as String? ?? 'pending'),
       autoRejected: json['auto_rejected'] as bool? ?? false,
       naiveBayesScore: (json['naive_bayes_score'] as num?)?.toDouble(),
@@ -122,6 +122,12 @@ class HazardReport {
     };
   }
   
+  static String? _nonEmptyString(dynamic v) {
+    if (v == null) return null;
+    final s = v.toString().trim();
+    return s.isEmpty ? null : s;
+  }
+
   /// Check if report can be restored (within 15 days)
   bool get canBeRestored {
     if (status != HazardStatus.rejected || rejectedAt == null) return false;

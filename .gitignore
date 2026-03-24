@@ -16,6 +16,7 @@ backend/venv/
 .venv/
 venv/
 backend/staticfiles/
+backend/media/
 .pytest_cache/
 .coverage
 htmlcov/

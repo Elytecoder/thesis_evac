@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
+import '../widgets/report_media_preview.dart';
 import 'report_detail_screen.dart';
 
 /// Reports Management Screen - View and manage hazard reports.
@@ -611,6 +612,36 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (reportHasMedia(report)) ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      reportMediaListThumb(report, size: 64),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (report.photoUrl != null && report.photoUrl!.trim().isNotEmpty)
+                              Text(
+                                'Photo attached',
+                                style: TextStyle(fontSize: 11, color: Colors.green[700], fontWeight: FontWeight.w600),
+                              ),
+                            if (report.videoUrl != null && report.videoUrl!.trim().isNotEmpty) ...[
+                              if (report.photoUrl != null && report.photoUrl!.trim().isNotEmpty)
+                                const SizedBox(height: 4),
+                              Text(
+                                'Video attached',
+                                style: TextStyle(fontSize: 11, color: Colors.blue[700], fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 // Description
                 Text(
                   report.description,

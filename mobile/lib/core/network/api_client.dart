@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import '../config/api_config.dart';
 
@@ -52,6 +53,15 @@ class ApiClient {
 
   /// POST request
   Future<Response> post(String endpoint, {dynamic data}) async {
+    try {
+      return await _dio.post(endpoint, data: data);
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// POST multipart (e.g. hazard report with photo/video files).
+  Future<Response> postFormData(String endpoint, FormData data) async {
     try {
       return await _dio.post(endpoint, data: data);
     } on DioException catch (e) {

@@ -24,6 +24,7 @@ def process_new_report(
     longitude,
     description: str = '',
     photo_url: str = '',
+    video_url: str = '',
     user_latitude=None,
     user_longitude=None,
 ) -> HazardReport:
@@ -42,6 +43,7 @@ def process_new_report(
         longitude=longitude,
         description=description or '',
         photo_url=photo_url or '',
+        video_url=video_url or '',
         status=HazardReport.Status.PENDING,
         user_latitude=user_latitude,
         user_longitude=user_longitude,

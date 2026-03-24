@@ -22,6 +22,7 @@ class ApiConfig {
   static const String profileEndpoint = '/auth/profile/';
   static const String updateProfileEndpoint = '/auth/profile/update/';
   static const String changePasswordEndpoint = '/auth/change-password/';
+  static const String deleteAccountEndpoint = '/auth/delete-account/';
   
   /// Hazard report endpoints (Residents)
   static const String reportHazardEndpoint = '/report-hazard/';

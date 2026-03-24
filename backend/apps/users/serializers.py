@@ -197,3 +197,8 @@ class PasswordChangeSerializer(serializers.Serializer):
         if data['new_password'] != data['new_password_confirm']:
             raise serializers.ValidationError("New passwords do not match")
         return data
+
+
+class DeleteAccountSerializer(serializers.Serializer):
+    """Resident self-delete: confirm with current password."""
+    password = serializers.CharField(write_only=True)

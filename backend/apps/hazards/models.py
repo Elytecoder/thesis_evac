@@ -55,8 +55,9 @@ class HazardReport(models.Model):
     user_longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
     
     description = models.TextField(blank=True)
-    photo_url = models.URLField(blank=True)  # Mock for now; replace with file upload when needed
-    video_url = models.URLField(blank=True)  # Mock for now; replace with file upload when needed
+    # TextField: supports long public URLs and data: URLs (base64) until file storage is added
+    photo_url = models.TextField(blank=True)
+    video_url = models.TextField(blank=True)
     
     status = models.CharField(
         max_length=20,

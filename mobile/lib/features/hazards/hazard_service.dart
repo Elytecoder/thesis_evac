@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/api_config.dart';
 import '../../core/config/storage_config.dart';
@@ -62,7 +66,16 @@ class HazardService {
     double? userLongitude,
     String? photoUrl,
     String? videoUrl,
+    Uint8List? photoBytes,
+    String? photoFilename,
+    Uint8List? videoBytes,
+    String? videoFilename,
   }) async {
+    final resolvedPhotoUrl = photoUrl ??
+        (photoBytes != null
+            ? 'data:image/jpeg;base64,${base64Encode(photoBytes)}'
+            : null);
+
     if (ApiConfig.useMockData) {
       // Try to submit immediately
       try {
@@ -75,8 +88,10 @@ class HazardService {
           latitude: latitude,
           longitude: longitude,
           description: description,
-          photoUrl: photoUrl,
-          videoUrl: videoUrl,
+          photoUrl: resolvedPhotoUrl ??
+              (photoBytes != null ? 'https://example.com/uploads/hazard.jpg' : null),
+          videoUrl: videoUrl ??
+              (videoBytes != null ? 'https://example.com/uploads/hazard.mp4' : null),
           status: HazardStatus.pending,
           naiveBayesScore: 0.85,
           consensusScore: 0.78,
@@ -93,7 +108,7 @@ class HazardService {
           latitude: latitude,
           longitude: longitude,
           description: description,
-          photoUrl: photoUrl,
+          photoUrl: resolvedPhotoUrl,
           videoUrl: videoUrl,
         );
       }
@@ -101,24 +116,52 @@ class HazardService {
 
     // REAL API CALL:
     await _ensureAuthToken();
+    final useMultipart = photoBytes != null || videoBytes != null;
+
     try {
-      final response = await _apiClient.post(
-        ApiConfig.reportHazardEndpoint,
-        data: {
+      final Response response;
+      if (useMultipart) {
+        final form = FormData.fromMap({
           'hazard_type': hazardType,
-          'latitude': latitude,
-          'longitude': longitude,
+          'latitude': latitude.toString(),
+          'longitude': longitude.toString(),
           'description': description,
-          if (userLatitude != null) 'user_latitude': userLatitude,
-          if (userLongitude != null) 'user_longitude': userLongitude,
-          if (photoUrl != null) 'photo_url': photoUrl,
-          if (videoUrl != null) 'video_url': videoUrl,
-        },
-      );
+          if (userLatitude != null) 'user_latitude': userLatitude.toString(),
+          if (userLongitude != null) 'user_longitude': userLongitude.toString(),
+          if (photoBytes != null)
+            'photo': MultipartFile.fromBytes(
+              photoBytes,
+              filename: photoFilename ?? 'hazard.jpg',
+            ),
+          if (videoBytes != null)
+            'video': MultipartFile.fromBytes(
+              videoBytes,
+              filename: videoFilename ?? 'hazard.mp4',
+            ),
+        });
+        response = await _apiClient.postFormData(
+          ApiConfig.reportHazardEndpoint,
+          form,
+        );
+      } else {
+        response = await _apiClient.post(
+          ApiConfig.reportHazardEndpoint,
+          data: {
+            'hazard_type': hazardType,
+            'latitude': latitude,
+            'longitude': longitude,
+            'description': description,
+            if (userLatitude != null) 'user_latitude': userLatitude,
+            if (userLongitude != null) 'user_longitude': userLongitude,
+            if (photoUrl != null && photoUrl.isNotEmpty) 'photo_url': photoUrl,
+            if (videoUrl != null && videoUrl.isNotEmpty) 'video_url': videoUrl,
+          },
+        );
+      }
 
       final data = response.data;
       if (data is! Map) throw Exception('Invalid report response');
-      return HazardReport.fromJson(Map<String, dynamic>.from(data as Map));
+      return HazardReport.fromJson(Map<String, dynamic>.from(data));
     } catch (e) {
       // Auth failures: do NOT queue — report never reached the server. User must log in.
       if (e is ApiException) {
@@ -146,7 +189,7 @@ class HazardService {
         latitude: latitude,
         longitude: longitude,
         description: description,
-        photoUrl: photoUrl,
+        photoUrl: resolvedPhotoUrl,
         videoUrl: videoUrl,
       );
     }
