@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/auth/session_storage.dart';
 import '../../features/authentication/auth_service.dart';
 import '../../models/user.dart';
 import '../admin/admin_home_screen.dart';
@@ -38,6 +39,17 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
       return;
     }
 
+    if (await SessionStorage.isPersistentSessionExpired()) {
+      await _authService.clearLocalSessionOnly();
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _home = const WelcomeScreen();
+        });
+      }
+      return;
+    }
+
     try {
       final profile = await _authService.getCurrentUser();
       final roleStr = (profile['role'] as String?)?.toLowerCase() ?? 'resident';
@@ -49,6 +61,7 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
         _home = isMdrrmo ? const AdminHomeScreen() : const MapScreen();
       });
     } catch (_) {
+      await _authService.clearLocalSessionOnly();
       if (!mounted) return;
       setState(() {
         _loading = false;

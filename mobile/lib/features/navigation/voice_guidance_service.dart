@@ -1,54 +1,175 @@
-// import 'package:flutter_tts/flutter_tts.dart';  // Temporarily disabled for build compatibility
+import 'package:flutter/foundation.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:http/http.dart' as http;
 
-/// Voice Guidance Service
-/// Provides text-to-speech navigation instructions
+/// Text-to-speech navigation. Only speaks when [shouldAttemptVoice] is true
+/// (user preference + initialized) **and** internet is available (cached probe).
 class VoiceGuidanceService {
-  // final FlutterTts _tts = FlutterTts();  // Temporarily disabled
-  bool _isEnabled = true;
-  bool _isInitialized = false;
+  VoiceGuidanceService();
 
-  /// Initialize TTS engine
+  final FlutterTts _tts = FlutterTts();
+
+  bool _isInitialized = false;
+  bool _userWantsVoice = true;
+  bool _sessionEnabled = true;
+
+  DateTime? _internetCacheTime;
+  bool? _internetCached;
+
+  String? _lastSpokenText;
+  DateTime? _lastSpokenAt;
+  static const Duration _dedupeWindow = Duration(seconds: 12);
+  static const Duration _internetCacheTtl = Duration(seconds: 4);
+
+  /// User setting from Settings + in-nav toggle (both gate speech).
+  bool get shouldAttemptVoice =>
+      _userWantsVoice && _sessionEnabled && _isInitialized && !kIsWeb;
+
+  /// Initialize TTS engine (English, moderate speed, moderate volume).
   Future<void> initialize() async {
     if (_isInitialized) return;
-
-    try {
-      // TTS initialization temporarily disabled for build compatibility
+    if (kIsWeb) {
       _isInitialized = true;
-      print('✅ Voice guidance initialized (TTS temporarily disabled)');
-    } catch (e) {
-      print('❌ Failed to initialize voice guidance: $e');
+      return;
     }
-  }
-
-  /// Speak navigation instruction
-  Future<void> speak(String instruction) async {
-    if (!_isEnabled || !_isInitialized) return;
 
     try {
-      // await _tts.speak(instruction);  // Temporarily disabled
-      print('🔊 Speaking: $instruction');
+      await _tts.awaitSpeakCompletion(true);
+      await _tts.setLanguage('en-US');
+      await _tts.setSpeechRate(0.48);
+      await _tts.setVolume(0.55);
+      await _tts.setPitch(1.0);
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await _tts.setSharedInstance(true);
+        await _tts.setIosAudioCategory(
+          IosTextToSpeechAudioCategory.playback,
+          [
+            IosTextToSpeechAudioCategoryOptions.duckOthers,
+          ],
+          IosTextToSpeechAudioMode.defaultMode,
+        );
+      }
+      _isInitialized = true;
     } catch (e) {
-      print('❌ Failed to speak: $e');
+      debugPrint('Voice guidance init failed: $e');
+      _isInitialized = false;
     }
   }
 
-  /// Speak turn instruction with distance
-  Future<void> speakTurnInstruction(String maneuver, double distanceMeters) async {
-    if (!_isEnabled || !_isInitialized) return;
+  /// Cached reachability check (no voice when offline).
+  Future<bool> _internetAvailable() async {
+    final now = DateTime.now();
+    if (_internetCacheTime != null &&
+        now.difference(_internetCacheTime!) < _internetCacheTtl &&
+        _internetCached != null) {
+      return _internetCached!;
+    }
+    _internetCacheTime = now;
+    try {
+      final u = Uri.parse('https://connectivitycheck.gstatic.com/generate_204');
+      final r = await http.head(u).timeout(const Duration(seconds: 2));
+      _internetCached = r.statusCode == 204 || r.statusCode == 200;
+    } catch (_) {
+      try {
+        final u2 = Uri.parse('https://www.google.com');
+        final r2 = await http.head(u2).timeout(const Duration(seconds: 2));
+        _internetCached = r2.statusCode < 500;
+      } catch (_) {
+        _internetCached = false;
+      }
+    }
+    return _internetCached ?? false;
+  }
 
+  bool _shouldSkipDuplicate(String text) {
+    final now = DateTime.now();
+    if (_lastSpokenText == text &&
+        _lastSpokenAt != null &&
+        now.difference(_lastSpokenAt!) < _dedupeWindow) {
+      return true;
+    }
+    _lastSpokenText = text;
+    _lastSpokenAt = now;
+    return false;
+  }
+
+  /// Stop current speech before starting another (no overlap).
+  Future<void> stop() async {
+    if (kIsWeb || !_isInitialized) return;
+    try {
+      await _tts.stop();
+    } catch (_) {}
+  }
+
+  /// Speak raw instruction if online and enabled.
+  Future<void> speak(String instruction) async {
+    final text = instruction.trim();
+    if (text.isEmpty) return;
+    if (!shouldAttemptVoice) return;
+    if (!await _internetAvailable()) return;
+    if (_shouldSkipDuplicate(text)) return;
+
+    try {
+      await stop();
+      await _tts.speak(text);
+    } catch (e) {
+      debugPrint('TTS speak failed: $e');
+    }
+  }
+
+  /// Short imminent prompt without distance (e.g. "Turn left").
+  Future<void> speakImminentTurn(String maneuver) async {
+    if (!shouldAttemptVoice) return;
+    if (!await _internetAvailable()) return;
+
+    final m = maneuver.toLowerCase();
     String instruction;
+    switch (m) {
+      case 'left':
+      case 'turn-left':
+      case 'sharp-left':
+        instruction = 'Turn left';
+        break;
+      case 'right':
+      case 'turn-right':
+      case 'sharp-right':
+        instruction = 'Turn right';
+        break;
+      case 'straight':
+      case 'continue':
+        instruction = 'Continue straight';
+        break;
+      case 'u-turn':
+        instruction = 'Make a U-turn';
+        break;
+      default:
+        instruction = maneuver;
+    }
+    if (_shouldSkipDuplicate(instruction)) return;
+    try {
+      await stop();
+      await _tts.speak(instruction);
+    } catch (e) {
+      debugPrint('TTS imminent failed: $e');
+    }
+  }
 
-    // Format distance
+  /// Speak turn instruction with distance ("Turn left in 50 meters").
+  Future<void> speakTurnInstruction(String maneuver, double distanceMeters) async {
+    if (!shouldAttemptVoice) return;
+    if (!await _internetAvailable()) return;
+
     String distanceText;
     if (distanceMeters < 100) {
       distanceText = 'in ${distanceMeters.toInt()} meters';
     } else if (distanceMeters < 1000) {
-      distanceText = 'in ${(distanceMeters / 100).round() * 100} meters';
+      final rounded = (distanceMeters / 10).round() * 10;
+      distanceText = 'in $rounded meters';
     } else {
       distanceText = 'in ${(distanceMeters / 1000).toStringAsFixed(1)} kilometers';
     }
 
-    // Build instruction
+    String instruction;
     switch (maneuver.toLowerCase()) {
       case 'left':
       case 'turn-left':
@@ -72,47 +193,56 @@ class VoiceGuidanceService {
         instruction = 'Make a U-turn $distanceText';
         break;
       default:
-        instruction = maneuver;
+        instruction = '$maneuver $distanceText';
     }
 
-    await speak(instruction);
-  }
-
-  /// Speak high-risk warning
-  Future<void> speakRiskWarning() async {
-    await speak('Warning: You are entering a high-risk area. Rerouting to safer path.');
-  }
-
-  /// Speak deviation warning
-  Future<void> speakDeviationWarning() async {
-    await speak('You have deviated from the route. Recalculating.');
-  }
-
-  /// Speak arrival
-  Future<void> speakArrival() async {
-    await speak('You have arrived at the evacuation center. Stay safe.');
-  }
-
-  /// Enable/disable voice guidance
-  void setEnabled(bool enabled) {
-    _isEnabled = enabled;
-    print('🔊 Voice guidance ${enabled ? "enabled" : "disabled"}');
-  }
-
-  /// Check if voice is enabled
-  bool get isEnabled => _isEnabled;
-
-  /// Stop current speech
-  Future<void> stop() async {
+    if (_shouldSkipDuplicate(instruction)) return;
     try {
-      // await _tts.stop();  // Temporarily disabled
+      await stop();
+      await _tts.speak(instruction);
     } catch (e) {
-      print('❌ Failed to stop speech: $e');
+      debugPrint('TTS turn failed: $e');
     }
   }
 
-  /// Dispose resources
+  Future<void> speakRiskWarning() async {
+    await speak(
+      'Warning: You are entering a high-risk area. Rerouting to a safer path.',
+    );
+  }
+
+  Future<void> speakDeviationWarning() async {
+    await speak('You have left the route. Recalculating.');
+  }
+
+  Future<void> speakArrival() async {
+    await speak('You have arrived at your destination. Stay safe.');
+  }
+
+  /// In-screen toggle during navigation (also persisted by the screen).
+  void setSessionEnabled(bool enabled) {
+    _sessionEnabled = enabled;
+  }
+
+  /// Settings / preference: master switch for voice navigation.
+  void setUserWantsVoice(bool wants) {
+    _userWantsVoice = wants;
+    if (!wants) {
+      stop();
+    }
+  }
+
+  bool get userWantsVoice => _userWantsVoice;
+
+  void setEnabled(bool enabled) {
+    setSessionEnabled(enabled);
+  }
+
+  bool get isEnabled => _sessionEnabled;
+
   void dispose() {
-    // _tts.stop();  // Temporarily disabled
+    if (!kIsWeb) {
+      _tts.stop();
+    }
   }
 }

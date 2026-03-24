@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _keepLoggedIn = true;
 
   @override
   void dispose() {
@@ -65,6 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final User user = await _authService.login(
         _emailController.text.trim(),
         _passwordController.text,
+        keepLoggedIn: _keepLoggedIn,
       );
 
       if (mounted) {
@@ -253,7 +255,30 @@ class _LoginScreenState extends State<LoginScreen> {
                                   onChanged: (_) => setState(() {}),
                                 ),
                                 
-                                const SizedBox(height: 24),
+                                const SizedBox(height: 8),
+                                
+                                CheckboxListTile(
+                                  value: _keepLoggedIn,
+                                  onChanged: _isLoading
+                                      ? null
+                                      : (v) {
+                                          setState(() {
+                                            _keepLoggedIn = v ?? true;
+                                          });
+                                        },
+                                  controlAffinity: ListTileControlAffinity.leading,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('Keep me logged in'),
+                                  subtitle: Text(
+                                    'Stay signed in for up to 7 days. Uncheck to require login after closing the app.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ),
+                                
+                                const SizedBox(height: 16),
                                 
                                 // Login button (disabled when fields empty or loading)
                                 ElevatedButton(

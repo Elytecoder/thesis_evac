@@ -7,8 +7,14 @@ class StorageConfig {
   static const String userBox = 'user';
   
   // SharedPreferences keys
+  /// Legacy plain-text token (migrated to secure storage on read).
   static const String authTokenKey = 'auth_token';
+  static const String authTokenSecureKey = 'auth_token_secure';
+  static const String keepLoggedInKey = 'keep_logged_in';
+  static const String loginTimestampKey = 'login_timestamp_ms';
   static const String userIdKey = 'user_id';
   static const String userRoleKey = 'user_role';
   static const String lastSyncTimeKey = 'last_sync_time';
+  /// Resident: spoken turn-by-turn during live navigation (requires internet when enabled).
+  static const String enableVoiceNavigationKey = 'enable_voice_navigation';
 }

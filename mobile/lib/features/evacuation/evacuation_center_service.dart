@@ -1,6 +1,5 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
-import '../../core/config/storage_config.dart';
 import '../../core/network/api_client.dart';
 import '../../models/evacuation_center.dart';
 import '../../data/mock_evacuation_centers.dart';
@@ -15,8 +14,7 @@ class EvacuationCenterService {
   final ApiClient _apiClient = ApiClient();
 
   Future<void> _ensureAuthToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(StorageConfig.authTokenKey);
+    final token = await SessionStorage.readToken();
     if (token != null && token.isNotEmpty) {
       _apiClient.setAuthToken(token);
     }

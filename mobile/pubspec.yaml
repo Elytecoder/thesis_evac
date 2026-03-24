@@ -26,6 +26,7 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   path_provider: ^2.1.0
+  flutter_secure_storage: ^9.2.4
   
   # State management & utilities
   shared_preferences: ^2.2.0
@@ -34,8 +35,8 @@ dependencies:
   image_picker: ^1.0.7
   flutter_image_compress: ^2.3.0
   
-  # Voice guidance - Temporarily disabled for build compatibility
-  # flutter_tts: ^4.0.2
+  # Voice guidance during live navigation (online only)
+  flutter_tts: ^4.2.1
   
   # Collections utilities
   collection: ^1.18.0

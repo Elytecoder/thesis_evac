@@ -2,9 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
-import '../../core/config/storage_config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/storage_service.dart';
 import '../../models/hazard_report.dart';
@@ -23,8 +22,7 @@ class HazardService {
   final StorageService _storageService = StorageService();
 
   Future<void> _ensureAuthToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(StorageConfig.authTokenKey);
+    final token = await SessionStorage.readToken();
     if (token != null && token.isNotEmpty) {
       _apiClient.setAuthToken(token);
     }

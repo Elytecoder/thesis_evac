@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/config/storage_config.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/hazard_report.dart';
 import '../../models/navigation_route.dart';
@@ -55,6 +57,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   /// When true, camera follows user; when false, user can pan/explore freely.
   bool _followUserLocation = true;
 
+  /// One-shot voice cues per step index (30–50 m and imminent bands).
+  final Set<int> _voiceProximitySteps = {};
+  final Set<int> _voiceImminentSteps = {};
+
   // Streams
   StreamSubscription<LatLng>? _locationSubscription;
 
@@ -94,7 +100,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   /// Initialize navigation system
   Future<void> _initializeNavigation() async {
     try {
-      // Initialize voice
+      final prefs = await SharedPreferences.getInstance();
+      _voiceEnabled =
+          prefs.getBool(StorageConfig.enableVoiceNavigationKey) ?? true;
+      _voiceService.setUserWantsVoice(_voiceEnabled);
+      _voiceService.setSessionEnabled(_voiceEnabled);
       await _voiceService.initialize();
 
       // Load verified hazards (identified hazards on the map) and calculate route in parallel
@@ -120,7 +130,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       // Start smooth camera updates
       _startCameraUpdates();
 
-      // Speak initial instruction
+      // Initial spoken instruction (only when online + voice on — handled inside service)
       if (_currentStep != null) {
         await _voiceService.speakTurnInstruction(
           _currentStep!.maneuver,
@@ -128,7 +138,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         );
       }
     } catch (e) {
-      print('❌ Navigation initialization failed: $e');
+      debugPrint('Navigation initialization failed: $e');
       _showError('Failed to start navigation: $e');
     }
   }
@@ -236,6 +246,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       step: step,
     );
 
+    _maybeAnnounceApproach(step, distanceToStep);
+
     // Check if we need to advance to next step
     if (distanceToStep < 20 && step.stepIndex < _currentRoute!.steps.length - 1) {
       // Move to next step
@@ -246,7 +258,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _distanceToNextStep = nextStep.distanceToNext;
       });
 
-      // Speak instruction for next step
       _voiceService.speakTurnInstruction(
         nextStep.maneuver,
         nextStep.distanceToNext,
@@ -256,6 +267,27 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _currentStep = step;
         _distanceToNextStep = distanceToStep;
       });
+    }
+  }
+
+  /// Voice when approaching a turn (online only; service enforces). Avoids duplicate per step.
+  void _maybeAnnounceApproach(NavigationStep step, double distanceMeters) {
+    if (!_voiceEnabled) return;
+    final m = step.maneuver.toLowerCase();
+    if (m == 'arrive' || m == 'destination') return;
+
+    if (distanceMeters <= 50 &&
+        distanceMeters >= 30 &&
+        !_voiceProximitySteps.contains(step.stepIndex)) {
+      _voiceProximitySteps.add(step.stepIndex);
+      _voiceService.speakTurnInstruction(step.maneuver, distanceMeters);
+      return;
+    }
+    if (distanceMeters < 28 &&
+        distanceMeters > 10 &&
+        !_voiceImminentSteps.contains(step.stepIndex)) {
+      _voiceImminentSteps.add(step.stepIndex);
+      _voiceService.speakImminentTurn(step.maneuver);
     }
   }
 
@@ -379,10 +411,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _isRerouting = false;
       });
 
+      _voiceProximitySteps.clear();
+      _voiceImminentSteps.clear();
+
       // Update current step
       _updateCurrentStep(_userLocation!);
 
-      print('✅ Rerouted successfully');
+      debugPrint('Rerouted successfully');
     } catch (e) {
       print('❌ Reroute failed: $e');
       setState(() {
@@ -391,12 +426,18 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Toggle voice guidance
-  void _toggleVoice() {
+  /// Toggle voice guidance (persisted for next sessions)
+  Future<void> _toggleVoice() async {
     setState(() {
       _voiceEnabled = !_voiceEnabled;
-      _voiceService.setEnabled(_voiceEnabled);
+      _voiceService.setUserWantsVoice(_voiceEnabled);
+      _voiceService.setSessionEnabled(_voiceEnabled);
     });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(
+      StorageConfig.enableVoiceNavigationKey,
+      _voiceEnabled,
+    );
   }
 
   /// Maximum distance (m) from user to hazard location to allow reporting. Matches backend 1 km rule.
@@ -705,7 +746,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
               child: BottomETAPanel(
                 route: _currentRoute,
                 voiceEnabled: _voiceEnabled,
-                onVoiceToggle: _toggleVoice,
+                onVoiceToggle: () {
+                  _toggleVoice();
+                },
                 onCancel: _cancelNavigation,
               ),
             ),

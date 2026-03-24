@@ -3,11 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
+import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
 import '../../core/config/hazard_media_config.dart';
-import '../../core/config/storage_config.dart';
 import '../../features/hazards/hazard_media_helper.dart';
 import '../../features/hazards/hazard_service.dart';
 
@@ -250,8 +248,7 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(StorageConfig.authTokenKey);
+    final token = await SessionStorage.readToken();
     if (token == null || token.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

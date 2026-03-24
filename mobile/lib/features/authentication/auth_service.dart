@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
 import '../../core/config/storage_config.dart';
 import '../../core/network/api_client.dart';
@@ -17,7 +18,13 @@ class AuthService {
   /// 
   /// Connects to Django API endpoint: POST /api/auth/login/
   /// Errors: "Invalid email or password." | "Please verify your email before logging in."
-  Future<User> login(String email, String password) async {
+  /// [keepLoggedIn]: when true, token is stored securely for up to [SessionStorage.persistentSessionMaxAge].
+  /// When false, token is kept in memory only until the app is closed.
+  Future<User> login(
+    String email,
+    String password, {
+    bool keepLoggedIn = true,
+  }) async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(seconds: 1));
       if (email.isEmpty || password.isEmpty) {
@@ -25,10 +32,22 @@ class AuthService {
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('current_email', email);
+      final User user;
       if (email.toLowerCase().contains('mdrrmo') || email.toLowerCase().contains('admin')) {
-        return MockUsers.getMdrrmoUser();
+        user = MockUsers.getMdrrmoUser();
+      } else {
+        user = MockUsers.getResidentUser();
       }
-      return MockUsers.getResidentUser();
+      final token = user.authToken;
+      if (token != null && token.isNotEmpty) {
+        await SessionStorage.writeSession(
+          token: token,
+          keepLoggedIn: keepLoggedIn,
+          userId: user.id,
+        );
+        _apiClient.setAuthToken(token);
+      }
+      return user;
     }
 
     try {
@@ -44,7 +63,11 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('current_email', email.trim().toLowerCase());
       if (user.authToken != null) {
-        await saveAuthToken(user.authToken!);
+        await SessionStorage.writeSession(
+          token: user.authToken!,
+          keepLoggedIn: keepLoggedIn,
+          userId: user.id,
+        );
         _apiClient.setAuthToken(user.authToken!);
       }
       return user;
@@ -93,13 +116,14 @@ class AuthService {
     required String barangay,
     required String street,
     required String verificationCode,
+    bool keepLoggedIn = true,
   }) async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(seconds: 1));
-      
-      return User(
+
+      final user = User(
         id: DateTime.now().millisecondsSinceEpoch,
-        username: email.split('@')[0], // Generate username from email
+        username: email.split('@')[0],
         email: email,
         fullName: fullName,
         phoneNumber: phoneNumber,
@@ -111,6 +135,15 @@ class AuthService {
         dateJoined: DateTime.now(),
         authToken: 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
       );
+      if (user.authToken != null) {
+        await SessionStorage.writeSession(
+          token: user.authToken!,
+          keepLoggedIn: keepLoggedIn,
+          userId: user.id,
+        );
+        _apiClient.setAuthToken(user.authToken!);
+      }
+      return user;
     }
 
     // REAL API CALL:
@@ -132,9 +165,13 @@ class AuthService {
       );
 
       final user = User.fromJson(response.data);
-      
+
       if (user.authToken != null) {
-        await saveAuthToken(user.authToken!);
+        await SessionStorage.writeSession(
+          token: user.authToken!,
+          keepLoggedIn: keepLoggedIn,
+          userId: user.id,
+        );
         _apiClient.setAuthToken(user.authToken!);
       }
 
@@ -216,16 +253,22 @@ class AuthService {
     await prefs.remove('user_profile');
   }
 
-  /// Save auth token to local storage.
+  /// Save auth token using the current persistence mode (e.g. after change-password).
   Future<void> saveAuthToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(StorageConfig.authTokenKey, token);
+    final keep = prefs.getBool(StorageConfig.keepLoggedInKey) ?? true;
+    final uid = prefs.getInt(StorageConfig.userIdKey);
+    await SessionStorage.writeSession(
+      token: token,
+      keepLoggedIn: keep,
+      userId: uid,
+    );
+    _apiClient.setAuthToken(token);
   }
 
-  /// Get saved auth token.
+  /// Get saved auth token (secure storage, legacy prefs, or ephemeral).
   Future<String?> getAuthToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(StorageConfig.authTokenKey);
+    return SessionStorage.readToken();
   }
 
   /// Ensure the ApiClient has the current token (each AuthService has its own
@@ -239,10 +282,19 @@ class AuthService {
     }
   }
 
-  /// Clear auth token from local storage.
+  /// Clear auth token and session metadata from local storage.
   Future<void> clearAuthToken() async {
+    await SessionStorage.clearSession();
+  }
+
+  /// Clear local credentials without calling the server (e.g. invalid / expired token on startup).
+  Future<void> clearLocalSessionOnly() async {
+    await clearAuthToken();
+    _apiClient.clearAuthToken();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(StorageConfig.authTokenKey);
+    await prefs.remove('current_username');
+    await prefs.remove('current_email');
+    await prefs.remove('user_profile');
   }
 
   /// Change password (validates current password on backend).
@@ -274,7 +326,6 @@ class AuthService {
       final newToken = response.data is Map ? response.data['token'] : null;
       if (newToken != null && newToken.toString().isNotEmpty) {
         await saveAuthToken(newToken.toString());
-        _apiClient.setAuthToken(newToken.toString());
       }
     } on ApiException catch (e) {
       throw Exception(e.message);
