@@ -16,6 +16,7 @@ class ApiClient {
       baseUrl: ApiConfig.baseUrl,
       connectTimeout: ApiConfig.connectTimeout,
       receiveTimeout: ApiConfig.receiveTimeout,
+      sendTimeout: ApiConfig.receiveTimeout,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -95,7 +96,11 @@ class ApiClient {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return ApiException('Connection timeout. Please check your internet connection.');
+        return ApiException(
+          'Request timed out. If the backend is on Render, wait and try again — '
+          'the first request after idle can take a minute while the service wakes up. '
+          'Also check your internet connection.',
+        );
       
       case DioExceptionType.badResponse:
         final statusCode = error.response?.statusCode;

@@ -14,30 +14,62 @@ class UserManagementService {
     }
   }
 
+  /// JSON array, or `results` / `data` wrapper (DRF-style).
+  static List<dynamic> _extractUserListOrThrow(dynamic raw) {
+    if (raw is List) return List<dynamic>.from(raw);
+    if (raw is Map) {
+      final m = Map<String, dynamic>.from(raw);
+      if (m['results'] is List) return List<dynamic>.from(m['results'] as List);
+      if (m['data'] is List) return List<dynamic>.from(m['data'] as List);
+    }
+    throw FormatException(
+      'Users API must return a JSON array (or results/data). Got ${raw.runtimeType}. '
+      'If you use an older backend, deploy latest routes or check /api/users/ vs /api/mdrrmo/users/.',
+    );
+  }
+
   /// Get all users with optional filters.
-  /// 
-  /// Query params: status (active/suspended), barangay, search
-  /// REAL: GET /api/mdrrmo/users/
+  ///
+  /// GET `/api/users/` (falls back to `/api/mdrrmo/users/` on 404 for older servers).
   Future<List<User>> listUsers({
     String? status,
     String? barangay,
     String? search,
   }) async {
-    // All registered users come from the database (no mock list).
     await _ensureAuthToken();
-    try {
-      final params = <String, dynamic>{};
-      if (status != null) params['status'] = status;
-      if (barangay != null) params['barangay'] = barangay;
-      if (search != null) params['search'] = search;
-      
-      final response = await _apiClient.get(
-        ApiConfig.listUsersEndpoint,
-        params: params,
+    final token = await SessionStorage.readToken();
+    if (token == null || token.isEmpty) {
+      throw Exception(
+        'No auth token. Sign out and log in again (MDRRMO account required for User Management).',
       );
-      
-      final List<dynamic> usersJson = response.data is List ? List<dynamic>.from(response.data as List) : [];
-      return usersJson.map((json) => User.fromJson(Map<String, dynamic>.from(json as Map))).toList();
+    }
+
+    final params = <String, dynamic>{};
+    if (status != null) params['status'] = status;
+    if (barangay != null) params['barangay'] = barangay;
+    if (search != null) params['search'] = search;
+
+    try {
+      dynamic response;
+      try {
+        response = await _apiClient.get(ApiConfig.listUsersEndpoint, params: params);
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) {
+          response = await _apiClient.get(ApiConfig.mdrrmoUsersListEndpoint, params: params);
+        } else {
+          rethrow;
+        }
+      }
+
+      final rows = _extractUserListOrThrow(response.data);
+      return rows.map((json) {
+        if (json is! Map) {
+          throw FormatException('Each user must be a JSON object, got ${json.runtimeType}');
+        }
+        return User.fromJson(Map<String, dynamic>.from(json));
+      }).toList();
+    } on ApiException catch (e) {
+      throw Exception(e.message);
     } catch (e) {
       throw Exception('Failed to fetch users: $e');
     }

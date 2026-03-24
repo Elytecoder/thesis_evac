@@ -45,6 +45,8 @@ class ApiConfig {
   
   /// MDRRMO - User management (all registered users; DB-backed)
   static const String listUsersEndpoint = '/users/';
+  /// Legacy path (same handler as [listUsersEndpoint]) if older deploy has no `/users/`.
+  static const String mdrrmoUsersListEndpoint = '/mdrrmo/users/';
   
   /// MDRRMO - System logs
   static const String systemLogsEndpoint = '/mdrrmo/system-logs/';
@@ -61,9 +63,10 @@ class ApiConfig {
   /// Bootstrap sync
   static const String bootstrapSyncEndpoint = '/bootstrap-sync/';
   
-  /// API timeout settings
-  static const Duration connectTimeout = Duration(seconds: 30);
-  static const Duration receiveTimeout = Duration(seconds: 30);
+  /// API timeouts. Render (and similar) free tiers cold-start slowly after idle;
+  /// 30s is often too short for the first login/request.
+  static const Duration connectTimeout = Duration(seconds: 120);
+  static const Duration receiveTimeout = Duration(seconds: 120);
   
   /// Get full URL for an endpoint
   static String getUrl(String endpoint) {

@@ -64,9 +64,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     };
   }
 
-  Future<void> _loadUsers() async {
-    setState(() => _isLoading = true);
-    
+  Future<void> _loadUsers({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
+
     try {
       final statusParam = _selectedStatus == 'Active'
           ? 'active'
@@ -104,7 +104,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading users: $e')),
@@ -340,6 +340,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         backgroundColor: const Color(0xFF1E3A8A),
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _isLoading ? null : _loadUsers,
+            tooltip: 'Reload users',
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -518,31 +525,37 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : _filteredUsers.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.people_outline, size: 64, color: Colors.grey[400]),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No users found',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: Colors.grey[600],
+                : RefreshIndicator(
+                    onRefresh: () => _loadUsers(silent: true),
+                    child: _filteredUsers.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+                            children: [
+                              Icon(Icons.people_outline, size: 64, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              Text(
+                                _users.isEmpty
+                                    ? 'No registered users loaded. Pull to refresh or tap ↻.'
+                                    : 'No users match your search or filters.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _filteredUsers.length,
-                        itemBuilder: (context, index) {
-                          final user = _filteredUsers[index];
-                          return _buildUserCard(user);
-                        },
-                      ),
+                            ],
+                          )
+                        : ListView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _filteredUsers.length,
+                            itemBuilder: (context, index) {
+                              final user = _filteredUsers[index];
+                              return _buildUserCard(user);
+                            },
+                          ),
+                  ),
           ),
         ],
       ),
