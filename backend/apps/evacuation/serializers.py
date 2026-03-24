@@ -20,7 +20,7 @@ class EvacuationCenterSerializer(serializers.ModelSerializer):
 
 class EvacuationCenterCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating evacuation centers."""
-    
+
     class Meta:
         model = EvacuationCenter
         fields = (
@@ -29,3 +29,10 @@ class EvacuationCenterCreateSerializer(serializers.ModelSerializer):
             'contact_number', 'contact_person',
             'description'
         )
+
+    def validate_barangay(self, value):
+        if value is None or not str(value).strip():
+            return ''
+        from apps.users.barangay_utils import normalize_barangay_label
+
+        return normalize_barangay_label(str(value).strip())

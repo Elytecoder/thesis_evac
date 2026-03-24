@@ -261,7 +261,11 @@ def mdrrmo_pending_reports(request):
     GET /api/mdrrmo/pending-reports/
     MDRRMO only.
     """
-    qs = HazardReport.objects.filter(status=HazardReport.Status.PENDING).order_by('-created_at')
+    qs = (
+        HazardReport.objects.filter(status=HazardReport.Status.PENDING)
+        .select_related('user')
+        .order_by('-created_at')
+    )
     serializer = PendingReportSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -284,7 +288,7 @@ def mdrrmo_approve_report(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     try:
-        report = HazardReport.objects.get(pk=report_id)
+        report = HazardReport.objects.select_related('user').get(pk=report_id)
     except HazardReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
     
@@ -336,10 +340,14 @@ def my_reports(request):
     GET /api/my-reports/
     Returns all reports submitted by the current user.
     """
-    qs = HazardReport.objects.filter(
-        user=request.user,
-        auto_rejected=False  # Don't show auto-rejected reports
-    ).order_by('-created_at')
+    qs = (
+        HazardReport.objects.filter(
+            user=request.user,
+            auto_rejected=False,  # Don't show auto-rejected reports
+        )
+        .select_related('user')
+        .order_by('-created_at')
+    )
     serializer = HazardReportSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -377,7 +385,7 @@ def verified_hazards(request):
     GET /api/verified-hazards/
     Returns all approved hazard reports for map display.
     """
-    qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED)
+    qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED).select_related('user')
     serializer = HazardReportSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -401,7 +409,7 @@ def restore_report(request):
         )
     
     try:
-        report = HazardReport.objects.get(pk=report_id)
+        report = HazardReport.objects.select_related('user').get(pk=report_id)
     except HazardReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
     
@@ -443,10 +451,14 @@ def mdrrmo_rejected_reports(request):
     Returns all rejected reports for MDRRMO dashboard.
     MDRRMO only.
     """
-    qs = HazardReport.objects.filter(
-        status=HazardReport.Status.REJECTED,
-        auto_rejected=False  # Don't show auto-rejected reports
-    ).order_by('-rejected_at')
+    qs = (
+        HazardReport.objects.filter(
+            status=HazardReport.Status.REJECTED,
+            auto_rejected=False,  # Don't show auto-rejected reports
+        )
+        .select_related('user')
+        .order_by('-rejected_at')
+    )
     serializer = PendingReportSerializer(qs, many=True)
     return Response(serializer.data)
 

@@ -301,6 +301,9 @@ class HazardService {
         HazardReport(
           id: 1,
           userId: 3,
+          reporterFullName: 'Maria Santos',
+          reporterDisplayId: 739201,
+          displayReportId: 482911,
           hazardType: 'flood',
           latitude: 12.6700,
           longitude: 123.8755,
@@ -313,6 +316,9 @@ class HazardService {
         HazardReport(
           id: 2,
           userId: 5,
+          reporterFullName: 'Juan Dela Cruz',
+          reporterDisplayId: 839205,
+          displayReportId: 482912,
           hazardType: 'landslide',
           latitude: 12.6710,
           longitude: 123.8770,
@@ -352,6 +358,9 @@ class HazardService {
       return HazardReport(
         id: reportId,
         userId: 3,
+        reporterFullName: 'Maria Santos',
+        reporterDisplayId: 739201,
+        displayReportId: 482911,
         hazardType: 'flood',
         latitude: 12.6700,
         longitude: 123.8755,
@@ -488,6 +497,9 @@ class HazardService {
       return HazardReport(
         id: reportId,
         userId: 3,
+        reporterFullName: 'Maria Santos',
+        reporterDisplayId: 739201,
+        displayReportId: 482911,
         hazardType: 'flood',
         latitude: 12.6700,
         longitude: 123.8755,

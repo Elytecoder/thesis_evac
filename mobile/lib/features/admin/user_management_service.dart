@@ -23,13 +23,7 @@ class UserManagementService {
     String? barangay,
     String? search,
   }) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      // Return mock users
-      return [];
-    }
-
-    // REAL API CALL (requires MDRRMO auth so residents are returned)
+    // All registered users come from the database (no mock list).
     await _ensureAuthToken();
     try {
       final params = <String, dynamic>{};
@@ -53,19 +47,6 @@ class UserManagementService {
   /// 
   /// REAL: GET /api/mdrrmo/users/{id}/
   Future<Map<String, dynamic>> getUser(int userId) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return {
-        'id': userId,
-        'username': 'test_user',
-        'role': 'resident',
-        'total_reports': 5,
-        'approved_reports': 3,
-        'pending_reports': 2,
-      };
-    }
-
-    // REAL API CALL:
     await _ensureAuthToken();
     try {
       final response = await _apiClient.get(
@@ -82,20 +63,7 @@ class UserManagementService {
   /// 
   /// REAL: POST /api/mdrrmo/users/{id}/suspend/
   Future<User> suspendUser(int userId) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return User(
-        id: userId,
-        username: 'suspended_user',
-        email: 'test@example.com',
-        role: UserRole.resident,
-        isActive: true,
-        isSuspended: true,
-        dateJoined: DateTime.now(),
-      );
-    }
-
-    // REAL API CALL:
+    await _ensureAuthToken();
     try {
       final response = await _apiClient.post(
         '${ApiConfig.listUsersEndpoint}$userId/suspend/',
@@ -111,20 +79,6 @@ class UserManagementService {
   /// 
   /// REAL: POST /api/mdrrmo/users/{id}/activate/
   Future<User> activateUser(int userId) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return User(
-        id: userId,
-        username: 'active_user',
-        email: 'test@example.com',
-        role: UserRole.resident,
-        isActive: true,
-        isSuspended: false,
-        dateJoined: DateTime.now(),
-      );
-    }
-
-    // REAL API CALL:
     await _ensureAuthToken();
     try {
       final response = await _apiClient.post(
@@ -141,12 +95,6 @@ class UserManagementService {
   /// 
   /// REAL: DELETE /api/mdrrmo/users/{id}/delete/
   Future<void> deleteUser(int userId) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return;
-    }
-
-    // REAL API CALL:
     await _ensureAuthToken();
     try {
       await _apiClient.delete(

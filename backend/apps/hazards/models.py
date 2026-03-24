@@ -86,12 +86,25 @@ class HazardReport(models.Model):
     rejected_at = models.DateTimeField(null=True, blank=True)  # When report was rejected
     deletion_scheduled_at = models.DateTimeField(null=True, blank=True)  # For 15-day cleanup
 
+    # Non-sequential public reference for MDRRMO display (6 digits, unique). DB pk unchanged.
+    public_reference = models.PositiveIntegerField(unique=True)
+
     class Meta:
         db_table = 'hazards_hazardreport'
         ordering = ['-created_at']  # Newest first
 
     def __str__(self):
         return f"Report {self.id} - {self.hazard_type} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        if self.public_reference is None:
+            from apps.users.utils_codes import allocate_unique_six_digit
+
+            self.public_reference = allocate_unique_six_digit(
+                self.__class__,
+                'public_reference',
+            )
+        super().save(*args, **kwargs)
     
     def mark_rejected(self):
         """Mark report as rejected and schedule for deletion after 15 days."""

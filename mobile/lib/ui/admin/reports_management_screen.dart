@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/utils/barangay_normalize.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 import '../widgets/report_media_preview.dart';
@@ -25,7 +26,17 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   String _searchQuery = '';
 
   final List<String> _statusOptions = ['all', 'pending', 'approved', 'rejected'];
-  final List<String> _barangayOptions = ['all', 'Zone 1', 'Zone 2', 'Zone 3', 'Zone 4', 'Zone 5', 'Zone 6'];
+
+  /// Built from loaded reports (`reporter_barangay`); always includes `all`.
+  List<String> get _reportBarangayDropdownValues {
+    final fromData = <String>{};
+    for (final r in _reports) {
+      final b = r.reporterBarangay?.trim();
+      if (b != null && b.isNotEmpty) fromData.add(b);
+    }
+    final sorted = fromData.toList()..sort();
+    return ['all', ...sorted];
+  }
 
   @override
   void initState() {
@@ -303,7 +314,6 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
 
   List<HazardReport> get _filteredReports {
     return _reports.where((report) {
-      // Filter by search query
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
         if (!report.hazardType.toLowerCase().contains(query) &&
@@ -311,7 +321,11 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
           return false;
         }
       }
-      
+      if (_selectedBarangay != 'all') {
+        if (!BarangayNormalize.matches(report.reporterBarangay, _selectedBarangay)) {
+          return false;
+        }
+      }
       return true;
     }).toList();
   }
@@ -400,7 +414,9 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                     
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: _selectedBarangay,
+                        value: _reportBarangayDropdownValues.contains(_selectedBarangay)
+                            ? _selectedBarangay
+                            : 'all',
                         decoration: InputDecoration(
                           labelText: 'Barangay',
                           prefixIcon: const Icon(Icons.location_on, size: 20),
@@ -412,17 +428,18 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                           ),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         ),
-                        items: _barangayOptions.map((barangay) {
+                        items: _reportBarangayDropdownValues.map((barangay) {
                           return DropdownMenuItem(
                             value: barangay,
-                            child: Text(barangay.toUpperCase()),
+                            child: Text(
+                              barangay == 'all' ? 'All Barangays' : barangay,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           );
                         }).toList(),
                         onChanged: (value) {
                           if (value != null) {
-                            setState(() {
-                              _selectedBarangay = value;
-                            });
+                            setState(() => _selectedBarangay = value);
                           }
                         },
                       ),
@@ -448,7 +465,9 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                if (_searchQuery.isNotEmpty || _selectedStatus != 'all')
+                if (_searchQuery.isNotEmpty ||
+                    _selectedStatus != 'all' ||
+                    _selectedBarangay != 'all')
                   TextButton.icon(
                     onPressed: () {
                       setState(() {
@@ -578,7 +597,7 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Report #${report.id}',
+                        'Report ${report.publicReportLabel}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey[600],

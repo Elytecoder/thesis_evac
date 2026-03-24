@@ -38,6 +38,13 @@ class EvacuationCenter(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        if self.barangay:
+            from apps.users.barangay_utils import normalize_barangay_label
+
+            self.barangay = normalize_barangay_label(self.barangay)
+        super().save(*args, **kwargs)
     
     def deactivate(self):
         """Mark center as non-operational."""

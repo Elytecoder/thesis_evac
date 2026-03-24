@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 
 from core.permissions.mdrrmo import IsMDRRMO
-from apps.users.serializers import UserSerializer
+from apps.users.serializers import MdrrmoUserListSerializer
 from apps.system_logs.models import SystemLog
 from apps.system_logs.serializers import SystemLogSerializer
 
@@ -22,24 +22,28 @@ User = get_user_model()
 @permission_classes([IsAuthenticated, IsMDRRMO])
 def list_users(request):
     """
-    GET /api/mdrrmo/users/
-    List all users with optional filters.
+    GET /api/users/ (and /api/mdrrmo/users/)
+    List all registered users from the User model (not derived from reports).
     Query params: ?status=active|suspended, ?barangay=..., ?search=...
     MDRRMO only.
     """
     qs = User.objects.all()
-    
+
     # Filter by status
     status_filter = request.GET.get('status', '').lower()
     if status_filter == 'active':
         qs = qs.filter(is_suspended=False, is_active=True)
     elif status_filter == 'suspended':
         qs = qs.filter(is_suspended=True)
-    
-    # Filter by barangay
+
+    # Filter by barangay (normalized label; matches DB after normalize on save)
     barangay = request.GET.get('barangay', '').strip()
     if barangay:
-        qs = qs.filter(barangay__icontains=barangay)
+        from apps.users.barangay_utils import normalize_barangay_label
+
+        nb = normalize_barangay_label(barangay)
+        if nb:
+            qs = qs.filter(barangay__iexact=nb)
     
     # Search by name, username, or email
     search = request.GET.get('search', '').strip()
@@ -53,7 +57,7 @@ def list_users(request):
     # Order by date joined (newest first)
     qs = qs.order_by('-date_joined')
     
-    serializer = UserSerializer(qs, many=True)
+    serializer = MdrrmoUserListSerializer(qs, many=True)
     return Response(serializer.data)
 
 
@@ -73,8 +77,8 @@ def get_user(request, user_id):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    serializer = UserSerializer(user)
-    
+    serializer = MdrrmoUserListSerializer(user)
+
     # Add additional stats
     data = serializer.data
     data['total_reports'] = user.hazard_reports.count()
@@ -125,7 +129,7 @@ def suspend_user(request, user_id):
         ip_address=request.META.get('REMOTE_ADDR'),
     )
     
-    return Response(UserSerializer(user).data)
+    return Response(MdrrmoUserListSerializer(user).data)
 
 
 @api_view(['POST'])
@@ -163,7 +167,7 @@ def activate_user(request, user_id):
         ip_address=request.META.get('REMOTE_ADDR'),
     )
     
-    return Response(UserSerializer(user).data)
+    return Response(MdrrmoUserListSerializer(user).data)
 
 
 @api_view(['DELETE'])

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/utils/barangay_normalize.dart';
 import '../../features/evacuation/evacuation_center_service.dart';
 import '../../models/evacuation_center.dart';
 import 'add_evacuation_center_screen.dart';
@@ -24,7 +25,15 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
   String _selectedBarangay = 'all';
   bool _filterOnlyNonOperational = false; // NEW: filter for non-operational centers
 
-  final List<String> _barangayOptions = ['all', 'Zone 1', 'Zone 2', 'Zone 3', 'Zone 4', 'Zone 5', 'Zone 6'];
+  List<String> get _centerBarangayDropdownValues {
+    final fromData = <String>{};
+    for (final c in _centers) {
+      final b = c.barangay?.trim();
+      if (b != null && b.isNotEmpty) fromData.add(b);
+    }
+    final sorted = fromData.toList()..sort();
+    return ['all', ...sorted];
+  }
 
   @override
   void initState() {
@@ -88,21 +97,22 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
 
   List<EvacuationCenter> get _filteredCenters {
     return _centers.where((center) {
-      // Apply search filter
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
         if (!center.name.toLowerCase().contains(query)) {
           return false;
         }
       }
-      
-      // Apply non-operational filter if active
-      if (_filterOnlyNonOperational) {
-        if (center.isOperational) {
-          return false; // Exclude operational centers when filter is active
+      if (_selectedBarangay != 'all') {
+        if (!BarangayNormalize.matches(center.barangay, _selectedBarangay)) {
+          return false;
         }
       }
-      
+      if (_filterOnlyNonOperational) {
+        if (center.isOperational) {
+          return false;
+        }
+      }
       return true;
     }).toList();
   }
@@ -150,9 +160,9 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _barangayOptions.contains(_selectedBarangay)
+                  value: _centerBarangayDropdownValues.contains(_selectedBarangay)
                       ? _selectedBarangay
-                      : _barangayOptions.first,
+                      : 'all',
                   decoration: InputDecoration(
                     labelText: 'Filter by Barangay',
                     prefixIcon: const Icon(Icons.location_on, size: 20),
@@ -163,17 +173,18 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                       borderSide: BorderSide.none,
                     ),
                   ),
-                  items: _barangayOptions.map((barangay) {
+                  items: _centerBarangayDropdownValues.map((barangay) {
                     return DropdownMenuItem(
                       value: barangay,
-                      child: Text(barangay.toUpperCase()),
+                      child: Text(
+                        barangay == 'all' ? 'All Barangays' : barangay,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     );
                   }).toList(),
                   onChanged: (value) {
                     if (value != null) {
-                      setState(() {
-                        _selectedBarangay = value;
-                      });
+                      setState(() => _selectedBarangay = value);
                     }
                   },
                 ),

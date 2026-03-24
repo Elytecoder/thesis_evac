@@ -19,6 +19,8 @@ class User {
   final bool emailVerified;
   final DateTime dateJoined;
   final String? authToken;
+  /// MDRRMO public user reference (API key `user_id`, 6-digit).
+  final int? publicUserId;
 
   User({
     required this.id,
@@ -37,6 +39,7 @@ class User {
     this.emailVerified = false,
     required this.dateJoined,
     this.authToken,
+    this.publicUserId,
   });
 
   // Legacy getters for backward compatibility
@@ -53,8 +56,8 @@ class User {
     final userData = json.containsKey('user') ? json['user'] : json;
     
     return User(
-      id: userData['id'] as int,
-      username: userData['username'] as String,
+      id: _parseInt(userData['id']) ?? 0,
+      username: (userData['username'] as String?) ?? '',
       email: userData['email'] as String? ?? '',
       fullName: userData['full_name'] as String? ?? '',
       phoneNumber: userData['phone_number'] as String? ?? '',
@@ -68,10 +71,23 @@ class User {
       isSuspended: userData['is_suspended'] as bool? ?? false,
       emailVerified: userData['email_verified'] as bool? ?? false,
       dateJoined: userData['date_joined'] != null
-          ? DateTime.parse(userData['date_joined'] as String)
+          ? DateTime.tryParse(userData['date_joined'].toString()) ?? DateTime.now()
           : DateTime.now(),
       authToken: json['token'] as String?, // Token is at root level in login response
+      publicUserId: _parseOptionalInt(userData['user_id']),
     );
+  }
+
+  static int? _parseOptionalInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    return int.tryParse(v.toString());
+  }
+
+  static int? _parseInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    return int.tryParse(v.toString());
   }
 
   Map<String, dynamic> toJson() {
@@ -92,6 +108,7 @@ class User {
       'email_verified': emailVerified,
       'date_joined': dateJoined.toIso8601String(),
       'token': authToken,
+      if (publicUserId != null) 'user_id': publicUserId,
     };
   }
 }

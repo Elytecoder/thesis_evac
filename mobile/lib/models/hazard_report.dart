@@ -2,6 +2,16 @@
 class HazardReport {
   final int? id;
   final int? userId;
+
+  /// MDRRMO display: reporter full name from API (`reporter_full_name`).
+  final String? reporterFullName;
+  /// Public user reference (6-digit), not the DB pk.
+  final int? reporterDisplayId;
+  /// Public report reference (6-digit), not the DB pk.
+  final int? displayReportId;
+  /// Reporter's barangay from linked user (`reporter_barangay` in API).
+  final String? reporterBarangay;
+
   final String hazardType;
   
   // Hazard location (reported location)
@@ -41,6 +51,10 @@ class HazardReport {
   HazardReport({
     this.id,
     this.userId,
+    this.reporterFullName,
+    this.reporterDisplayId,
+    this.displayReportId,
+    this.reporterBarangay,
     required this.hazardType,
     required this.latitude,
     required this.longitude,
@@ -67,9 +81,14 @@ class HazardReport {
     final lng = json['longitude'];
     final idVal = json['id'];
     final userIdVal = json['user'];
+    final rname = json['reporter_full_name'];
     return HazardReport(
       id: idVal is int ? idVal : (idVal != null ? int.tryParse(idVal.toString()) : null),
       userId: userIdVal is int ? userIdVal : (userIdVal != null ? int.tryParse(userIdVal.toString()) : null),
+      reporterFullName: rname == null ? null : rname.toString().trim().isEmpty ? null : rname.toString().trim(),
+      reporterDisplayId: _parseOptionalPositiveInt(json['reporter_display_id']),
+      displayReportId: _parseOptionalPositiveInt(json['display_report_id']),
+      reporterBarangay: _nonEmptyString(json['reporter_barangay']),
       hazardType: (json['hazard_type'] as String?) ?? '',
       latitude: lat == null ? 0.0 : (lat is num ? lat.toDouble() : double.tryParse(lat.toString()) ?? 0.0),
       longitude: lng == null ? 0.0 : (lng is num ? lng.toDouble() : double.tryParse(lng.toString()) ?? 0.0),
@@ -100,6 +119,10 @@ class HazardReport {
     return {
       if (id != null) 'id': id,
       if (userId != null) 'user': userId,
+      if (reporterFullName != null) 'reporter_full_name': reporterFullName,
+      if (reporterDisplayId != null) 'reporter_display_id': reporterDisplayId,
+      if (displayReportId != null) 'display_report_id': displayReportId,
+      if (reporterBarangay != null) 'reporter_barangay': reporterBarangay,
       'hazard_type': hazardType,
       'latitude': latitude,
       'longitude': longitude,
@@ -126,6 +149,19 @@ class HazardReport {
     if (v == null) return null;
     final s = v.toString().trim();
     return s.isEmpty ? null : s;
+  }
+
+  static int? _parseOptionalPositiveInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    return int.tryParse(v.toString());
+  }
+
+  /// Label for lists and headers: public reference when present, else DB id.
+  String get publicReportLabel {
+    final n = displayReportId ?? id;
+    if (n == null) return '#—';
+    return '#$n';
   }
 
   /// Check if report can be restored (within 15 days)

@@ -22,6 +22,54 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'username', 'date_joined', 'role', 'email_verified']
 
 
+class MdrrmoUserListSerializer(serializers.ModelSerializer):
+    """
+    MDRRMO user management list/detail shape.
+    `user_id` = public_display_id (6-digit reference); `id` = DB pk for suspend/delete URLs.
+    """
+
+    user_id = serializers.IntegerField(source='public_display_id', read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'user_id',
+            'username',
+            'email',
+            'full_name',
+            'phone_number',
+            'province',
+            'municipality',
+            'barangay',
+            'street',
+            'role',
+            'is_active',
+            'is_suspended',
+            'profile_picture',
+            'email_verified',
+            'date_joined',
+        ]
+        read_only_fields = [
+            'id',
+            'user_id',
+            'username',
+            'email',
+            'full_name',
+            'phone_number',
+            'province',
+            'municipality',
+            'barangay',
+            'street',
+            'role',
+            'is_active',
+            'is_suspended',
+            'profile_picture',
+            'email_verified',
+            'date_joined',
+        ]
+
+
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """Serializer for user registration with email verification."""
     password = serializers.CharField(write_only=True, min_length=8)
@@ -125,7 +173,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         """Validate barangay is not empty."""
         if not value or not value.strip():
             raise serializers.ValidationError("Barangay is required")
-        return value.strip()
+        from apps.users.barangay_utils import normalize_barangay_label
+
+        return normalize_barangay_label(value.strip())
     
     def validate(self, data):
         """Cross-field validation."""

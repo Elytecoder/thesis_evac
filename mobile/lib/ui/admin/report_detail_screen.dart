@@ -540,8 +540,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildInfoRow('Hazard Type', report.hazardType.toUpperCase().replaceAll('_', ' ')),
-        _buildInfoRow('Report ID', '#${report.id ?? 0}'),
-        _buildInfoRow('Reporter ID', 'User #${report.userId ?? 0}'),
+        _buildInfoRow('Report ID', report.publicReportLabel),
+        _buildReporterBlock(report),
         _buildInfoRow('Submitted', _formatFullDateTime(report.createdAt ?? DateTime.now())),
         _buildInfoRow('Status', _getStatusText(report.status), statusColor: _getStatusColor(report.status)),
         
@@ -565,6 +565,57 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           ReportMediaSection(report: report),
         ],
       ],
+    );
+  }
+
+  Widget _buildReporterBlock(HazardReport report) {
+    final name = (report.reporterFullName ?? '').trim();
+    final displayUserId = report.reporterDisplayId;
+    final fallbackId = report.userId;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              'Reporter',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isNotEmpty ? name : 'Unknown reporter',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1E293B),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  displayUserId != null
+                      ? 'ID: #$displayUserId'
+                      : (fallbackId != null ? 'ID: #$fallbackId' : 'ID: —'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -26,6 +26,9 @@ class AdminMockService {
       HazardReport(
         id: 1,
         userId: 3,
+        reporterFullName: 'Ana Reyes',
+        reporterDisplayId: 712301,
+        displayReportId: 584921,
         hazardType: 'flooded_road',
         latitude: 12.6700,
         longitude: 123.8755,
@@ -41,6 +44,9 @@ class AdminMockService {
       HazardReport(
         id: 2,
         userId: 5,
+        reporterFullName: 'Juan Dela Cruz',
+        reporterDisplayId: 839210,
+        displayReportId: 482903,
         hazardType: 'landslide',
         latitude: 12.6710,
         longitude: 123.8770,
@@ -55,6 +61,9 @@ class AdminMockService {
       HazardReport(
         id: 3,
         userId: 7,
+        reporterFullName: 'Pedro Gonzales',
+        reporterDisplayId: 651442,
+        displayReportId: 910284,
         hazardType: 'bridge_damage',
         latitude: 12.6685,
         longitude: 123.8745,
@@ -70,6 +79,9 @@ class AdminMockService {
       HazardReport(
         id: 4,
         userId: 4,
+        reporterFullName: 'Rosa Martinez',
+        reporterDisplayId: 447892,
+        displayReportId: 302156,
         hazardType: 'road_damage',
         latitude: 12.6695,
         longitude: 123.8760,
@@ -84,6 +96,9 @@ class AdminMockService {
       HazardReport(
         id: 5,
         userId: 6,
+        reporterFullName: 'Luis Fernandez',
+        reporterDisplayId: 928301,
+        displayReportId: 775004,
         hazardType: 'fallen_electric_post',
         latitude: 12.6720,
         longitude: 123.8765,
@@ -101,6 +116,9 @@ class AdminMockService {
       HazardReport(
         id: 6,
         userId: 8,
+        reporterFullName: 'Carmen Villanueva',
+        reporterDisplayId: 563891,
+        displayReportId: 128447,
         hazardType: 'fallen_tree',
         latitude: 12.6675,
         longitude: 123.8750,
@@ -116,6 +134,9 @@ class AdminMockService {
       HazardReport(
         id: 7,
         userId: 9,
+        reporterFullName: 'Miguel Torres',
+        reporterDisplayId: 384920,
+        displayReportId: 661239,
         hazardType: 'road_blocked',
         latitude: 12.6690,
         longitude: 123.8760,
@@ -130,6 +151,9 @@ class AdminMockService {
       HazardReport(
         id: 8,
         userId: 10,
+        reporterFullName: 'Elena Bautista',
+        reporterDisplayId: 290184,
+        displayReportId: 493821,
         hazardType: 'storm_surge',
         latitude: 12.6665,
         longitude: 123.8735,
@@ -255,6 +279,9 @@ class AdminMockService {
     return HazardReport(
       id: reportId,
       userId: 3,
+      reporterFullName: 'Ana Reyes',
+      reporterDisplayId: 712301,
+      displayReportId: 584921,
       hazardType: 'flood',
       latitude: 12.6700,
       longitude: 123.8755,
@@ -279,6 +306,9 @@ class AdminMockService {
     return HazardReport(
       id: reportId,
       userId: 3,
+      reporterFullName: 'Ana Reyes',
+      reporterDisplayId: 712301,
+      displayReportId: 584921,
       hazardType: 'flood',
       latitude: 12.6700,
       longitude: 123.8755,
@@ -303,6 +333,9 @@ class AdminMockService {
     return HazardReport(
       id: reportId,
       userId: 3,
+      reporterFullName: 'Ana Reyes',
+      reporterDisplayId: 712301,
+      displayReportId: 584921,
       hazardType: 'flood',
       latitude: 12.6700,
       longitude: 123.8755,

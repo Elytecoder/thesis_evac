@@ -43,8 +43,8 @@ class ApiConfig {
   /// MDRRMO - Evacuation center management (CRUD)
   static const String createEvacuationCenterEndpoint = '/mdrrmo/evacuation-centers/';
   
-  /// MDRRMO - User management
-  static const String listUsersEndpoint = '/mdrrmo/users/';
+  /// MDRRMO - User management (all registered users; DB-backed)
+  static const String listUsersEndpoint = '/users/';
   
   /// MDRRMO - System logs
   static const String systemLogsEndpoint = '/mdrrmo/system-logs/';

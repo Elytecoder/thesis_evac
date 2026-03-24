@@ -45,11 +45,28 @@ class User(AbstractUser):
     email_verified = models.BooleanField(default=False)
     email_verified_at = models.DateTimeField(null=True, blank=True)
 
+    # Non-sequential public ID for MDRRMO display (6 digits, unique). DB pk unchanged.
+    public_display_id = models.PositiveIntegerField(unique=True)
+
     class Meta:
         db_table = 'users_user'
 
     def __str__(self):
         return f"{self.username} ({self.role})"
+
+    def save(self, *args, **kwargs):
+        if self.barangay:
+            from apps.users.barangay_utils import normalize_barangay_label
+
+            self.barangay = normalize_barangay_label(self.barangay)
+        if self.public_display_id is None:
+            from apps.users.utils_codes import allocate_unique_six_digit
+
+            self.public_display_id = allocate_unique_six_digit(
+                self.__class__,
+                'public_display_id',
+            )
+        super().save(*args, **kwargs)
     
     def suspend(self):
         """Suspend user account."""
