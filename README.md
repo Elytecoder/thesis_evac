@@ -67,33 +67,36 @@ This project provides:
 
 ## Repository structure
 
+High-level layout (see **[docs/FOLDER_STRUCTURE.md](docs/FOLDER_STRUCTURE.md)** for algorithms, database file, and a full map):
+
 ```
 thesis_evac/
 ├── README.md                 # This file
-├── backend/                  # Django API
-│   ├── config/               # Settings, URLs
+├── docs/                     # SRS, test cases, diagrams, folder structure guide
+├── backend/                  # Django API (SQLite: backend/db.sqlite3)
+│   ├── config/               # Settings, URLs, middleware
 │   ├── apps/
 │   │   ├── evacuation/       # Evacuation centers
-│   │   ├── hazards/          # Hazard reports, baseline hazards
+│   │   ├── hazards/          # Hazard reports, baseline hazards, proximity checks
 │   │   ├── mobile_sync/      # Mobile API (routes, report, MDRRMO, bootstrap)
 │   │   ├── risk_prediction/  # Random Forest segment risk
 │   │   ├── routing/          # Road segments, Modified Dijkstra
-│   │   ├── users/            # User model, auth
+│   │   ├── users/            # User model, auth, barangay utils
 │   │   ├── validation/       # Naive Bayes, consensus (nearby count)
 │   │   ├── notifications/    # User notifications
-│   │   └── system_logs/      # Audit logs, MDRRMO user management
+│   │   └── system_logs/      # Audit logs, MDRRMO user list (/api/users/)
 │   ├── core/                 # Permissions, utils, mock_loader
-│   ├── reports/              # Proximity/distance utilities
+│   ├── mock_data/            # Training / mock JSON for ML validators
 │   ├── manage.py
 │   └── requirements.txt
 └── mobile/                   # Flutter app
     ├── lib/
-    │   ├── core/             # Config, API client, storage
-    │   ├── features/          # Auth, routing, hazards, residents, admin
+    │   ├── core/             # api_config (base URL, timeouts), API client, auth storage
+    │   ├── features/         # Auth, routing, hazards, residents, admin
     │   ├── models/
     │   ├── data/             # Mock data
     │   └── ui/               # Screens (map, login, admin, notifications, etc.)
-    ├── android/, ios/, ...
+    ├── android/, ios/, web/, ...
     └── pubspec.yaml
 ```
 
@@ -151,7 +154,8 @@ Use an emulator or a connected device. For Android, ensure location permission i
 In `mobile/lib/core/config/api_config.dart`:
 
 - Set `useMockData = false` to use the real API.
-- Set `baseUrl` to your backend (e.g. `http://localhost:8000/api` for web, `http://10.0.2.2:8000/api` for Android emulator).
+- Set **`renderBaseUrl`** (or local equivalent) so `baseUrl` points at your API root with **`/api` suffix**, e.g. `http://127.0.0.1:8000/api`, or `http://10.0.2.2:8000/api` on the Android emulator.
+- **Hosted backends (e.g. Render):** the first request after idle can take **60–120+ seconds** (cold start). `connectTimeout` / `receiveTimeout` are set accordingly in `api_config.dart`.
 
 The app uses **token authentication** for protected endpoints (e.g. report hazard, calculate route, notifications). Log in as resident or MDRRMO to use those features.
 
@@ -181,7 +185,11 @@ All endpoints are under `http://127.0.0.1:8000/api/`. Token auth required where 
 | POST | `/mdrrmo/approve-report/` | Token (MDRRMO) | Approve or reject report |
 | POST | `/mdrrmo/restore-report/` | Token (MDRRMO) | Restore rejected report |
 | DELETE | `/mdrrmo/reports/<id>/` | Token (MDRRMO) | Delete approved/rejected report |
-| GET | `/mdrrmo/users/` | Token (MDRRMO) | List users (filter by barangay, status, search) |
+| GET | `/users/` | Token (MDRRMO) | List **all registered** users (barangay, status, search). Legacy: `/mdrrmo/users/` |
+| GET | `/users/<id>/` | Token (MDRRMO) | User detail + report counts |
+| POST | `/users/<id>/suspend/` | Token (MDRRMO) | Suspend user |
+| POST | `/users/<id>/activate/` | Token (MDRRMO) | Activate user |
+| DELETE | `/users/<id>/delete/` | Token (MDRRMO) | Delete user |
 
 ---
 
@@ -221,8 +229,10 @@ flutter test
 
 ## Documentation
 
-- **[backend/README.md](backend/README.md)** — Backend setup, commands, tests.
-- **[mobile/README.md](mobile/README.md)** — Mobile app structure, dependencies, run instructions.
+- **[docs/FOLDER_STRUCTURE.md](docs/FOLDER_STRUCTURE.md)** — **Folder structure**, where the **database**, **algorithms** (Dijkstra, Naive Bayes, Random Forest), **API modules**, and **Flutter layers** live.
+- **[backend/README.md](backend/README.md)** — Backend setup, commands, tests, deploy.
+- **[mobile/README.md](mobile/README.md)** — Mobile app structure, configuration, run instructions.
+- **`docs/`** — See **[docs/README.md](docs/README.md)** for an index; includes SRS, test cases, algorithm write-ups, and diagrams (`Algorithms_How_They_Work.md`, `algorithm-workflow.md`, class diagrams, etc.).
 
 ---
 

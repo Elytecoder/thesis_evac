@@ -1,8 +1,20 @@
 # Evacuation Route Recommendation – Backend
 
-AI-Powered Mobile Application for Intelligent Evacuation Route Recommendation Using Machine Learning and Risk-Weighted Routing.
+AI-powered evacuation routing API: **Django + Django REST Framework**, **SQLite** (`db.sqlite3` in this folder), token auth, and optional **Render** deployment.
 
-**Django + Django REST Framework.** SQLite, mock data, schema only. Ready for Render deployment.
+**Where things live**
+
+| Topic | Location |
+|--------|-----------|
+| **Database config** | `config/settings.py` → `DATABASES` (default: `db.sqlite3`) |
+| **Modified Dijkstra** | `apps/routing/services/dijkstra.py` |
+| **Route API orchestration** | `apps/mobile_sync/services/route_service.py` |
+| **Naive Bayes (report score)** | `apps/validation/services/naive_bayes.py` |
+| **Report pipeline** | `apps/mobile_sync/services/report_service.py` |
+| **Random Forest (segment risk)** | `apps/risk_prediction/services/random_forest.py` |
+| **REST API views** | `apps/mobile_sync/views.py`, `apps/users/views.py`, `apps/system_logs/views.py`, … |
+
+Full tree + docs index: **[../docs/FOLDER_STRUCTURE.md](../docs/FOLDER_STRUCTURE.md)**.
 
 ---
 
@@ -53,3 +65,11 @@ python manage.py test apps.validation
 ```
 
 Run `python manage.py test` for app-specific tests (e.g. `python manage.py test apps.validation`).
+
+---
+
+## Documentation
+
+- **[docs/FOLDER_STRUCTURE.md](../docs/FOLDER_STRUCTURE.md)** — Repository layout, database file, algorithms, API modules.
+- **[../README.md](../README.md)** — Full-stack overview and API table.
+- **`../docs/`** — SRS, test cases, algorithm narratives, diagrams.

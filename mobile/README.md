@@ -47,9 +47,11 @@ Flutter mobile application for the AI-powered evacuation routing system. Provide
 mobile/
 ├── lib/
 │   ├── core/                      # Core configuration
-│   │   ├── config/                # API config, constants
-│   │   ├── network/               # API client
-│   │   └── storage/               # Hive offline storage
+│   │   ├── auth/                  # Session / token storage (SessionStorage)
+│   │   ├── config/                # api_config, storage_config
+│   │   ├── network/               # ApiClient (Dio)
+│   │   ├── storage/               # Hive offline storage
+│   │   └── utils/                 # Shared helpers (e.g. barangay normalize)
 │   ├── data/                      # Mock data providers
 │   ├── features/                  # Feature modules
 │   │   ├── admin/                 # MDRRMO services
@@ -110,12 +112,23 @@ flutter run -d windows
 
 ## Configuration
 
-### API Configuration
-Edit `lib/core/config/api_config.dart`:
+### API configuration (`lib/core/config/api_config.dart`)
+
+- **`useMockData`** — `false` for production / real backend.
+- **`renderBaseUrl`** — Default deployed API root including `/api` (e.g. `https://your-service.onrender.com/api`). The getter **`baseUrl`** uses this for release builds.
+- **Timeouts** — `connectTimeout` / `receiveTimeout` are extended (e.g. **120s**) so hosted backends (Render cold start) can respond before the client aborts.
+
+Local examples:
+
 ```dart
-static const String baseUrl = 'http://127.0.0.1:8000/api';
-static const bool useMockData = false; // Set to false to use real API
+// Emulator → host machine Django
+static const String renderBaseUrl = 'http://10.0.2.2:8000/api';
+
+// Web / desktop → same machine
+static const String renderBaseUrl = 'http://127.0.0.1:8000/api';
 ```
+
+Adjust `renderBaseUrl` to match your environment; do not commit secrets.
 
 ### Mock Data Mode
 By default, the app can use mock data. To use the real backend:
@@ -134,11 +147,12 @@ flutter test
 ```
 
 ### Manual testing
-1. **Login**: Use credentials `resident1` / `password` or `mdrrmo_admin` / `admin123`
-2. **Map**: Test location permission, evacuation center markers
-3. **Navigation**: Select a center and start live navigation
-4. **Reporting**: Long-press on map to report a hazard
-5. **Notifications**: Check notification bell for report updates
+1. **Login** — Use **email + password** from your Django database (e.g. `create_test_users` / registration). Legacy demo strings like `resident1` apply only if those users exist.
+2. **Map** — Location permission, evacuation center and hazard markers
+3. **Navigation** — Select a center and start live navigation
+4. **Reporting** — Submit a hazard from the report flow (with location and optional media)
+5. **Notifications** — Notification bell for report status updates
+6. **MDRRMO** — Users tab loads **`GET /api/users/`** (requires MDRRMO role + token)
 
 ---
 
@@ -217,10 +231,11 @@ flutter build ios --release
 
 ## Documentation
 
-Additional documentation is available in the `docs/` folder at the repository root:
-- **SRS**: Software Requirements Specification
-- **Test Cases**: Complete test case document
-- **Algorithms**: Detailed algorithm explanations
+At the repository root:
+
+- **[docs/FOLDER_STRUCTURE.md](../docs/FOLDER_STRUCTURE.md)** — **Folder structure** for backend + mobile; **database**, **algorithms**, and **API** file paths
+- **[README.md](../README.md)** — Full-stack overview
+- **`docs/`** — SRS, test cases, algorithm write-ups (`Algorithms_How_They_Work.md`, `algorithm-workflow.md`), class diagrams
 
 ---
 

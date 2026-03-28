@@ -27,6 +27,7 @@ htmlcov/
 mobile/.dart_tool/
 mobile/.pub-cache/
 mobile/build/
+mobile/android/build/
 
 # IDE and OS
 .idea/
