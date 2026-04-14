@@ -3,7 +3,7 @@ Authentication API views.
 """
 import time
 import logging
-import threading
+import os
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -80,29 +80,13 @@ def send_verification_code(request):
             f'— Bulan MDRRMO Evacuation System'
         )
 
-        def _send():
-            import urllib.request, json as _json, os as _os
-            brevo_api_key = _os.environ.get('BREVO_API_KEY', '')
-            if not brevo_api_key:
-                # Fallback to Django SMTP backend (works locally with Gmail)
-                try:
-                    from django.core.mail import send_mail
-                    from django.conf import settings as django_settings
-                    send_mail(
-                        subject='Your Evacuation System Verification Code',
-                        message=text_content,
-                        from_email=django_settings.DEFAULT_FROM_EMAIL,
-                        recipient_list=[email],
-                        html_message=html_content,
-                        fail_silently=False,
-                    )
-                    logger.info(f"Verification email sent via SMTP to {email}")
-                except Exception as smtp_err:
-                    logger.exception(f"SMTP fallback failed for {email}: {smtp_err}")
-                return
-
-            # Use Brevo HTTP API (HTTPS port 443 — works on all servers)
-            sender_email = _os.environ.get('DEFAULT_FROM_EMAIL', 'a8119e001@smtp-brevo.com')
+        # Send via Brevo HTTP API (HTTPS/443 — not blocked on Render free tier)
+        # Called synchronously so it isn't killed by Gunicorn before completing.
+        import urllib.request as _urllib_req
+        import json as _json
+        brevo_api_key = os.environ.get('BREVO_API_KEY', '')
+        if brevo_api_key:
+            sender_email = os.environ.get('DEFAULT_FROM_EMAIL', 'a8119e001@smtp-brevo.com')
             payload = _json.dumps({
                 'sender': {'name': 'Bulan Evac System', 'email': sender_email},
                 'to': [{'email': email}],
@@ -110,7 +94,7 @@ def send_verification_code(request):
                 'htmlContent': html_content,
                 'textContent': text_content,
             }).encode('utf-8')
-            req = urllib.request.Request(
+            req = _urllib_req.Request(
                 'https://api.brevo.com/v3/smtp/email',
                 data=payload,
                 headers={
@@ -121,12 +105,28 @@ def send_verification_code(request):
                 method='POST',
             )
             try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    logger.info(f"Verification email sent via Brevo API to {email} — status {resp.status}")
+                with _urllib_req.urlopen(req, timeout=15) as resp:
+                    print(f"[EMAIL] Brevo sent to {email} — HTTP {resp.status}", flush=True)
             except Exception as api_err:
+                print(f"[EMAIL] Brevo FAILED for {email}: {api_err}", flush=True)
                 logger.exception(f"Brevo API failed for {email}: {api_err}")
-
-        threading.Thread(target=_send, daemon=True).start()
+        else:
+            # Local fallback: Django SMTP (Gmail)
+            try:
+                from django.core.mail import send_mail
+                from django.conf import settings as django_settings
+                send_mail(
+                    subject='Your Evacuation System Verification Code',
+                    message=text_content,
+                    from_email=django_settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    html_message=html_content,
+                    fail_silently=False,
+                )
+                print(f"[EMAIL] SMTP sent to {email}", flush=True)
+            except Exception as smtp_err:
+                print(f"[EMAIL] SMTP FAILED for {email}: {smtp_err}", flush=True)
+                logger.exception(f"SMTP fallback failed for {email}: {smtp_err}")
         # ─────────────────────────────────────────────────────────────────
 
         return Response({
