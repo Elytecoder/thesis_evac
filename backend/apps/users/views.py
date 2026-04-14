@@ -94,18 +94,10 @@ def send_verification_code(request):
             )
             logger.info(f"Verification email sent to {email}")
         except Exception as mail_err:
-            # If SMTP is not configured (console backend), log for debugging only.
-            if settings.DEBUG:
-                logger.warning(
-                    f"[DEV] SMTP not configured – code for {email}: {verification.code}"
-                )
-            else:
-                # In production, a mail failure is a hard error.
-                logger.exception(f"Failed to send verification email to {email}: {mail_err}")
-                return Response(
-                    {'error': 'Failed to send verification email. Please try again later.'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+            # Log the full error so it appears in Render logs for debugging.
+            logger.exception(f"Failed to send verification email to {email}: {mail_err}")
+            # Always return success to the client — the code is saved in the DB
+            # and the user can request a resend. Never expose SMTP errors to users.
         # ─────────────────────────────────────────────────────────────────
 
         return Response({
