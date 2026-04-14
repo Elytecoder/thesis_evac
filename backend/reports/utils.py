@@ -1,14 +1,16 @@
 """
 Reports utility functions including proximity validation.
 
-Validation is now fully handled by Naive Bayes with integrated proximity
-and consensus features. Only extreme distance (>1 km) causes auto-reject.
+Architecture: only extreme distance (>150 m) causes auto-reject. Finer distance
+is used by rule_scoring.reporter_proximity_weight (not by Naive Bayes).
+NB uses hazard type + description (and optional time), not distance_category.
 """
 from math import radians, sin, cos, sqrt, atan2
 
 
 # Reject report if user is more than this distance from hazard (extreme misuse protection).
-PROXIMITY_REJECT_KM = 1.0
+# Updated: Changed from 1.0 km to 0.15 km (150 meters) for more accurate reporting.
+PROXIMITY_REJECT_KM = 0.15
 
 # Legacy alias for backward compatibility.
 ACCEPTED_RADIUS_KM = PROXIMITY_REJECT_KM
@@ -30,16 +32,21 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 def distance_km_to_category(distance_km: float) -> str:
     """
-    Convert user-to-hazard distance into a category for Naive Bayes.
-    Used only when distance_km <= PROXIMITY_REJECT_KM (no auto-reject).
+    Convert user-to-hazard distance into a coarse category for dashboards / breakdown.
+    Not a Naive Bayes feature; proximity weighting is rule_scoring.reporter_proximity_weight.
+    
+    Updated categories for 150m maximum radius:
+    - very_near: 0-30m
+    - near: 30-75m  
+    - moderate: 75-150m
     """
-    if distance_km <= 0.05:   # 0–50 m
+    if distance_km <= 0.03:   # 0–30 m
         return 'very_near'
-    if distance_km <= 0.1:    # 50–100 m
+    if distance_km <= 0.075:  # 30–75 m
         return 'near'
-    if distance_km <= 0.2:    # 100–200 m
+    if distance_km <= 0.15:   # 75–150 m
         return 'moderate'
-    # 200 m – 1 km
+    # >150 m (should be rejected)
     return 'far'
 
 
@@ -100,8 +107,8 @@ def should_auto_reject_report(user_lat, user_lng, hazard_lat, hazard_lng):
     
     if not is_valid:
         reason = (
-            f"Auto-rejected: User location is {distance_km:.2f} km away from reported hazard location. "
-            f"Exceeds maximum of {PROXIMITY_REJECT_KM} km (extreme misuse protection)."
+            f"Auto-rejected: User location is {distance_km:.3f} km ({distance_km * 1000:.0f} m) away from reported hazard location. "
+            f"Exceeds maximum of {PROXIMITY_REJECT_KM} km (150 meters) for accurate reporting."
         )
         return True, reason, distance_km
     

@@ -19,7 +19,8 @@ from PIL import Image
 
 INVALID_FILE_ERROR = 'Invalid file. Must be under size limit and correct format.'
 
-IMAGE_MAX_BYTES = getattr(settings, 'HAZARD_IMAGE_MAX_BYTES', 2 * 1024 * 1024)
+# Updated image size limit to 5MB for higher quality photos
+IMAGE_MAX_BYTES = getattr(settings, 'HAZARD_IMAGE_MAX_BYTES', 5 * 1024 * 1024)
 VIDEO_MAX_BYTES = getattr(settings, 'HAZARD_VIDEO_MAX_BYTES', 10 * 1024 * 1024)
 VIDEO_MAX_DURATION_SEC = getattr(settings, 'HAZARD_VIDEO_MAX_DURATION_SEC', 10)
 

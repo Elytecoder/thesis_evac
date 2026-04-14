@@ -7,6 +7,8 @@ from . import views
 urlpatterns = [
     # Hazard reporting (Residents)
     path('report-hazard/', views.report_hazard, name='report_hazard'),
+    path('check-similar-reports/', views.check_similar_reports, name='check_similar_reports'),
+    path('confirm-hazard-report/', views.confirm_hazard_report, name='confirm_hazard_report'),
     path('my-reports/', views.my_reports, name='my_reports'),
     path('my-reports/<int:report_id>/', views.delete_my_report, name='delete_my_report'),
     path('verified-hazards/', views.verified_hazards, name='verified_hazards'),

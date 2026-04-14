@@ -47,14 +47,51 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check for dashboard filter whenever screen becomes visible
+    // Check for dashboard filter and notification-driven report opening
+    // whenever the screen becomes visible (e.g. after tab switch).
     _checkAndApplyDashboardFilter();
+    _checkAndOpenNotificationReport();
   }
   
   /// Initialize screen with filter check and data loading
   Future<void> _initializeScreen() async {
     await _checkDashboardFilter(); // Wait for filter to be set first
     await _loadReports(); // Then load reports with the filter
+    // After initial load, check if a notification wants us to open a report.
+    await _checkAndOpenNotificationReport();
+  }
+
+  /// If the admin tapped an in-app notification banner, open that report directly.
+  Future<void> _checkAndOpenNotificationReport() async {
+    final prefs = await SharedPreferences.getInstance();
+    final reportId = prefs.getInt('admin_open_report_id');
+    if (reportId == null) return;
+
+    // Clear immediately so we don't re-open on the next rebuild.
+    await prefs.remove('admin_open_report_id');
+
+    // Make sure the list is loaded before we search it.
+    if (_reports.isEmpty) {
+      await _loadReports();
+    }
+
+    if (!mounted) return;
+
+    final target = _reports.cast<HazardReport?>().firstWhere(
+          (r) => r?.id == reportId,
+          orElse: () => null,
+        );
+
+    if (target != null) {
+      // Small delay so the tab-switch animation finishes first.
+      await Future.delayed(const Duration(milliseconds: 250));
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => ReportDetailScreen(report: target)),
+      );
+      _loadReports(); // Refresh list after returning.
+    }
   }
   
   /// Check and apply dashboard filter if present (called on every screen visibility)
@@ -704,6 +741,34 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                   report.naiveBayesScore ?? 0.0,
                   Colors.blue,
                 ),
+                
+                // Confirmation count (if pending)
+                if (report.status == HazardStatus.pending && report.confirmationCount > 0) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.shade200),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.verified_user, size: 16, color: Colors.green.shade700),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Confirmed by ${report.confirmationCount} ${report.confirmationCount == 1 ? 'user' : 'users'}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.green.shade900,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 
                 const SizedBox(height: 12),
                 

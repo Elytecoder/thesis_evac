@@ -133,6 +133,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     await prefs.setDouble('map_target_lat', lat.toDouble());
                     await prefs.setDouble('map_target_lng', lng.toDouble());
                     await prefs.setBool('map_should_focus', true);
+                    // Store report_id so map can highlight the specific marker
+                    final reportId = notification['report_id']?.toString() ?? '';
+                    if (reportId.isNotEmpty) {
+                      await prefs.setString('map_highlight_report_id', reportId);
+                    }
                     if (mounted) {
                       Navigator.pop(context);
                       Navigator.pop(context);

@@ -106,33 +106,40 @@ class SystemLog(models.Model):
         return f"{self.action} by {self.user_name or 'System'} at {self.created_at}"
     
     @classmethod
-    def log_action(cls, action, module, user=None, status=Status.SUCCESS, 
+    def log_action(cls, action, module, user=None, status=Status.SUCCESS,
                    description='', ip_address=None, user_agent='',
                    related_object_type='', related_object_id=None, metadata=None):
         """
-        Helper method to create a log entry.
-        
-        Usage:
-            SystemLog.log_action(
-                action=SystemLog.Action.REPORT_APPROVED,
-                module=SystemLog.Module.HAZARD_REPORTS,
-                user=request.user,
-                description='Approved hazard report #123',
-                related_object_type='HazardReport',
-                related_object_id=123
-            )
+        Create a log entry asynchronously in a background thread so it never
+        blocks the HTTP response. Failures are silently swallowed to prevent
+        a logging error from breaking the main request.
         """
-        return cls.objects.create(
-            user=user,
-            user_role=user.role if user else '',
-            user_name=user.full_name or user.username if user else 'System',
-            action=action,
-            module=module,
-            status=status,
-            description=description,
-            ip_address=ip_address,
-            user_agent=user_agent,
-            related_object_type=related_object_type,
-            related_object_id=related_object_id,
-            metadata=metadata
-        )
+        import threading
+
+        user_id = getattr(user, 'pk', None)
+        user_role = getattr(user, 'role', '') if user else ''
+        user_name = ''
+        if user:
+            user_name = (getattr(user, 'full_name', None) or '').strip() or getattr(user, 'username', '')
+
+        def _write():
+            try:
+                cls.objects.create(
+                    user_id=user_id,
+                    user_role=user_role,
+                    user_name=user_name,
+                    action=action,
+                    module=module,
+                    status=status,
+                    description=description,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    related_object_type=related_object_type,
+                    related_object_id=related_object_id,
+                    metadata=metadata,
+                )
+            except Exception:
+                pass  # Never let logging failures bubble up
+
+        thread = threading.Thread(target=_write, daemon=True)
+        thread.start()

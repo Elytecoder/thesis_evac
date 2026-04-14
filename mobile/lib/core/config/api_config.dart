@@ -26,6 +26,8 @@ class ApiConfig {
   
   /// Hazard report endpoints (Residents)
   static const String reportHazardEndpoint = '/report-hazard/';
+  static const String checkSimilarReportsEndpoint = '/check-similar-reports/';
+  static const String confirmHazardReportEndpoint = '/confirm-hazard-report/';
   static const String myReportsEndpoint = '/my-reports/';
   static const String verifiedHazardsEndpoint = '/verified-hazards/';
   

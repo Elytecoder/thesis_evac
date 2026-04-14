@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../features/authentication/auth_service.dart';
@@ -5,7 +7,7 @@ import '../../models/user.dart';
 import '../../data/philippine_address_data.dart';
 import 'map_screen.dart';
 
-/// Modern registration screen with email verification and structured address.
+/// Registration screen with real Gmail SMTP email verification.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -16,7 +18,7 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _authService = AuthService();
-  
+
   // Form controllers
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -25,15 +27,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _verificationCodeController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  
+
   // Address dropdowns
   String? _selectedProvince;
   String? _selectedMunicipality;
   String? _selectedBarangay;
-  
+
   List<String> _municipalities = [];
   List<String> _barangays = [];
-  
+
   // State management
   bool _isLoading = false;
   bool _isSendingCode = false;
@@ -41,10 +43,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isVerified = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  
+
   // Password strength
   String _passwordStrength = '';
   Color _passwordStrengthColor = Colors.grey;
+
+  // ── Email verification timers ──────────────────────────────────────────────
+  /// Counts DOWN from 300 s (5 min) while the code is still valid.
+  int _expirySecondsLeft = 0;
+  Timer? _expiryTimer;
+
+  /// Resend cooldown: user must wait 60 s before requesting a new code.
+  int _resendCooldownLeft = 0;
+  Timer? _resendCooldownTimer;
+  // ──────────────────────────────────────────────────────────────────────────
 
   @override
   void dispose() {
@@ -55,8 +67,53 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _verificationCodeController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _expiryTimer?.cancel();
+    _resendCooldownTimer?.cancel();
     super.dispose();
   }
+
+  // ── Timer helpers ──────────────────────────────────────────────────────────
+
+  void _startExpiryTimer() {
+    _expiryTimer?.cancel();
+    setState(() => _expirySecondsLeft = 5 * 60); // 5 minutes
+    _expiryTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        if (_expirySecondsLeft > 0) {
+          _expirySecondsLeft--;
+        } else {
+          _expiryTimer?.cancel();
+        }
+      });
+    });
+  }
+
+  void _startResendCooldown() {
+    _resendCooldownTimer?.cancel();
+    setState(() => _resendCooldownLeft = 60);
+    _resendCooldownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        if (_resendCooldownLeft > 0) {
+          _resendCooldownLeft--;
+        } else {
+          _resendCooldownTimer?.cancel();
+        }
+      });
+    });
+  }
+
+  String get _expiryLabel {
+    if (_expirySecondsLeft <= 0) return 'Code expired — request a new one';
+    final m = _expirySecondsLeft ~/ 60;
+    final s = _expirySecondsLeft % 60;
+    return 'Code expires in ${m}m ${s.toString().padLeft(2, '0')}s';
+  }
+
+  bool get _codeExpired => _codeSent && _expirySecondsLeft == 0;
+  bool get _canResend => _codeSent && _resendCooldownLeft == 0;
+  // ──────────────────────────────────────────────────────────────────────────
 
   void _checkPasswordStrength(String password) {
     if (password.isEmpty) {
@@ -93,13 +150,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _sendVerificationCode() async {
     final email = _emailController.text.trim();
-    
+
     if (email.isEmpty) {
       _showError('Please enter your email address');
       return;
     }
 
-    if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(email)) {
+    if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        .hasMatch(email)) {
       _showError('Please enter a valid email address');
       return;
     }
@@ -107,24 +165,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isSendingCode = true);
 
     try {
-      final result = await _authService.sendVerificationCode(email);
-      
+      final message = await _authService.sendVerificationCode(email);
+
       if (mounted) {
         setState(() {
           _codeSent = true;
           _isSendingCode = false;
-          // Pre-fill code if API returned it (e.g. when email is not configured on server)
-          final code = result['dev_code'] ?? result['code'];
-          if (code != null && code.toString().trim().isNotEmpty) {
-            _verificationCodeController.text = code.toString().trim();
-          }
+          // Clear any previously entered code when a fresh one is sent.
+          _verificationCodeController.clear();
         });
-        final code = result['dev_code'] ?? result['code'];
-        if (code != null && code.toString().trim().isNotEmpty) {
-          _showSuccess('Your verification code: $code');
-        } else {
-          _showSuccess('Verification code sent to your email!');
-        }
+        _startExpiryTimer();
+        _startResendCooldown();
+        _showSuccess(message);
       }
     } catch (e) {
       if (mounted) {
@@ -383,6 +435,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 
                                 // Verification code input (appears after code is sent)
                                 if (_codeSent) ...[
+                                  // Expiry countdown banner
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 300),
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: _codeExpired
+                                          ? Colors.red[50]
+                                          : (_expirySecondsLeft < 60
+                                              ? Colors.orange[50]
+                                              : Colors.blue[50]),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: _codeExpired
+                                            ? Colors.red[300]!
+                                            : (_expirySecondsLeft < 60
+                                                ? Colors.orange[300]!
+                                                : Colors.blue[200]!),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          _codeExpired
+                                              ? Icons.timer_off
+                                              : Icons.timer,
+                                          size: 16,
+                                          color: _codeExpired
+                                              ? Colors.red[700]
+                                              : (_expirySecondsLeft < 60
+                                                  ? Colors.orange[700]
+                                                  : Colors.blue[700]),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _expiryLabel,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: _codeExpired
+                                                ? Colors.red[700]
+                                                : (_expirySecondsLeft < 60
+                                                    ? Colors.orange[700]
+                                                    : Colors.blue[700]),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
                                   TextFormField(
                                     controller: _verificationCodeController,
                                     keyboardType: TextInputType.number,
@@ -390,7 +493,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     decoration: InputDecoration(
                                       labelText: 'Enter 6-Digit Verification Code *',
                                       prefixIcon: const Icon(Icons.verified_user),
-                                      helperText: 'Check your email for the code',
+                                      helperText: 'Check your email inbox (and spam folder)',
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -410,14 +513,40 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                     },
                                     enabled: !_isLoading,
                                   ),
-                                  
-                                  // Resend code button
-                                  TextButton.icon(
-                                    onPressed: _isSendingCode ? null : _sendVerificationCode,
-                                    icon: const Icon(Icons.refresh),
-                                    label: const Text('Resend Code'),
+
+                                  // Resend button with cooldown
+                                  Row(
+                                    children: [
+                                      _isSendingCode
+                                          ? const SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2),
+                                            )
+                                          : Icon(Icons.refresh,
+                                              size: 16,
+                                              color: _canResend
+                                                  ? Colors.blue[700]
+                                                  : Colors.grey),
+                                      TextButton(
+                                        onPressed: (_canResend && !_isSendingCode)
+                                            ? _sendVerificationCode
+                                            : null,
+                                        child: Text(
+                                          _resendCooldownLeft > 0
+                                              ? 'Resend in ${_resendCooldownLeft}s'
+                                              : 'Resend Code',
+                                          style: TextStyle(
+                                            color: _canResend
+                                                ? Colors.blue[700]
+                                                : Colors.grey,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  
+
                                   const SizedBox(height: 16),
                                 ],
                                 

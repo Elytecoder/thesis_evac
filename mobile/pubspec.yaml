@@ -21,6 +21,7 @@ dependencies:
   # API & Network
   dio: ^5.4.0
   http: ^1.2.0
+  connectivity_plus: ^6.0.0
   
   # Local storage (offline support)
   hive: ^2.2.3

@@ -36,37 +36,48 @@ class RoutingService {
 
   /// Get all evacuation centers.
   /// 
+  /// Caches result to Hive on success. Falls back to Hive cache when offline
+  /// so residents can still see and select centers without a network connection.
+  ///
   /// IMPORTANT: Only returns OPERATIONAL evacuation centers.
-  /// Deactivated centers (is_operational = false) are excluded from routing.
-  /// This ensures residents cannot navigate to closed/unavailable centers.
-  /// 
-  /// MOCK: Returns mock centers (filtered by operational status).
-  /// REAL: GET from /api/evacuation-centers/?operational_only=true
   Future<List<EvacuationCenter>> getEvacuationCenters() async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 300));
       final allCenters = getMockEvacuationCenters();
-      
-      // FILTER: Only return operational centers for routing
-      final operationalCenters = allCenters.where((center) => center.isOperational).toList();
-      
-      print('🏢 Loaded ${operationalCenters.length} operational centers (${allCenters.length - operationalCenters.length} deactivated)');
-      
+      final operationalCenters =
+          allCenters.where((center) => center.isOperational).toList();
+      print('🏢 Loaded ${operationalCenters.length} operational centers (mock)');
       return operationalCenters;
     }
 
-    // REAL API CALL:
     try {
-      // Backend should filter by operational status
-      final response = await _apiClient.get(ApiConfig.evacuationCentersEndpoint);
-      
+      final response =
+          await _apiClient.get(ApiConfig.evacuationCentersEndpoint);
+
       final raw = response.data;
-      final List<dynamic> centersJson = raw is List ? List<dynamic>.from(raw) : [];
-      return centersJson
-          .map((json) => EvacuationCenter.fromJson(Map<String, dynamic>.from(json as Map)))
+      final List<dynamic> centersJson =
+          raw is List ? List<dynamic>.from(raw) : [];
+      final centers = centersJson
+          .map((json) =>
+              EvacuationCenter.fromJson(Map<String, dynamic>.from(json as Map)))
           .toList();
+
+      // Cache to Hive for offline use
+      await _storageService.saveEvacuationCenters(
+        centers.map((c) => c.toJson()).toList(),
+      );
+      return centers;
     } catch (e) {
-      throw Exception('Failed to fetch evacuation centers: $e');
+      // Fallback: serve from Hive cache when offline
+      final cached = await _storageService.getEvacuationCenters();
+      if (cached != null && cached.isNotEmpty) {
+        print('Offline: returning ${cached.length} cached evacuation center(s)');
+        return cached
+            .map((json) => EvacuationCenter.fromJson(json))
+            .toList();
+      }
+      // No cache available — return empty list, do not crash
+      return [];
     }
   }
 

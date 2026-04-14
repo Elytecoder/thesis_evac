@@ -33,6 +33,7 @@ class HazardReport {
   // AI validation scores (Naive Bayes only for report validation)
   final double? naiveBayesScore;
   final double? consensusScore;
+  final int confirmationCount;  // Number of users who confirmed this hazard
   /// Naive Bayes technical breakdown for MDRRMO "View Technical Details". No Random Forest data.
   final Map<String, dynamic>? validationBreakdown;
 
@@ -67,6 +68,7 @@ class HazardReport {
     this.autoRejected = false,
     this.naiveBayesScore,
     this.consensusScore,
+    this.confirmationCount = 0,  // Added
     this.validationBreakdown,
     this.adminComment,
     this.restorationReason,
@@ -101,6 +103,7 @@ class HazardReport {
       autoRejected: json['auto_rejected'] as bool? ?? false,
       naiveBayesScore: (json['naive_bayes_score'] as num?)?.toDouble(),
       consensusScore: (json['consensus_score'] as num?)?.toDouble(),
+      confirmationCount: json['confirmation_count'] as int? ?? 0,  // Added
       validationBreakdown: json['validation_breakdown'] != null && json['validation_breakdown'] is Map
           ? Map<String, dynamic>.from(json['validation_breakdown'] as Map)
           : null,
@@ -135,6 +138,7 @@ class HazardReport {
       'auto_rejected': autoRejected,
       if (naiveBayesScore != null) 'naive_bayes_score': naiveBayesScore,
       if (consensusScore != null) 'consensus_score': consensusScore,
+      'confirmation_count': confirmationCount,  // Added
       if (validationBreakdown != null) 'validation_breakdown': validationBreakdown,
       if (adminComment != null) 'admin_comment': adminComment,
       if (restorationReason != null) 'restoration_reason': restorationReason,

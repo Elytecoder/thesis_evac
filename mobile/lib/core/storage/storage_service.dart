@@ -19,6 +19,8 @@ class StorageService {
     await Hive.openBox(StorageConfig.baselineHazardsBox);
     await Hive.openBox(StorageConfig.roadSegmentsBox);
     await Hive.openBox(StorageConfig.userBox);
+    await Hive.openBox(StorageConfig.pendingReportsBox);
+    await Hive.openBox(StorageConfig.verifiedHazardsBox);
   }
 
   /// Close all boxes (cleanup).
@@ -105,6 +107,54 @@ class StorageService {
     await Hive.box(StorageConfig.baselineHazardsBox).clear();
     await Hive.box(StorageConfig.roadSegmentsBox).clear();
     await Hive.box(StorageConfig.userBox).clear();
+    await Hive.box(StorageConfig.verifiedHazardsBox).clear();
+    // NOTE: pendingReportsBox is intentionally NOT cleared here — use clearPendingReports().
+  }
+
+  // --- Pending Reports Queue (offline submissions) ---
+
+  /// Save the full list of pending reports waiting to be synced.
+  Future<void> savePendingReports(List<Map<String, dynamic>> reports) async {
+    final box = Hive.box(StorageConfig.pendingReportsBox);
+    await box.put('queue', reports);
+  }
+
+  /// Get all pending reports in the offline queue.
+  Future<List<Map<String, dynamic>>> getPendingReports() async {
+    final box = Hive.box(StorageConfig.pendingReportsBox);
+    final data = box.get('queue');
+    if (data == null) return [];
+    return List<Map<String, dynamic>>.from(data as List);
+  }
+
+  /// Remove all entries from the pending reports queue after a successful sync.
+  Future<void> clearPendingReports() async {
+    await Hive.box(StorageConfig.pendingReportsBox).clear();
+  }
+
+  /// Return the number of reports waiting to be synced.
+  int getPendingReportsCount() {
+    final box = Hive.box(StorageConfig.pendingReportsBox);
+    final data = box.get('queue');
+    if (data == null) return 0;
+    return (data as List).length;
+  }
+
+  // --- Verified Hazards Cache ---
+
+  /// Cache approved hazard reports from the server.
+  Future<void> saveVerifiedHazards(List<Map<String, dynamic>> hazards) async {
+    final box = Hive.box(StorageConfig.verifiedHazardsBox);
+    await box.put('all', hazards);
+    await box.put('last_updated', DateTime.now().toIso8601String());
+  }
+
+  /// Get cached verified hazard reports.
+  Future<List<Map<String, dynamic>>?> getCachedVerifiedHazards() async {
+    final box = Hive.box(StorageConfig.verifiedHazardsBox);
+    final data = box.get('all');
+    if (data == null) return null;
+    return List<Map<String, dynamic>>.from(data as List);
   }
 
   /// Get last sync time for a specific box.

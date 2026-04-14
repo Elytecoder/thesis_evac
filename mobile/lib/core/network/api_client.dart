@@ -1,17 +1,20 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
 
 /// HTTP client wrapper for API communication.
 /// 
-/// Handles authentication, headers, and error handling.
-/// When ApiConfig.useMockData = true, this won't be used.
+/// Singleton: all services share one Dio instance and one persistent connection pool.
 class ApiClient {
+  static final ApiClient _instance = ApiClient._internal();
+  factory ApiClient() => _instance;
+
   late final Dio _dio;
   String? _authToken;
 
-  ApiClient() {
+  ApiClient._internal() {
     _dio = Dio(BaseOptions(
       baseUrl: ApiConfig.baseUrl,
       connectTimeout: ApiConfig.connectTimeout,
@@ -20,15 +23,17 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'Connection': 'keep-alive',
       },
     ));
 
-    // Add interceptor for logging (helpful for debugging)
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      error: true,
-    ));
+    if (kDebugMode) {
+      _dio.interceptors.add(LogInterceptor(
+        requestBody: true,
+        responseBody: true,
+        error: true,
+      ));
+    }
   }
 
   /// Set authentication token

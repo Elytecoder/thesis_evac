@@ -187,8 +187,25 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _onLocationUpdate(LatLng location) async {
     if (_hasArrived || _currentRoute == null) return;
 
+    // Calculate bearing toward the next route point so the arrow
+    // always points in the direction of travel. setState is called here
+    // so the Transform.rotate widget actually redraws.
+    double newBearing = _currentBearing;
+    if (_currentRoute!.polyline.isNotEmpty) {
+      final userIdx = _findClosestPointIndex(location, _currentRoute!.polyline);
+      if (userIdx < _currentRoute!.polyline.length - 1) {
+        final nextPoint = _currentRoute!.polyline[userIdx + 1];
+        final calculated = _gpsService.calculateBearing(location, nextPoint);
+        // Dead-zone: only update if heading changed by more than 3° to prevent jitter
+        if ((calculated - _currentBearing).abs() > 3.0) {
+          newBearing = calculated;
+        }
+      }
+    }
+
     setState(() {
       _userLocation = location;
+      _currentBearing = newBearing;
     });
 
     // Check if arrived
@@ -300,25 +317,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     });
   }
 
-  /// Smooth camera follow with rotation simulation (only when follow mode is on)
+  /// Smooth camera follow: move camera to user position (only when follow mode is on).
+  /// Bearing is now calculated in _onLocationUpdate so the arrow always rotates
+  /// regardless of whether the user has panned the map.
   void _smoothCameraFollow() {
     if (_userLocation == null || !_followUserLocation) return;
-
     try {
-      // Calculate bearing to next point if available
-      if (_currentRoute != null && _currentRoute!.polyline.isNotEmpty) {
-        // Find closest point on route ahead of user
-        final userIdx = _findClosestPointIndex(_userLocation!, _currentRoute!.polyline);
-        if (userIdx < _currentRoute!.polyline.length - 1) {
-          final nextPoint = _currentRoute!.polyline[userIdx + 1];
-          _currentBearing = _gpsService.calculateBearing(_userLocation!, nextPoint);
-        }
-      }
-
-      // Smooth camera movement with slight zoom in for 3D feel
       _mapController.move(_userLocation!, 17.0);
-      
-      // Note: flutter_map doesn't support true rotation, but we maintain bearing for future use
     } catch (e) {
       // Map controller not ready
     }
@@ -441,7 +446,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   }
 
   /// Maximum distance (m) from user to hazard location to allow reporting. Matches backend 1 km rule.
-  static const double _reportMaxDistanceM = 1000;
+  /// Max distance (meters) from user to report location during navigation.
+  /// Updated: Changed from 1000m to 150m for more accurate reporting.
+  static const double _reportMaxDistanceM = 150;
 
   /// Handle long press on map - Report hazard during navigation (only if user is within 1 km)
   void _onLongPressMap(TapPosition tapPosition, LatLng location) {
@@ -463,7 +470,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'You must be within 1 km of the hazard to report. You are ${(distanceM / 1000).toStringAsFixed(1)} km away.',
+              'Your location must be within 150 meters of the reported hazard. You are ${distanceM.toStringAsFixed(0)} meters away.',
             ),
             backgroundColor: Colors.orange[800],
             duration: const Duration(seconds: 4),

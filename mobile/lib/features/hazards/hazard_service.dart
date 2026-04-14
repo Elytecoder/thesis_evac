@@ -178,7 +178,7 @@ class HazardService {
       if (e.toString().contains('location does not match') ||
           e.toString().contains('outside') ||
           e.toString().contains('radius')) {
-        throw Exception('Your location does not match the accepted kilometer radius of the reported area.');
+        throw Exception('You must be within 150 meters of the hazard location to submit a report.');
       }
       // Only queue on real network/connection errors
       print('Offline: Queuing hazard report for later submission');
@@ -193,7 +193,85 @@ class HazardService {
     }
   }
 
-  /// Queue a hazard report for later submission (offline mode)
+  /// Check for similar pending reports near a location.
+  /// 
+  /// Used to prompt user to confirm existing report instead of creating duplicate.
+  /// 
+  /// Returns: List of similar reports with distance and confirmation count.
+  Future<List<Map<String, dynamic>>> checkSimilarReports({
+    required String hazardType,
+    required double latitude,
+    required double longitude,
+    double radiusMeters = 100.0,
+  }) async {
+    if (ApiConfig.useMockData) {
+      // Mock: return empty list (no similar reports)
+      await Future.delayed(const Duration(milliseconds: 300));
+      return [];
+    }
+
+    try {
+      await _ensureAuthToken();
+
+      final response = await _apiClient.post(
+        ApiConfig.checkSimilarReportsEndpoint,
+        data: {
+          'hazard_type': hazardType,
+          'latitude': latitude,
+          'longitude': longitude,
+          'radius_meters': radiusMeters,
+        },
+      );
+
+      final responseData = response.data as Map<String, dynamic>;
+      final similarReports = responseData['similar_reports'] as List<dynamic>?;
+      if (similarReports == null || similarReports.isEmpty) {
+        return [];
+      }
+
+      return similarReports.map((r) => Map<String, dynamic>.from(r)).toList();
+    } catch (e) {
+      print('Error checking similar reports: $e');
+      // Return empty list on error (proceed with normal submission)
+      return [];
+    }
+  }
+
+  /// Confirm an existing hazard report instead of submitting a duplicate.
+  /// 
+  /// Adds user to confirmation list and recalculates validation scores.
+  /// 
+  /// Returns: Updated report with new confirmation count.
+  Future<HazardReport> confirmHazardReport(int reportId) async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      throw Exception('Mock mode: confirmation not available');
+    }
+
+    try {
+      await _ensureAuthToken();
+
+      final response = await _apiClient.post(
+        ApiConfig.confirmHazardReportEndpoint,
+        data: {'report_id': reportId},
+      );
+
+      final responseData = response.data as Map<String, dynamic>;
+      
+      // Parse report from response
+      final report = HazardReport.fromJson(responseData);
+      
+      print('Hazard confirmed: Report #$reportId (${responseData['confirmation_count']} confirmations)');
+      return report;
+    } catch (e) {
+      print('Error confirming hazard report: $e');
+      rethrow;
+    }
+  }
+
+  /// Queue a hazard report for later submission (offline mode).
+  /// Saved to the dedicated [StorageConfig.pendingReportsBox] — does NOT
+  /// touch the verified-hazards or evacuation-centers caches.
   Future<HazardReport> _queueHazardReport({
     required String hazardType,
     required double latitude,
@@ -212,57 +290,60 @@ class HazardService {
       photoUrl: photoUrl,
       videoUrl: videoUrl,
       status: HazardStatus.pending,
-      naiveBayesScore: 0.0, // Will be calculated when synced
+      naiveBayesScore: 0.0,
       consensusScore: 0.0,
       createdAt: DateTime.now(),
     );
 
-    // Save to queue
-    final queuedReports = await _getQueuedReports();
-    queuedReports.add(report.toJson());
-    
-    await _storageService.saveBaselineHazards(queuedReports);
-    
-    print('Report queued: ${queuedReports.length} reports pending sync');
+    final queue = await _storageService.getPendingReports();
+    queue.add(report.toJson());
+    await _storageService.savePendingReports(queue);
+
+    print('Report queued offline: ${queue.length} report(s) pending sync');
     return report;
   }
 
-  /// Get queued reports
+  /// Get all offline-queued reports.
   Future<List<Map<String, dynamic>>> _getQueuedReports() async {
-    try {
-      final reports = await _storageService.getBaselineHazards();
-      return reports ?? [];
-    } catch (e) {
-      return [];
-    }
+    return _storageService.getPendingReports();
   }
 
-  /// Sync queued reports (call when back online)
+  /// Sync queued reports when back online.
+  /// Only clears the pending queue — never touches other caches.
   Future<void> syncQueuedReports() async {
     final queuedReports = await _getQueuedReports();
-    
+
     if (queuedReports.isEmpty) {
       print('No queued reports to sync');
       return;
     }
 
-    print('Syncing ${queuedReports.length} queued reports...');
-    
-    for (var reportJson in queuedReports) {
+    print('Syncing ${queuedReports.length} queued report(s)...');
+    await _ensureAuthToken();
+
+    final List<Map<String, dynamic>> failed = [];
+
+    for (final reportJson in queuedReports) {
       try {
         await _apiClient.post(
           ApiConfig.reportHazardEndpoint,
           data: reportJson,
         );
-        print('Synced report: ${reportJson['id']}');
+        print('Synced queued report id=${reportJson['id']}');
       } catch (e) {
-        print('Failed to sync report ${reportJson['id']}: $e');
+        print('Failed to sync report id=${reportJson['id']}: $e');
+        failed.add(reportJson);
       }
     }
 
-    // Clear queue after sync
-    await _storageService.clearAllCache();
-    print('Queue cleared after sync');
+    // Persist only the reports that failed (retry on next sync cycle).
+    if (failed.isEmpty) {
+      await _storageService.clearPendingReports();
+      print('All queued reports synced — queue cleared');
+    } else {
+      await _storageService.savePendingReports(failed);
+      print('${failed.length} report(s) remain in queue after partial sync');
+    }
   }
 
   /// Get baseline hazards (MDRRMO data) for caching.
@@ -392,23 +473,23 @@ class HazardService {
   }
 
   /// Get user's own reports.
-  /// 
+  /// Falls back to an empty list (not a crash) when offline.
+  ///
   /// REAL: GET from /api/my-reports/
   Future<List<HazardReport>> getMyReports() async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 500));
-      // Return empty list for mock mode
       return [];
     }
 
-    // REAL API CALL:
     await _ensureAuthToken();
     try {
       final response = await _apiClient.get(ApiConfig.myReportsEndpoint);
       final list = _extractList(response.data);
       return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
     } catch (e) {
-      throw Exception('Failed to fetch your reports: $e');
+      // Return empty list when offline instead of throwing.
+      return [];
     }
   }
 
@@ -434,22 +515,40 @@ class HazardService {
   }
 
   /// Get all verified (approved) hazards for map display.
-  /// 
+  /// Caches result to Hive on success; falls back to Hive cache when offline.
+  ///
   /// REAL: GET from /api/verified-hazards/
   Future<List<HazardReport>> getVerifiedHazards() async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 500));
-      // Return empty list for mock mode
       return [];
     }
 
-    // REAL API CALL:
     try {
       final response = await _apiClient.get(ApiConfig.verifiedHazardsEndpoint);
       final list = _extractList(response.data);
-      return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
+      final hazards = list
+          .map((json) => _tryParseReport(json))
+          .whereType<HazardReport>()
+          .toList();
+
+      // Cache for offline use
+      await _storageService.saveVerifiedHazards(
+        hazards.map((h) => h.toJson()).toList(),
+      );
+      return hazards;
     } catch (e) {
-      throw Exception('Failed to fetch verified hazards: $e');
+      // Fallback to Hive cache when offline or server error
+      final cached = await _storageService.getCachedVerifiedHazards();
+      if (cached != null && cached.isNotEmpty) {
+        print('Offline: returning ${cached.length} cached verified hazard(s)');
+        return cached
+            .map((json) => _tryParseReport(json))
+            .whereType<HazardReport>()
+            .toList();
+      }
+      // Empty list — do not crash the app when no data is available
+      return [];
     }
   }
 

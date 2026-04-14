@@ -29,23 +29,34 @@ Widget reportMediaListThumb(HazardReport report, {double size = 56}) {
 }
 
 Widget _buildImageFromUrl(String url, {double? width, double? height, BoxFit fit = BoxFit.cover}) {
+  // Handle data URLs (base64)
   if (url.startsWith('data:image')) {
     try {
       final i = url.indexOf(',');
-      if (i < 0) return _brokenImage(width, height);
+      if (i < 0) {
+        print('Error: Invalid data URL format (no comma separator)');
+        return _brokenImage(width, height);
+      }
       final bytes = base64Decode(url.substring(i + 1));
       return Image.memory(
         bytes,
         width: width,
         height: height,
         fit: fit,
-        errorBuilder: (_, __, ___) => _brokenImage(width, height),
+        errorBuilder: (_, __, ___) {
+          print('Error: Failed to decode base64 image');
+          return _brokenImage(width, height);
+        },
       );
-    } catch (_) {
+    } catch (e) {
+      print('Error: Exception decoding base64 image: $e');
       return _brokenImage(width, height);
     }
   }
+  
+  // Handle HTTP URLs
   if (url.startsWith('http://') || url.startsWith('https://')) {
+    print('Loading image from URL: $url');
     return Image.network(
       url,
       width: width,
@@ -56,12 +67,24 @@ Widget _buildImageFromUrl(String url, {double? width, double? height, BoxFit fit
         return SizedBox(
           width: width,
           height: height,
-          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          child: Center(
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                  : null,
+            ),
+          ),
         );
       },
-      errorBuilder: (_, __, ___) => _brokenImage(width, height),
+      errorBuilder: (context, error, stackTrace) {
+        print('Error loading image from $url: $error');
+        return _brokenImage(width, height);
+      },
     );
   }
+  
+  print('Error: Unsupported URL format: ${url.substring(0, url.length > 50 ? 50 : url.length)}');
   return _brokenImage(width, height);
 }
 
@@ -70,7 +93,17 @@ Widget _brokenImage(double? width, double? height) {
     width: width,
     height: height,
     color: Colors.grey[300],
-    child: Icon(Icons.broken_image_outlined, color: Colors.grey[600]),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.broken_image_outlined, color: Colors.grey[600], size: 32),
+        const SizedBox(height: 4),
+        Text(
+          'Image unavailable',
+          style: TextStyle(color: Colors.grey[700], fontSize: 11),
+        ),
+      ],
+    ),
   );
 }
 

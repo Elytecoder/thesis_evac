@@ -187,10 +187,15 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         from apps.users.models import EmailVerificationCode
         email = data.get('email')
         code = data.get('verification_code')
-        
-        if not EmailVerificationCode.verify_code(email, code):
+
+        result = EmailVerificationCode.verify_code(email, code)
+        if result == 'expired':
             raise serializers.ValidationError({
-                "verification_code": "Invalid or expired verification code"
+                "verification_code": "Verification code has expired. Please request a new one."
+            })
+        if result == 'invalid':
+            raise serializers.ValidationError({
+                "verification_code": "Invalid or already-used verification code."
             })
         
         return data
@@ -217,9 +222,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         validated_data['email_verified_at'] = timezone.now()
         validated_data['is_active'] = True  # Activate after email verification
         
-        user = User.objects.create_user(**validated_data)
-        user.set_password(password)
-        user.save()
+        # Pass password directly to create_user — it hashes and saves in one step.
+        user = User.objects.create_user(password=password, **validated_data)
         return user
 
 

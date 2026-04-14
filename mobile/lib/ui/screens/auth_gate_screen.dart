@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/auth/session_storage.dart';
 import '../../features/authentication/auth_service.dart';
@@ -50,6 +53,23 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
       return;
     }
 
+    // Use cached profile to avoid a network call on every startup.
+    // If no cache exists (or it fails to parse), fall back to the API.
+    final cachedRole = await _getCachedRole();
+    if (cachedRole != null) {
+      final isMdrrmo = cachedRole == UserRole.mdrrmo.value;
+      // Set auth token on shared client so subsequent API calls work.
+      _authService.restoreTokenOnClient(token);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _home = isMdrrmo ? const AdminHomeScreen() : const MapScreen();
+        });
+      }
+      return;
+    }
+
+    // Cache miss — fetch from API and cache the result.
     try {
       final profile = await _authService.getCurrentUser();
       final roleStr = (profile['role'] as String?)?.toLowerCase() ?? 'resident';
@@ -67,6 +87,20 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
         _loading = false;
         _home = const WelcomeScreen();
       });
+    }
+  }
+
+  /// Returns the role string from the cached profile, or null if unavailable.
+  Future<String?> _getCachedRole() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = prefs.getString('user_profile');
+      if (json == null || json.isEmpty) return null;
+      final map = jsonDecode(json) as Map<String, dynamic>;
+      final role = map['role'] as String?;
+      return role?.toLowerCase();
+    } catch (_) {
+      return null;
     }
   }
 

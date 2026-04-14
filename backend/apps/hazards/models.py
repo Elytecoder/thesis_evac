@@ -30,9 +30,12 @@ class BaselineHazard(models.Model):
 class HazardReport(models.Model):
     """
     Crowdsourced hazard report from residents.
-    Flow: submit -> distance check (>1 km reject) -> Naive Bayes (single validation
-    algorithm with proximity and nearby-count features) -> threshold -> MDRRMO if pending.
-    consensus_score is deprecated; validation is Naive Bayes only.
+
+    Validation architecture (separate roles):
+    1) Naive Bayes: text/classification only (hazard_type + description features).
+    2) Rule scoring: distance_weight (reporter proximity), consensus_score (nearby count rule).
+    3) final_validation_score: combined NB + rules (see validation.rule_scoring).
+    4) MDRRMO approves/rejects; only APPROVED reports affect routing risk (see route_service).
     """
     class Status(models.TextChoices):
         PENDING = 'pending', 'Pending'
@@ -68,9 +71,12 @@ class HazardReport(models.Model):
     # Auto-rejection flag (set when user location is outside accepted radius)
     auto_rejected = models.BooleanField(default=False)
     
-    # AI validation scores (Naive Bayes only for report validation)
+    # Validation: NB = text-only probability; consensus_score = rule from nearby reports;
+    # distance_weight = rule from reporter–hazard proximity; final_validation_score = combined.
     naive_bayes_score = models.FloatField(null=True, blank=True)
     consensus_score = models.FloatField(null=True, blank=True)
+    distance_weight = models.FloatField(null=True, blank=True)
+    final_validation_score = models.FloatField(null=True, blank=True)
     # Optional breakdown for MDRRMO technical details (distance, nearby count, decision, etc.)
     validation_breakdown = models.JSONField(null=True, blank=True)
 
@@ -128,3 +134,49 @@ class HazardReport(models.Model):
         self.deletion_scheduled_at = None
         self.rejected_at = None
         self.save()
+    
+    @property
+    def confirmation_count(self):
+        """Get the number of confirmations for this report."""
+        return self.confirmations.count()
+    
+    def add_confirmation(self, user):
+        """Add a user confirmation to this report. Returns True if added, False if already confirmed."""
+        from django.db import IntegrityError
+        
+        try:
+            HazardConfirmation.objects.create(report=self, user=user)
+            return True
+        except IntegrityError:
+            # User already confirmed this report
+            return False
+    
+    def has_user_confirmed(self, user):
+        """Check if a specific user has already confirmed this report."""
+        return self.confirmations.filter(user=user).exists()
+
+
+class HazardConfirmation(models.Model):
+    """
+    Track user confirmations of existing hazard reports.
+    Used to reduce duplicate submissions and strengthen validation.
+    """
+    report = models.ForeignKey(
+        HazardReport,
+        on_delete=models.CASCADE,
+        related_name='confirmations',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='hazard_confirmations',
+    )
+    confirmed_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'hazards_confirmation'
+        unique_together = ('report', 'user')  # One user can only confirm once per report
+        ordering = ['-confirmed_at']
+    
+    def __str__(self):
+        return f"{self.user.username} confirmed Report #{self.report.id}"

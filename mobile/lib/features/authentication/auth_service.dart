@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
 import '../../core/config/storage_config.dart';
@@ -50,6 +51,7 @@ class AuthService {
       return user;
     }
 
+    final t0 = DateTime.now();
     try {
       final response = await _apiClient.post(
         ApiConfig.loginEndpoint,
@@ -59,15 +61,21 @@ class AuthService {
         },
       );
 
+      final elapsed = DateTime.now().difference(t0).inMilliseconds;
+      developer.log('login request completed in ${elapsed}ms', name: 'AuthService');
+
       final user = User.fromJson(response.data);
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('current_email', email.trim().toLowerCase());
+      await Future.wait([
+        prefs.setString('current_email', email.trim().toLowerCase()),
+        if (user.authToken != null)
+          SessionStorage.writeSession(
+            token: user.authToken!,
+            keepLoggedIn: keepLoggedIn,
+            userId: user.id,
+          ),
+      ]);
       if (user.authToken != null) {
-        await SessionStorage.writeSession(
-          token: user.authToken!,
-          keepLoggedIn: keepLoggedIn,
-          userId: user.id,
-        );
         _apiClient.setAuthToken(user.authToken!);
       }
       return user;
@@ -79,25 +87,21 @@ class AuthService {
   }
 
   /// Send email verification code.
-  /// 
-  /// Connects to Django API endpoint: POST /api/auth/send-verification-code/
-  Future<Map<String, dynamic>> sendVerificationCode(String email) async {
+  ///
+  /// Calls POST /api/auth/send-verification-code/
+  /// The backend sends the code via Gmail SMTP — it is NOT returned in the
+  /// response. Returns the plain success message string.
+  Future<String> sendVerificationCode(String email) async {
     try {
       final response = await _apiClient.post(
         ApiConfig.sendVerificationCodeEndpoint,
         data: {'email': email},
       );
-
-      return {
-        'message': response.data['message'],
-        'dev_code': response.data['dev_code'],
-        'code': response.data['code'],
-      };
+      return (response.data['message'] as String?) ??
+          'Verification code sent to your email';
     } on ApiException catch (e) {
-      // Pass through the specific error message from the API
       throw Exception(e.message);
-    } catch (e) {
-      // Fallback for unexpected errors
+    } catch (_) {
       throw Exception('Failed to send verification code. Please try again.');
     }
   }
@@ -147,6 +151,7 @@ class AuthService {
     }
 
     // REAL API CALL:
+    final t0 = DateTime.now();
     try {
       final response = await _apiClient.post(
         ApiConfig.registerEndpoint,
@@ -163,6 +168,9 @@ class AuthService {
           'street': street,
         },
       );
+
+      final elapsed = DateTime.now().difference(t0).inMilliseconds;
+      developer.log('register request completed in ${elapsed}ms', name: 'AuthService');
 
       final user = User.fromJson(response.data);
 
@@ -338,6 +346,12 @@ class AuthService {
   Future<bool> isLoggedIn() async {
     final token = await getAuthToken();
     return token != null && token.isNotEmpty;
+  }
+
+  /// Restore the auth token onto the shared ApiClient instance after a
+  /// cache-based session restore (no API call needed).
+  void restoreTokenOnClient(String token) {
+    _apiClient.setAuthToken(token);
   }
 
   /// Update profile (editable fields: phone_number, street only).

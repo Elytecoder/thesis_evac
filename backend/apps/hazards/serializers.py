@@ -71,12 +71,13 @@ def _reporter_barangay_for_report(obj):
 
 
 class HazardReportSerializer(serializers.ModelSerializer):
-    """Full read serializer for reports. validation_breakdown = Naive Bayes technical details only (no Random Forest)."""
+    """Full read serializer: NB + rule scores + breakdown (no Random Forest in validation)."""
 
     reporter_full_name = serializers.SerializerMethodField()
     reporter_display_id = serializers.SerializerMethodField()
     display_report_id = serializers.SerializerMethodField()
     reporter_barangay = serializers.SerializerMethodField()
+    confirmation_count = serializers.SerializerMethodField()
 
     class Meta:
         model = HazardReport
@@ -92,12 +93,15 @@ class HazardReportSerializer(serializers.ModelSerializer):
             'status',
             'naive_bayes_score',
             'consensus_score',
+            'distance_weight',
+            'final_validation_score',
             'validation_breakdown',
             'created_at',
             'reporter_full_name',
             'reporter_display_id',
             'display_report_id',
             'reporter_barangay',
+            'confirmation_count',  # Added
         )
 
     def get_reporter_full_name(self, obj):
@@ -111,7 +115,9 @@ class HazardReportSerializer(serializers.ModelSerializer):
 
     def get_reporter_barangay(self, obj):
         return _reporter_barangay_for_report(obj)
-
+    
+    def get_confirmation_count(self, obj):
+        return obj.confirmation_count
 
 class PendingReportSerializer(serializers.ModelSerializer):
     """For MDRRMO pending list. validation_breakdown used in Report Details → View Technical Details."""
@@ -120,6 +126,7 @@ class PendingReportSerializer(serializers.ModelSerializer):
     reporter_display_id = serializers.SerializerMethodField()
     display_report_id = serializers.SerializerMethodField()
     reporter_barangay = serializers.SerializerMethodField()
+    confirmation_count = serializers.SerializerMethodField()
 
     class Meta:
         model = HazardReport
@@ -135,6 +142,8 @@ class PendingReportSerializer(serializers.ModelSerializer):
             'status',
             'naive_bayes_score',
             'consensus_score',
+            'distance_weight',
+            'final_validation_score',
             'validation_breakdown',
             'created_at',
             'auto_rejected',
@@ -149,6 +158,7 @@ class PendingReportSerializer(serializers.ModelSerializer):
             'reporter_display_id',
             'display_report_id',
             'reporter_barangay',
+            'confirmation_count',  # Added
         )
 
     def get_reporter_full_name(self, obj):
@@ -162,3 +172,6 @@ class PendingReportSerializer(serializers.ModelSerializer):
 
     def get_reporter_barangay(self, obj):
         return _reporter_barangay_for_report(obj)
+    
+    def get_confirmation_count(self, obj):
+        return obj.confirmation_count

@@ -166,6 +166,11 @@ class ModifiedDijkstraService:
         return routes
 
     def _risk_level(self, total_risk: float) -> str:
+        """
+        Classify accumulated edge risk into a colour band.
+        Green < 0.3 | Yellow 0.3–0.7 | Red >= 0.7
+        (Matches route_service._risk_level_from_total thresholds.)
+        """
         if total_risk < 0.3:
             return 'Green'
         if total_risk < 0.7:

@@ -13,6 +13,8 @@ AI-powered evacuation routing API: **Django + Django REST Framework**, **SQLite*
 | **Report pipeline** | `apps/mobile_sync/services/report_service.py` |
 | **Random Forest (segment risk)** | `apps/risk_prediction/services/random_forest.py` |
 | **REST API views** | `apps/mobile_sync/views.py`, `apps/users/views.py`, `apps/system_logs/views.py`, … |
+| **Auth views (login / register)** | `apps/users/views.py` |
+| **Email backend** | `apps/users/backends.py` (authenticates by email + password) |
 
 Full tree + docs index: **[../docs/FOLDER_STRUCTURE.md](../docs/FOLDER_STRUCTURE.md)**.
 
@@ -64,7 +66,20 @@ python manage.py test --verbosity=2
 python manage.py test apps.validation
 ```
 
-Run `python manage.py test` for app-specific tests (e.g. `python manage.py test apps.validation`).
+---
+
+## Performance optimizations
+
+The following optimizations were applied to reduce API response time and server overhead:
+
+| Optimization | Detail |
+|---|---|
+| **Email DB index** | `users_user_email_idx` on `users_user.email` — login lookup uses an index instead of a full table scan (migration `0006_user_email_index`) |
+| **GZip compression** | `django.middleware.gzip.GZipMiddleware` compresses all responses — smaller JSON payloads over mobile networks |
+| **Token-only auth** | `SessionAuthentication` removed from `REST_FRAMEWORK` — eliminates session middleware overhead on every API request |
+| **Single DB write on register** | Password is now hashed and saved in one `create_user()` call instead of `create_user()` + `set_password()` + `save()` |
+| **Response-time logging** | `login` and `register` views log `"completed in XXXms"` via Python's `logging` module — visible in server logs for monitoring |
+| **Debug prints removed** | All `print()` calls in `send_verification_code` replaced with structured `logger.info()` — eliminates stdout I/O on every verification request |
 
 ---
 

@@ -1,13 +1,15 @@
 """
 Authentication API views.
 """
+import time
+import logging
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, get_user_model
-from django.core.mail import send_mail
 from django.conf import settings
 
 from .serializers import (
@@ -21,6 +23,8 @@ from .serializers import (
 from .models import EmailVerificationCode
 from apps.system_logs.models import SystemLog
 
+logger = logging.getLogger(__name__)
+
 User = get_user_model()
 
 
@@ -29,69 +33,88 @@ User = get_user_model()
 def send_verification_code(request):
     """
     POST /api/auth/send-verification-code/
-    Send email verification code.
-    Body: {email}
-    Returns: {message, expires_in}
+    Generate a 6-digit OTP and send it to the user's email via Gmail SMTP.
+
+    Body:   { "email": "user@example.com" }
+    Returns { "message": "...", "expires_in": "5 minutes" }
+
+    The code is NEVER included in the response.  In DEBUG mode without SMTP
+    credentials configured the code is printed to the server console only.
     """
     try:
-        print(f"\n=== SEND VERIFICATION CODE REQUEST ===")
-        print(f"Request data: {request.data}")
-        print(f"Request method: {request.method}")
-        print(f"Content-Type: {request.content_type}")
-        print(f"=====================================\n")
-        
         email = request.data.get('email', '').lower().strip()
-        print(f"Extracted email: '{email}'")
-        
+
         if not email:
-            print("ERROR: Email is empty")
             return Response(
                 {'error': 'Email is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Check if email already exists
-        print(f"Checking if email exists in database...")
+
         if User.objects.filter(email=email).exists():
-            print("ERROR: Email already registered")
             return Response(
                 {'error': 'Email is already registered'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Generate and save verification code
-        print(f"Creating verification code...")
+
         verification = EmailVerificationCode.create_verification(email)
-        print(f"Verification code created: {verification.code}")
-        
-        # Print to console (for server logs)
-        print(f"\n{'='*50}")
-        print(f"EMAIL VERIFICATION CODE")
-        print(f"Email: {email}")
-        print(f"Code: {verification.code}")
-        print(f"Expires in: 5 minutes")
-        print(f"{'='*50}\n")
-        
-        # Return code so app can show it when email is not configured (e.g. Render demo).
-        # When you add real email (SMTP/SendGrid), remove 'code' and 'dev_code' from the response.
-        response_data = {
+
+        # ── Send the verification email ───────────────────────────────────
+        subject = 'Your Evacuation System Verification Code'
+        message = (
+            f'Hello,\n\n'
+            f'Your email verification code is:\n\n'
+            f'  {verification.code}\n\n'
+            f'This code expires in 5 minutes.\n\n'
+            f'If you did not request this, you can safely ignore this email.\n\n'
+            f'— Bulan MDRRMO Evacuation System'
+        )
+        html_message = (
+            f'<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;'
+            f'border:1px solid #e0e0e0;border-radius:12px;padding:32px;">'
+            f'<h2 style="color:#1565C0;margin-bottom:8px;">Email Verification</h2>'
+            f'<p style="color:#555;margin-bottom:24px;">Use the code below to verify your email address.</p>'
+            f'<div style="background:#f5f5f5;border-radius:8px;padding:20px 32px;'
+            f'text-align:center;letter-spacing:8px;font-size:32px;font-weight:bold;'
+            f'color:#1565C0;">{verification.code}</div>'
+            f'<p style="color:#777;font-size:13px;margin-top:20px;">This code expires in <strong>5 minutes</strong>.</p>'
+            f'<p style="color:#999;font-size:12px;">If you did not request this, you can safely ignore this email.</p>'
+            f'</div>'
+        )
+
+        try:
+            from django.core.mail import send_mail
+            from django.conf import settings as django_settings
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=django_settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+            logger.info(f"Verification email sent to {email}")
+        except Exception as mail_err:
+            # If SMTP is not configured (console backend), log for debugging only.
+            if settings.DEBUG:
+                logger.warning(
+                    f"[DEV] SMTP not configured – code for {email}: {verification.code}"
+                )
+            else:
+                # In production, a mail failure is a hard error.
+                logger.exception(f"Failed to send verification email to {email}: {mail_err}")
+                return Response(
+                    {'error': 'Failed to send verification email. Please try again later.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        # ─────────────────────────────────────────────────────────────────
+
+        return Response({
             'message': 'Verification code sent to your email',
             'expires_in': '5 minutes',
-            'dev_code': verification.code,
-            'code': verification.code,
-        }
-        print(f"Returning success response: {response_data}")
-        
-        return Response(response_data)
-    
+        })
+
     except Exception as e:
-        print(f"\n!!! EXCEPTION OCCURRED !!!")
-        print(f"Exception type: {type(e).__name__}")
-        print(f"Exception message: {str(e)}")
-        import traceback
-        print(f"Traceback:\n{traceback.format_exc()}")
-        print(f"!!! END EXCEPTION !!!\n")
-        
+        logger.exception(f"Failed to send verification code: {e}")
         return Response(
             {'error': f'Failed to send verification code: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -107,6 +130,7 @@ def register(request):
     Body: {email, password, password_confirm, verification_code, full_name, phone_number, province, municipality, barangay, street}
     Returns: {user, token}
     """
+    t0 = time.monotonic()
     serializer = UserRegistrationSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -123,7 +147,10 @@ def register(request):
         ip_address=request.META.get('REMOTE_ADDR'),
         user_agent=request.META.get('HTTP_USER_AGENT', ''),
     )
-    
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    logger.info(f"register completed in {elapsed_ms}ms for {user.email}")
+
     return Response({
         'user': UserSerializer(user).data,
         'token': token.key,
@@ -140,6 +167,7 @@ def login(request):
     Body: {email, password}
     Returns: {user, token}
     """
+    t0 = time.monotonic()
     serializer = UserLoginSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -192,7 +220,10 @@ def login(request):
         ip_address=request.META.get('REMOTE_ADDR'),
         user_agent=request.META.get('HTTP_USER_AGENT', ''),
     )
-    
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    logger.info(f"login completed in {elapsed_ms}ms for {email}")
+
     return Response({
         'user': UserSerializer(user).data,
         'token': token.key,

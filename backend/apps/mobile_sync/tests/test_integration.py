@@ -130,7 +130,7 @@ class CompleteFlowIntegrationTests(TestCase):
         self.assertNotIn(report_id, pending_ids)
 
     def test_multiple_reports_nearby_feature(self):
-        """Test that multiple nearby reports affect Naive Bayes (nearby_count as feature)."""
+        """Multiple nearby reports raise consensus rule score (separate from Naive Bayes)."""
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.resident_token.key}')
         report1_data = {
             'hazard_type': 'flood',

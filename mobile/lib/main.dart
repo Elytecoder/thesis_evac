@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'core/storage/storage_service.dart';
+import 'core/services/sync_service.dart';
 import 'ui/screens/auth_gate_screen.dart';
 
 /// Main Entry Point
-///
-/// CURRENT: Shows welcome screen with login/register
 ///
 /// Flow:
 /// 1. Welcome Screen (app features + Login/Register button)
@@ -15,6 +14,10 @@ void main() async {
   
   // Initialize Hive for offline storage
   await StorageService.initialize();
+
+  // Start listening for connectivity changes so queued reports are automatically
+  // synced when the device comes back online.
+  SyncService().startListening();
   
   runApp(const EvacuationApp());
 }

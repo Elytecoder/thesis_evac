@@ -41,6 +41,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'django.middleware.gzip.GZipMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',  # Added for CORS - must be before CommonMiddleware
     'django.middleware.common.CommonMiddleware',
@@ -117,7 +118,6 @@ AUTHENTICATION_BACKENDS = ['apps.users.backends.EmailBackend']
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -174,8 +174,42 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# ── Email (Gmail SMTP) ────────────────────────────────────────────────────────
+# Configure via environment variables so credentials are never committed.
+#
+# Required env vars:
+#   EMAIL_HOST_USER     – your Gmail address  (e.g. yourname@gmail.com)
+#   EMAIL_HOST_PASSWORD – Gmail App Password  (NOT your real password)
+#                         Generate one at: Google Account → Security → App passwords
+#                         (Requires 2-Step Verification to be enabled)
+#
+# Optional override env vars (defaults shown):
+#   EMAIL_HOST          – defaults to smtp.gmail.com
+#   EMAIL_PORT          – defaults to 587
+#   EMAIL_USE_TLS       – defaults to True
+#   DEFAULT_FROM_EMAIL  – defaults to EMAIL_HOST_USER
+#
+# If EMAIL_HOST_USER is not set the console backend is used as a safe fallback
+# (prints emails to the terminal) so dev mode still works without credentials.
+_email_host_user = os.environ.get('EMAIL_HOST_USER', '')
+if _email_host_user:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('1', 'true', 'yes')
+    EMAIL_HOST_USER = _email_host_user
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', _email_host_user)
+else:
+    # Fallback: print emails to the terminal (safe for local dev without credentials)
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+    DEFAULT_FROM_EMAIL = 'noreply@evacsystem.local'
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Hazard media limits (enforced in apps.hazards.hazard_media and serializers).
-HAZARD_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+# Hazard report media limits
+# Updated image size to 5MB for higher quality photos
+HAZARD_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 HAZARD_VIDEO_MAX_BYTES = 10 * 1024 * 1024
 HAZARD_VIDEO_MAX_DURATION_SEC = 10
 # MP4 hazard clips: on by default; set HAZARD_VIDEO_UPLOAD=0 or false to disable.

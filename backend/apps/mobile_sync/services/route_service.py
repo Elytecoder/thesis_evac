@@ -1,7 +1,8 @@
 """
 Service for route calculation: load segments, run Modified Dijkstra, return 3 safest routes.
 Uses base risk (Random Forest / mock) plus proximity-based risk from approved hazard reports.
-Prioritizes real approved hazards; mock_training_data is fallback for base segment risk only.
+Effective segment risk = (base × 0.6) + (dynamic × 0.4), normalized to [0, 1].
+Dynamic risk is hazard-type aware; road_block forces segment risk to 1.0 (impassable).
 """
 from decimal import Decimal
 
@@ -10,6 +11,7 @@ from apps.hazards.models import HazardReport
 from apps.routing.models import RoadSegment
 from apps.routing.services import ModifiedDijkstraService
 from apps.risk_prediction.services import RoadRiskPredictor
+from apps.validation.services.rule_scoring import combine_validation_scores
 from core.utils.geo import haversine_meters
 
 # Risk evaluation layer (after Dijkstra): thresholds for warnings and labels
@@ -19,16 +21,47 @@ EXTREME_RISK_THRESHOLD = 0.9  # "Possibly Blocked" tag
 # Proximity threshold: hazards within this distance (meters) of a segment add to its risk
 HAZARD_PROXIMITY_METERS = 100
 # For path-based check: hazards within this distance (m) of any path point count as "on route"
-# 300m so hazards slightly off the straight line (e.g. curvy road) still count
 PATH_HAZARD_PROXIMITY_METERS = 300
-# Additional risk per nearby hazard (capped so total dynamic risk <= 1.0)
-HAZARD_RISK_PER_NEARBY = 0.2
+# Caps for dynamic risk accumulation before normalization
 HAZARD_RISK_CAP = 1.0
-# Path-based: risk added per hazard near the route path (capped)
-PATH_HAZARD_RISK_PER_NEARBY = 0.3
 PATH_HAZARD_RISK_CAP = 1.0
-# Number of points to interpolate from start to end for geographic hazard check (so hazards in user's region count)
+# Weights for normalized effective risk formula: (base × BASE_WEIGHT) + (dynamic × DYNAMIC_WEIGHT)
+BASE_RISK_WEIGHT = 0.6
+DYNAMIC_RISK_WEIGHT = 0.4
+# Number of points to interpolate from start to end for geographic hazard check
 GEO_PATH_INTERPOLATION_POINTS = 80
+
+# ── Improvement 2: Hazard-type aware risk weights ──────────────────────────
+# Each type contributes a different increment to dynamic risk per nearby hazard.
+# road_blocked is highest because it physically blocks passage.
+HAZARD_TYPE_RISK_WEIGHT: dict = {
+    'flooded_road':              0.3,
+    'flood':                     0.3,
+    'fallen_tree':               0.2,
+    'road_damage':               0.3,
+    'fallen_electric_post':      0.4,
+    'fallen_electric_post_wires': 0.4,
+    'road_blocked':              0.7,   # also triggers full-block logic below
+    'bridge_damage':             0.5,
+    'storm_surge':               0.5,
+    'landslide':                 0.5,
+    'other':                     0.2,
+}
+DEFAULT_HAZARD_RISK_WEIGHT = 0.2   # fallback for unknown types
+
+# ── Improvement 3: Road-block hazard types that force segment risk to 1.0 ──
+BLOCKING_HAZARD_TYPES = {'road_blocked', 'road_block'}
+
+
+def _hazard_type_weight(hazard_type: str) -> float:
+    """Return type-specific risk weight for a hazard, falling back to default."""
+    ht = (hazard_type or 'other').lower().replace(' ', '_')
+    return HAZARD_TYPE_RISK_WEIGHT.get(ht, DEFAULT_HAZARD_RISK_WEIGHT)
+
+
+def _is_blocking(hazard_type: str) -> bool:
+    """Return True if the hazard type should make the segment fully impassable."""
+    return (hazard_type or '').lower().replace(' ', '_') in BLOCKING_HAZARD_TYPES
 
 
 def _float(x):
@@ -37,6 +70,26 @@ def _float(x):
     if isinstance(x, Decimal):
         return float(x)
     return float(x)
+
+
+def _hazard_routing_impact(hazard) -> float:
+    """
+    Scale dynamic risk contribution per approved hazard using final_validation_score
+    (NB + distance + consensus rules). Legacy rows: recompute from stored parts or default.
+    """
+    f = getattr(hazard, 'final_validation_score', None)
+    if f is not None:
+        return max(0.0, min(1.0, _float(f)))
+    nb = getattr(hazard, 'naive_bayes_score', None)
+    dw = getattr(hazard, 'distance_weight', None)
+    cs = getattr(hazard, 'consensus_score', None)
+    if nb is not None or dw is not None or cs is not None:
+        return combine_validation_scores(
+            nb if nb is not None else 0.5,
+            dw if dw is not None else 0.5,
+            cs if cs is not None else 0.0,
+        )
+    return 0.7
 
 
 def _distance_point_to_segment_meters(
@@ -55,16 +108,26 @@ def _distance_point_to_segment_meters(
 
 def calculate_segment_risk(segment, hazards) -> float:
     """
-    Effective risk for a road segment: base risk + dynamic risk from approved hazards within 100 m.
-    More hazards nearby -> higher risk (capped).
+    Effective risk for a road segment combining base (Random Forest) and dynamic (approved hazards).
+
+    Improvement 1 — Normalized formula:
+        effective_risk = (base × 0.6) + (dynamic × 0.4)
+    Keeps result in [0, 1] and balances historical vs real-time signals.
+
+    Improvement 2 — Hazard-type aware weights:
+        Each hazard type contributes a different dynamic increment (see HAZARD_TYPE_RISK_WEIGHT).
+
+    Improvement 3 — Blocked road logic:
+        If any nearby hazard is road_blocked, effective_risk = 1.0 immediately,
+        forcing Dijkstra to treat this segment as impassable.
     """
-    base = _float(getattr(segment, 'predicted_risk_score', 0))
-    risk = base
-    nearby_count = 0
+    base = min(1.0, max(0.0, _float(getattr(segment, 'predicted_risk_score', 0))))
+    dynamic = 0.0
     seg_start_lat = _float(segment.start_lat)
     seg_start_lng = _float(segment.start_lng)
     seg_end_lat = _float(segment.end_lat)
     seg_end_lng = _float(segment.end_lng)
+
     for hazard in hazards:
         h_lat = _float(hazard.latitude)
         h_lng = _float(hazard.longitude)
@@ -72,35 +135,195 @@ def calculate_segment_risk(segment, hazards) -> float:
             h_lat, h_lng, seg_start_lat, seg_start_lng, seg_end_lat, seg_end_lng
         )
         if dist_m <= HAZARD_PROXIMITY_METERS:
-            nearby_count += 1
-    dynamic = min(nearby_count * HAZARD_RISK_PER_NEARBY, HAZARD_RISK_CAP)
-    return risk + dynamic
+            # Improvement 3: road_block → fully impassable, no need to keep accumulating
+            if _is_blocking(getattr(hazard, 'hazard_type', '')):
+                return 1.0
+            # Improvement 2: type-aware weight × validation impact
+            type_weight = _hazard_type_weight(getattr(hazard, 'hazard_type', ''))
+            dynamic += type_weight * _hazard_routing_impact(hazard)
+
+    dynamic = min(dynamic, HAZARD_RISK_CAP)
+    # Improvement 1: weighted blend instead of plain sum
+    return min(1.0, (base * BASE_RISK_WEIGHT) + (dynamic * DYNAMIC_RISK_WEIGHT))
 
 
-def _ensure_segment_risk_scores():
+def _recency_factor(hazard) -> float:
     """
-    If all road segments have predicted_risk_score 0, fill from Random Forest / mock training
-    so routing uses risk-aware scores.
+    Weight a hazard report by how recently it was approved.
+
+    Recent hazards are more dangerous (road conditions change fast).
+    Returns a multiplier in [0.2, 1.0]:
+        < 6 hours  → 1.0  (very fresh — full weight)
+        6-24 hours → 0.8
+        1-3 days   → 0.6
+        3-7 days   → 0.4
+        > 7 days   → 0.2  (still counts, but low weight)
+    """
+    from django.utils import timezone
+    created = getattr(hazard, 'created_at', None) or getattr(hazard, 'updated_at', None)
+    if created is None:
+        return 0.5  # unknown age → neutral
+    try:
+        hours = (timezone.now() - created).total_seconds() / 3600.0
+    except Exception:
+        return 0.5
+    if hours < 6:
+        return 1.0
+    if hours < 24:
+        return 0.8
+    if hours < 72:
+        return 0.6
+    if hours < 168:
+        return 0.4
+    return 0.2
+
+
+# Normalized type severity (HAZARD_TYPE_RISK_WEIGHT / max_weight 0.7)
+# Used to give more dangerous hazard types a higher feature contribution
+_TYPE_SEVERITY: dict = {
+    'flooded_road':               0.43,
+    'flood':                      0.43,
+    'landslide':                  0.71,
+    'fallen_tree':                0.29,
+    'road_damage':                0.43,
+    'fallen_electric_post':       0.57,
+    'fallen_electric_post_wires': 0.57,
+    'road_blocked':               1.00,
+    'road_block':                 1.00,
+    'bridge_damage':              0.71,
+    'storm_surge':                0.71,
+    'other':                      0.29,
+}
+
+
+def _compute_segment_rf_features(segment, approved_hazards: list) -> dict:
+    """
+    Compute Random Forest input features for a single road segment.
+
+    Each nearby approved HazardReport contributes a WEIGHTED value (not a flat +1):
+        contribution = recency_factor × type_severity_factor
+
+    recency_factor: 1.0 (< 6 h) down to 0.2 (> 7 days) — recent reports matter more
+    type_severity:  normalized HAZARD_TYPE_RISK_WEIGHT — serious types count more
+
+    Result: feature values are floats in [0, N] reflecting both quantity and quality
+    of nearby hazard evidence, rather than raw integer counts.
+
+    # Using synthetic training data (temporary)
+    # Replace with MDRRMO historical data when available
+    """
+    SEGMENT_FEATURE_RADIUS_M = 200  # hazards within 200 m of segment midpoint
+
+    TYPE_TO_FEATURE = {
+        'flooded_road':               'flooded_road_count',
+        'flood':                      'flooded_road_count',
+        'landslide':                  'landslide_count',
+        'fallen_tree':                'fallen_tree_count',
+        'road_damage':                'road_damage_count',
+        'fallen_electric_post':       'fallen_electric_post_count',
+        'fallen_electric_post_wires': 'fallen_electric_post_count',
+        'road_blocked':               'road_blocked_count',
+        'road_block':                 'road_blocked_count',
+        'bridge_damage':              'bridge_damage_count',
+        'storm_surge':                'storm_surge_count',
+    }
+
+    mid_lat = (_float(segment.start_lat) + _float(segment.end_lat)) / 2
+    mid_lng = (_float(segment.start_lng) + _float(segment.end_lng)) / 2
+
+    counts = {
+        'flooded_road_count': 0.0,
+        'landslide_count': 0.0,
+        'fallen_tree_count': 0.0,
+        'road_damage_count': 0.0,
+        'fallen_electric_post_count': 0.0,
+        'road_blocked_count': 0.0,
+        'bridge_damage_count': 0.0,
+        'storm_surge_count': 0.0,
+    }
+    severity_sum = 0.0
+    incident_count = 0
+
+    for hazard in approved_hazards:
+        dist_m = haversine_meters(
+            mid_lat, mid_lng,
+            _float(hazard.latitude), _float(hazard.longitude),
+        )
+        if dist_m <= SEGMENT_FEATURE_RADIUS_M:
+            incident_count += 1
+            ht = (getattr(hazard, 'hazard_type', '') or '').lower().replace(' ', '_')
+            feature_key = TYPE_TO_FEATURE.get(ht)
+            if feature_key:
+                recency  = _recency_factor(hazard)
+                severity = _TYPE_SEVERITY.get(ht, 0.29)
+                counts[feature_key] += recency * severity
+            sev = (
+                _float(getattr(hazard, 'final_validation_score', None))
+                or _float(getattr(hazard, 'naive_bayes_score', None))
+                or 0.5
+            )
+            severity_sum += sev
+
+    counts['avg_severity'] = round(severity_sum / incident_count, 4) if incident_count > 0 else 0.0
+    return counts
+
+
+def recompute_all_segment_risks():
+    """
+    Force-recompute predicted_risk_score for every road segment using the RF model.
+
+    Called by the update_segment_risks management command and after model retraining.
+    Features per segment are derived from nearby approved HazardReports.
+
+    # Using synthetic training data (temporary)
+    # Replace with MDRRMO historical data when available
+    """
+    _ensure_segment_risk_scores(force=True)
+
+
+def _ensure_segment_risk_scores(force: bool = False):
+    """
+    Fill predicted_risk_score for all road segments using Random Forest (ml_service).
+
+    Features per segment are derived from nearby approved HazardReports.
+
+    force=False (default): only runs when ALL segments have risk score 0 (first boot).
+    force=True           : always recomputes — used by update_segment_risks command.
+
+    # Using synthetic training data (temporary)
+    # Replace with MDRRMO historical data when available
     """
     segments = list(RoadSegment.objects.all())
     if not segments:
         return
-    if any(getattr(s, 'predicted_risk_score', 0) != 0 for s in segments):
+    if not force and any(getattr(s, 'predicted_risk_score', 0) != 0 for s in segments):
         return
+
     predictor = RoadRiskPredictor()
-    predictor.train()
-    import json
-    from pathlib import Path
-    from django.conf import settings
-    path = getattr(settings, 'MOCK_DATA_DIR', Path(__file__).resolve().parent.parent.parent.parent / 'mock_data') / 'mock_training_data.json'
-    if path.exists():
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        risk_by_id = {r['segment_id']: r['risk_score'] for r in data.get('road_risk_training', [])}
-        for i, seg in enumerate(segments, start=1):
-            risk = risk_by_id.get(i, predictor.predict_risk(0, 0))
-            seg.predicted_risk_score = risk
-            seg.save(update_fields=['predicted_risk_score'])
+    approved_hazards = list(HazardReport.objects.filter(
+        status=HazardReport.Status.APPROVED
+    ).only('latitude', 'longitude', 'hazard_type',
+           'final_validation_score', 'naive_bayes_score'))
+
+    bulk_update = []
+    for seg in segments:
+        f = _compute_segment_rf_features(seg, approved_hazards)
+        risk = predictor.predict_risk(
+            flooded_road_count=f['flooded_road_count'],
+            landslide_count=f['landslide_count'],
+            fallen_tree_count=f['fallen_tree_count'],
+            road_damage_count=f['road_damage_count'],
+            fallen_electric_post_count=f['fallen_electric_post_count'],
+            road_blocked_count=f['road_blocked_count'],
+            bridge_damage_count=f['bridge_damage_count'],
+            storm_surge_count=f['storm_surge_count'],
+            avg_severity=f['avg_severity'],
+        )
+        seg.predicted_risk_score = risk
+        bulk_update.append(seg)
+
+    if bulk_update:
+        RoadSegment.objects.bulk_update(bulk_update, ['predicted_risk_score'])
 
 
 def _get_approved_hazards():
@@ -133,8 +356,7 @@ def _path_based_hazard_risk(path_points, hazards) -> float:
     """
     if not path_points or not hazards:
         return 0.0
-    # Sample path so we don't miss hazards between segment nodes; use every point
-    nearby_count = 0
+    total = 0.0
     seen_hazard_ids = set()
     for pt in path_points:
         if len(pt) < 2:
@@ -147,17 +369,31 @@ def _path_based_hazard_risk(path_points, hazards) -> float:
             dist_m = haversine_meters(pt_lat, pt_lng, _float(h.latitude), _float(h.longitude))
             if dist_m <= PATH_HAZARD_PROXIMITY_METERS:
                 seen_hazard_ids.add(h_id)
-                nearby_count += 1
-    return min(nearby_count * PATH_HAZARD_RISK_PER_NEARBY, PATH_HAZARD_RISK_CAP)
+                # Improvement 2: use type-aware weight for path-based risk too
+                type_weight = _hazard_type_weight(getattr(h, 'hazard_type', ''))
+                total += type_weight * _hazard_routing_impact(h)
+    return min(total, PATH_HAZARD_RISK_CAP)
 
 
 def _risk_level_from_total(total_risk: float) -> str:
-    """Classify total_risk into Green / Yellow / Red (same as Dijkstra)."""
+    """Classify total_risk into Green / Yellow / Red (matches Dijkstra classification)."""
     if total_risk < 0.3:
         return 'Green'
     if total_risk < 0.7:
         return 'Yellow'
     return 'Red'
+
+
+def _route_label_from_hazard_count(hazard_count: int, total_risk: float) -> str:
+    """
+    Improvement 4: descriptive route label based on number of hazards along the route.
+    Falls back to risk-based label when hazard count is unavailable.
+    """
+    if hazard_count == 0:
+        return 'Safe route (no nearby hazards)'
+    if hazard_count <= 2:
+        return 'Moderate risk (1\u20132 hazards nearby)'
+    return 'High risk (multiple hazards detected)'
 
 
 def _path_length_meters(path_points) -> float:
@@ -226,6 +462,81 @@ def _severity_from_hazard_type(hazard_type: str) -> str:
     return 'Low'
 
 
+def _build_route_explanation(hazards_along_route: list, total_risk: float) -> str:
+    """
+    Generate a plain-English explanation of what hazards affect this route.
+
+    Instead of showing only a risk score or generic "Flood Risk" label, this gives
+    the resident (and MDRRMO) a specific, readable summary:
+        "2 flood hazards and 1 landslide detected nearby. High risk — consider an alternative."
+
+    Used as the 'explanation' field in the route API response.
+    """
+    HAZARD_LABELS = {
+        'flooded_road':           ('flood hazard',         'flood hazards'),
+        'flood':                  ('flood hazard',         'flood hazards'),
+        'landslide':              ('landslide',            'landslides'),
+        'fallen_tree':            ('fallen tree',          'fallen trees'),
+        'road_damage':            ('road damage',          'road damage areas'),
+        'fallen_electric_post':   ('fallen electric post', 'fallen electric posts'),
+        'fallen_electric_post_wires': ('fallen electric post', 'fallen electric posts'),
+        'road_blocked':           ('road blockage',        'road blockages'),
+        'road_block':             ('road blockage',        'road blockages'),
+        'bridge_damage':          ('bridge damage',        'bridge damages'),
+        'storm_surge':            ('storm surge',          'storm surges'),
+        'other':                  ('unidentified hazard',  'unidentified hazards'),
+    }
+    # Severity order: most dangerous type listed first
+    SEVERITY_ORDER = [
+        'road_blocked', 'road_block', 'bridge_damage', 'storm_surge', 'landslide',
+        'fallen_electric_post', 'fallen_electric_post_wires',
+        'flooded_road', 'flood', 'road_damage', 'fallen_tree', 'other',
+    ]
+
+    if not hazards_along_route:
+        if total_risk < 0.3:
+            return 'No hazards detected along this route. This appears to be a safe path.'
+        return 'Route appears safe. No verified hazards detected nearby.'
+
+    # Count by type
+    type_counts: dict = {}
+    for h in hazards_along_route:
+        ht = (h.get('hazard_type') or 'other').lower().replace(' ', '_')
+        type_counts[ht] = type_counts.get(ht, 0) + 1
+
+    # Build parts in severity order
+    parts = []
+    seen = set()
+    for ht in SEVERITY_ORDER:
+        if ht in type_counts and ht not in seen:
+            seen.add(ht)
+            count = type_counts[ht]
+            singular, plural = HAZARD_LABELS.get(ht, (ht, ht + 's'))
+            label = plural if count > 1 else singular
+            parts.append(f'{count} {label}')
+
+    if len(parts) == 0:
+        detected = 'hazard(s) detected'
+    elif len(parts) == 1:
+        detected = parts[0]
+    elif len(parts) == 2:
+        detected = f'{parts[0]} and {parts[1]}'
+    else:
+        detected = ', '.join(parts[:-1]) + f', and {parts[-1]}'
+
+    if total_risk >= EXTREME_RISK_THRESHOLD:
+        return (
+            f'Warning: Route may be blocked. Detected nearby: {detected}. '
+            'Exercise extreme caution or choose an alternative route.'
+        )
+    if total_risk >= HIGH_RISK_THRESHOLD:
+        return (
+            f'High risk route. Detected nearby: {detected}. '
+            'Consider choosing an alternative route if possible.'
+        )
+    return f'Detected nearby: {detected}. Proceed with caution.'
+
+
 def _build_contributing_factors(hazards_along_route: list) -> list:
     """Build contributing_factors for a route from hazards_along_route (for API response)."""
     out = []
@@ -285,6 +596,8 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         ec = EvacuationCenter.objects.get(pk=evacuation_center_id)
     except EvacuationCenter.DoesNotExist:
         return None
+    if not ec.is_operational:
+        return None  # Deactivated centers are never used for routing
     _ensure_segment_risk_scores()
     segments = list(RoadSegment.objects.all())
     approved_hazards = _get_approved_hazards()
@@ -340,11 +653,11 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         r['total_distance'] = total_dist
 
         path_risk = _path_based_hazard_risk(path, approved_hazards)
-        # Include geographic risk so hazard presence between user and EC raises risk (avoids recommending hazardous route as safe)
+        # Include geographic risk so hazard presence between user and EC raises risk
         path_risk = max(path_risk, path_risk_from_geo)
         total = r.get('total_risk') or 0.0
         total += path_risk
-        r['total_risk'] = total
+        r['total_risk'] = min(1.0, max(0.0, total))  # always clamped to [0, 1]
         r['risk_level'] = _risk_level_from_total(total)
         r['hazards_along_route'] = _hazards_along_path(path, approved_hazards) or hazards_along_geo
 
@@ -354,9 +667,12 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
     # —— Risk evaluation layer (after Dijkstra): no algorithm changes, only evaluation and metadata ——
     for r in routes:
         tr = _float(r.get('total_risk'))
-        r['risk_label'] = 'High Risk' if tr >= HIGH_RISK_THRESHOLD else 'Safer Route'
+        hazards_on_route = r.get('hazards_along_route') or []
+        hazard_count = len(hazards_on_route)
+        r['risk_label'] = _route_label_from_hazard_count(hazard_count, tr)
         r['possibly_blocked'] = tr > EXTREME_RISK_THRESHOLD
-        r['contributing_factors'] = _build_contributing_factors(r.get('hazards_along_route') or [])
+        r['contributing_factors'] = _build_contributing_factors(hazards_on_route)
+        r['explanation'] = _build_route_explanation(hazards_on_route, tr)
 
     high_risk_routes = [r for r in routes if _float(r.get('total_risk')) >= HIGH_RISK_THRESHOLD]
     no_safe_route = len(routes) > 0 and len(high_risk_routes) == len(routes)

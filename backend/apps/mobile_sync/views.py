@@ -177,14 +177,22 @@ def calculate_route(request):
             {'error': 'Evacuation center not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
-    # Optionally log the selected route (e.g. first one) for analytics
+    # Log selected route for analytics in background (non-blocking)
     first_route = result['routes'][0] if result['routes'] else None
     if first_route:
-        RouteLog.objects.create(
-            user=request.user,
-            evacuation_center_id=ec_id,
-            selected_route_risk=first_route.get('total_risk', 0),
-        )
+        import threading
+        _user_id = request.user.pk
+        _risk = first_route.get('total_risk', 0)
+        def _log_route():
+            try:
+                RouteLog.objects.create(
+                    user_id=_user_id,
+                    evacuation_center_id=ec_id,
+                    selected_route_risk=_risk,
+                )
+            except Exception:
+                pass
+        threading.Thread(target=_log_route, daemon=True).start()
     return Response(result)
 
 
@@ -388,6 +396,187 @@ def verified_hazards(request):
     qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED).select_related('user')
     serializer = HazardReportSerializer(qs, many=True)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def check_similar_reports(request):
+    """
+    POST /api/check-similar-reports/
+    Check for similar pending reports near a location.
+    Body: {hazard_type, latitude, longitude, radius_meters}
+    Returns: List of similar pending reports
+    """
+    from math import radians, cos, sin, asin, sqrt
+    
+    hazard_type = request.data.get('hazard_type')
+    latitude = request.data.get('latitude')
+    longitude = request.data.get('longitude')
+    radius_meters = request.data.get('radius_meters', 100)  # Default 100m
+    
+    if not all([hazard_type, latitude, longitude]):
+        return Response(
+            {'error': 'hazard_type, latitude, and longitude required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+        radius_meters = float(radius_meters)
+    except (ValueError, TypeError):
+        return Response(
+            {'error': 'Invalid coordinates'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Haversine formula to calculate distance
+    def haversine_distance(lat1, lon1, lat2, lon2):
+        """Calculate distance between two coordinates in meters."""
+        R = 6371000  # Earth radius in meters
+        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * asin(sqrt(a))
+        return R * c
+    
+    # Find similar pending reports
+    similar_reports = []
+    pending_reports = HazardReport.objects.filter(
+        status=HazardReport.Status.PENDING,
+        hazard_type=hazard_type,
+        auto_rejected=False,
+    ).select_related('user')
+    
+    for report in pending_reports:
+        distance = haversine_distance(
+            latitude, longitude,
+            float(report.latitude), float(report.longitude)
+        )
+        
+        if distance <= radius_meters:
+            report_data = HazardReportSerializer(report).data
+            report_data['distance_meters'] = round(distance, 2)
+            report_data['confirmation_count'] = report.confirmation_count
+            report_data['has_user_confirmed'] = report.has_user_confirmed(request.user)
+            similar_reports.append(report_data)
+    
+    # Sort by confirmation count (most confirmed first)
+    similar_reports.sort(key=lambda x: x['confirmation_count'], reverse=True)
+    
+    return Response({
+        'similar_reports': similar_reports,
+        'count': len(similar_reports),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def confirm_hazard_report(request):
+    """
+    POST /api/confirm-hazard-report/
+    Confirm an existing hazard report instead of submitting a duplicate.
+    Body: {report_id}
+    Returns: Updated report with confirmation count
+    """
+    report_id = request.data.get('report_id')
+    
+    if not report_id:
+        return Response(
+            {'error': 'report_id is required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        report = HazardReport.objects.get(pk=report_id)
+    except HazardReport.DoesNotExist:
+        return Response(
+            {'error': 'Report not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Only allow confirming pending reports
+    if report.status != HazardReport.Status.PENDING:
+        return Response(
+            {'error': 'Can only confirm pending reports'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Cannot confirm your own report
+    if report.user == request.user:
+        return Response(
+            {'error': 'Cannot confirm your own report'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Add confirmation
+    added = report.add_confirmation(request.user)
+    
+    if not added:
+        return Response(
+            {'error': 'You have already confirmed this report'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Recalculate validation scores with new confirmation count
+    from apps.mobile_sync.services.report_service import process_new_report
+    try:
+        # Re-run validation with updated confirmation count
+        from apps.validation.services.consensus import ConsensusScoringService
+        from apps.validation.services.rule_scoring import consensus_rule_score, combine_validation_scores
+        
+        consensus = ConsensusScoringService()
+        nearby = consensus.count_nearby_reports(
+            float(report.latitude), float(report.longitude),
+            HazardReport.objects.exclude(id=report.id),
+            exclude_report_id=report.id,
+            time_window_hours=1,
+            hazard_type=report.hazard_type,
+        )
+        
+        # Update consensus score with new confirmation count
+        confirmation_count = report.confirmation_count
+        consensus_score_val = consensus_rule_score(nearby, confirmation_count)
+        
+        # Recalculate final score
+        final_score = combine_validation_scores(
+            report.naive_bayes_score or 0.5,
+            report.distance_weight or 0.5,
+            consensus_score_val
+        )
+        
+        # Update report scores
+        report.consensus_score = consensus_score_val
+        report.final_validation_score = final_score
+        
+        # Update breakdown
+        if report.validation_breakdown:
+            report.validation_breakdown['confirmation_count'] = confirmation_count
+            report.validation_breakdown['consensus_rule_score'] = round(consensus_score_val, 4)
+            report.validation_breakdown['final_probability'] = round(final_score, 4)
+        
+        report.save(update_fields=['consensus_score', 'final_validation_score', 'validation_breakdown'])
+    except Exception as e:
+        print(f"Warning: Could not recalculate scores: {e}")
+    
+    # Log the confirmation
+    from apps.system_logs.models import SystemLog
+    SystemLog.log_action(
+        action=SystemLog.Action.HAZARD_SUBMIT,
+        module=SystemLog.Module.HAZARD_REPORTS,
+        user=request.user,
+        description=f'User confirmed hazard report #{report.id} (total confirmations: {confirmation_count})',
+        related_object_type='HazardReport',
+        related_object_id=report.id,
+    )
+    
+    # Return updated report with confirmation count
+    report_data = HazardReportSerializer(report).data
+    report_data['confirmation_count'] = report.confirmation_count
+    report_data['message'] = f'Hazard confirmation recorded successfully! {confirmation_count} users have confirmed this hazard.'
+    
+    return Response(report_data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])

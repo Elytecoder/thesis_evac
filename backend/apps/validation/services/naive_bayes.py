@@ -1,32 +1,38 @@
 """
-Naive Bayes validation for crowdsourced hazard reports.
+Naive Bayes for hazard report validation — TEXT / CLASSIFICATION ONLY.
 
-Validation is now fully handled by this single algorithm with integrated
-proximity and consensus features (as input features, not separate formulas).
+Primary implementation: sklearn MultinomialNB + CountVectorizer (ml_service).
+    Input  = hazard_type + ' ' + description (full text, bag-of-words).
+    Output = P(valid | text) in [0, 1].
 
-Features: hazard_type, description_length (bucketed), distance_category,
-nearby_similar_report_count_category, optional time_of_report.
-Output: P(valid | report) in [0, 1]. Score is stored for MDRRMO; report status
-is set by MDRRMO (no auto-approve/auto-reject by score in this module).
+Fallback (classic): manual Bayes with hazard_type + description_length bucket.
+    Used only if ml_service models are not trained yet.
+
+# Using synthetic training data (temporary)
+# Replace with MDRRMO historical data when available
+
+NOT included by design:
+- distance        — handled by rule_scoring.reporter_proximity_weight
+- nearby count    — handled by rule_scoring.consensus_rule_score
+- confirmations   — handled by rule_scoring.consensus_rule_score
 
 TO REPLACE WITH REAL MDRRMO DATA:
-1. Load historical MDRRMO-verified reports (CSV/DB) with same feature schema.
-2. Call train() with real data, persist model (e.g. joblib) if needed.
-3. Re-run training when new verified data is available.
+1. Collect MDRRMO-verified hazard reports: hazard_type, description, is_valid (0/1).
+2. Add rows to ml_data/naive_bayes_dataset.csv (or replace it entirely).
+3. Run: python manage.py train_ml_models --nb-only --force
 """
 import json
+import logging
 from pathlib import Path
 from typing import Any, List, Dict
 
-# Default path; overridden by Django settings when used in app
-MOCK_TRAINING_PATH = Path(__file__).resolve().parent.parent.parent.parent / 'mock_data' / 'mock_training_data.json'
+logger = logging.getLogger(__name__)
 
-# Feature names used for training and prediction
-FEATURE_NAMES = ('hazard_type', 'desc_bucket', 'distance_category', 'nearby_count_category')
-OPTIONAL_FEATURES = ('time_of_report',)  # Optional; bucket by hour or part-of-day if present
+MOCK_TRAINING_PATH = Path(__file__).resolve().parent.parent.parent.parent / 'mock_data' / 'mock_training_data.json'
 
 
 def _bucket_desc_len(length: int) -> str:
+    """Bucket description character count into three quality tiers."""
     if length < 20:
         return 'short'
     if length < 60:
@@ -35,7 +41,7 @@ def _bucket_desc_len(length: int) -> str:
 
 
 def _bucket_nearby_count(count: int) -> str:
-    """Convert nearby similar report count to category for Naive Bayes."""
+    """Legacy export for tests; not used in NB features."""
     if count == 0:
         return 'none'
     if count <= 2:
@@ -47,10 +53,16 @@ def _bucket_nearby_count(count: int) -> str:
 
 class NaiveBayesValidator:
     """
-    Single Naive Bayes classifier for report validation.
-    Features: hazard_type, description_length (bucketed), distance_category,
-    nearby_similar_report_count_category, optional time_of_report.
+    Naive Bayes: hazard_type + description_length bucket only.
+
+    Bayes rule applied:
+        P(valid | features) ∝ P(valid) × P(hazard_type | valid) × P(desc_bucket | valid)
+        P(invalid | features) ∝ P(invalid) × P(hazard_type | invalid) × P(desc_bucket | invalid)
+        score = P(valid | features) / (P(valid | features) + P(invalid | features))
+
+    Laplace smoothing (k=0.5) prevents zero probabilities for unseen feature values.
     """
+
     _bucket_desc_len = staticmethod(_bucket_desc_len)
 
     def __init__(self):
@@ -59,7 +71,6 @@ class NaiveBayesValidator:
         self._trained = False
 
     def _load_mock_training(self, path: Path = None) -> list:
-        """Load training data from mock JSON. TO REPLACE: Load from DB or MDRRMO CSV."""
         path = path or MOCK_TRAINING_PATH
         if not path.exists():
             return []
@@ -69,8 +80,8 @@ class NaiveBayesValidator:
 
     def train(self, training_data: List[Dict] = None) -> None:
         """
-        Train on list of dicts with keys: hazard_type, description_length (or description),
-        valid; optionally distance_category, nearby_similar_report_count_category, time_of_report.
+        Train on dicts with: hazard_type, description_length or description, valid.
+        Any extra keys (time_of_report, distance_*, nearby_*) are silently ignored.
         """
         if training_data is None:
             training_data = self._load_mock_training()
@@ -83,34 +94,23 @@ class NaiveBayesValidator:
         self._class_prior['valid'] = valid_count / total if total else 0.5
         self._class_prior['invalid'] = 1 - self._class_prior['valid']
 
-        # Count features per class (include optional features if present in data)
         valid_feats: Dict[str, Dict[str, int]] = {
-            'hazard_type': {}, 'desc_bucket': {},
-            'distance_category': {}, 'nearby_count_category': {},
-            'time_bucket': {},
+            'hazard_type': {},
+            'desc_bucket': {},
         }
         invalid_feats: Dict[str, Dict[str, int]] = {
-            'hazard_type': {}, 'desc_bucket': {},
-            'distance_category': {}, 'nearby_count_category': {},
-            'time_bucket': {},
+            'hazard_type': {},
+            'desc_bucket': {},
         }
 
         for r in training_data:
             ht = r.get('hazard_type', 'unknown')
             desc_len = r.get('description_length', len(r.get('description', '')))
             bucket = _bucket_desc_len(desc_len)
-            dist_cat = r.get('distance_category', 'unknown')
-            nearby_cat = r.get('nearby_similar_report_count_category', r.get('nearby_count_category', 'unknown'))
-            time_bucket = r.get('time_of_report', r.get('time_bucket', 'unknown'))
-            if isinstance(time_bucket, (int, float)):
-                time_bucket = 'day' if 6 <= time_bucket < 22 else 'night'
 
             target = valid_feats if r.get('valid') else invalid_feats
             target['hazard_type'][ht] = target['hazard_type'].get(ht, 0) + 1
             target['desc_bucket'][bucket] = target['desc_bucket'].get(bucket, 0) + 1
-            target['distance_category'][dist_cat] = target['distance_category'].get(dist_cat, 0) + 1
-            target['nearby_count_category'][nearby_cat] = target['nearby_count_category'].get(nearby_cat, 0) + 1
-            target['time_bucket'][str(time_bucket)] = target['time_bucket'].get(str(time_bucket), 0) + 1
 
         self._feature_likelihood = {
             'valid': {**valid_feats, 'valid_total': valid_count, 'invalid_total': total - valid_count},
@@ -120,60 +120,66 @@ class NaiveBayesValidator:
 
     def validate_report(self, report_data: Dict[str, Any]) -> float:
         """
-        Return P(valid | report) in [0, 1].
-        report_data: hazard_type, description or description_length,
-                     distance_category (optional), nearby_similar_report_count_category (optional),
-                     time_of_report (optional).
+        Compute P(valid | hazard_type, description).
+
+        Primary path: sklearn MultinomialNB via ml_service (CountVectorizer on full text).
+        Fallback: manual Bayes on hazard_type + description_length bucket.
+
+        Parameters
+        ----------
+        report_data : dict with keys:
+            - hazard_type        (str)
+            - description        (str, optional)
+            - description_length (int, optional)
+
+        Returns
+        -------
+        float in [0, 1] — probability the report is valid based on text features.
+
+        # Using synthetic training data (temporary)
+        # Replace with MDRRMO historical data when available
         """
+        hazard_type = report_data.get('hazard_type', 'other') or 'other'
+        description = report_data.get('description', '') or ''
+
+        # ── Primary: sklearn MultinomialNB via ml_service ─────────────────────
+        try:
+            from ml_data.ml_service import get_ml_service
+            score = get_ml_service().predict_naive_bayes(hazard_type, description)
+            if score is not None:
+                return score
+        except Exception as e:
+            logger.warning('ml_service NB unavailable, using fallback: %s', e)
+
+        # ── Fallback: classic manual Bayes (hazard_type + desc_length bucket) ─
         if not self._trained:
             self.train()
 
-        hazard_type = report_data.get('hazard_type', 'unknown')
-        desc = report_data.get('description', '')
-        desc_len = report_data.get('description_length', len(desc))
+        desc_len = report_data.get('description_length', len(description))
         bucket = _bucket_desc_len(desc_len)
-        distance_category = report_data.get('distance_category', 'unknown')
-        nearby_category = report_data.get('nearby_similar_report_count_category', report_data.get('nearby_count_category', 'unknown'))
-        time_val = report_data.get('time_of_report')
-        if time_val is None:
-            time_bucket = 'unknown'
-        elif isinstance(time_val, (int, float)) and 6 <= time_val < 22:
-            time_bucket = 'day'
-        elif isinstance(time_val, (int, float)):
-            time_bucket = 'night'
-        else:
-            time_bucket = str(time_val)
 
         p_valid = self._class_prior.get('valid', 0.5)
         p_invalid = self._class_prior.get('invalid', 0.5)
         v = self._feature_likelihood.get('valid', {})
         inv = self._feature_likelihood.get('invalid', {})
-        k = 0.5
-        n_valid = (v.get('valid_total') or 0) + 1
-        n_invalid = (inv.get('invalid_total') or 0) + 1
+        k = 0.5  # Laplace smoothing factor
 
         def lik(d: dict, key: str, val: str) -> float:
             counts = d.get(key, {})
             total = sum(counts.values()) or 1
-            return (counts.get(val, 0) + k) / (total + k * 10)
+            return (counts.get(val, 0) + k) / (total + k * len(counts.keys() or [val]))
 
-        v_ht = lik(v, 'hazard_type', hazard_type)
-        v_desc = lik(v, 'desc_bucket', bucket)
-        v_dist = lik(v, 'distance_category', distance_category)
-        v_nearby = lik(v, 'nearby_count_category', nearby_category)
-        v_time = lik(v, 'time_bucket', time_bucket)
-        i_ht = lik(inv, 'hazard_type', hazard_type)
+        v_ht   = lik(v,   'hazard_type', hazard_type)
+        v_desc = lik(v,   'desc_bucket', bucket)
+        i_ht   = lik(inv, 'hazard_type', hazard_type)
         i_desc = lik(inv, 'desc_bucket', bucket)
-        i_dist = lik(inv, 'distance_category', distance_category)
-        i_nearby = lik(inv, 'nearby_count_category', nearby_category)
-        i_time = lik(inv, 'time_bucket', time_bucket)
 
-        post_valid = p_valid * v_ht * v_desc * v_dist * v_nearby * v_time
-        post_invalid = p_invalid * i_ht * i_desc * i_dist * i_nearby * i_time
+        post_valid   = p_valid   * v_ht * v_desc
+        post_invalid = p_invalid * i_ht * i_desc
         total = post_valid + post_invalid
         return (post_valid / total) if total else 0.5
 
 
-# Export for use by report service (e.g. nearby count -> category).
 def nearby_count_to_category(count: int) -> str:
+    """Used outside NB for breakdown labels; not an NB feature."""
     return _bucket_nearby_count(count)

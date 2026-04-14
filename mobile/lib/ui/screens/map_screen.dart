@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/config/api_config.dart';
+import '../../core/services/connectivity_service.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
 import '../../data/mock_evacuation_centers.dart';
@@ -13,6 +14,8 @@ import '../../features/routing/routing_service.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../features/residents/resident_hazard_reports_service.dart';
 import '../../features/residents/resident_notifications_service.dart';
+import '../widgets/offline_banner.dart';
+import '../widgets/exit_confirm_scope.dart';
 import 'routes_selection_screen.dart';
 import 'report_hazard_screen.dart';
 import 'settings_screen.dart';
@@ -26,11 +29,12 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
   final RoutingService _routingService = RoutingService();
   final ResidentHazardReportsService _hazardReportsService = ResidentHazardReportsService();
   final ResidentNotificationsService _notificationsService = ResidentNotificationsService();
+  final ConnectivityService _connectivity = ConnectivityService();
   
   LatLng? _userLocation;
   bool _isLoading = true;
@@ -48,13 +52,36 @@ class _MapScreenState extends State<MapScreen> {
   List<Map<String, dynamic>> _hazardReports = [];
   int _unreadNotificationsCount = 0;
 
+  // Notification highlight: which report is currently highlighted on the map
+  String? _highlightedReportId;
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.6).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeOut),
+    );
     _loadEvacuationCenters();
     _initializeMap();
     _loadHazardReports();
     _loadNotificationCount();
+    _listenForReconnect();
+  }
+
+  /// Reload live data when connectivity is restored so the map stays current.
+  void _listenForReconnect() {
+    _connectivity.onConnectionChange.listen((isOnline) {
+      if (isOnline && mounted) {
+        _loadEvacuationCenters();
+        _loadHazardReports();
+      }
+    });
   }
 
   /// Load evacuation centers from API (residents see same data as MDRRMO updates).
@@ -93,30 +120,46 @@ class _MapScreenState extends State<MapScreen> {
     // Check for target location when widget updates
     _checkAndFocusTargetLocation();
   }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
   
-  /// Check if we should focus on a target location from notification
+  /// Check if we should focus on a target location from notification.
+  /// Also reads a highlight report_id so the specific hazard marker pulses.
   Future<void> _checkAndFocusTargetLocation() async {
     final prefs = await SharedPreferences.getInstance();
     final shouldFocus = prefs.getBool('map_should_focus') ?? false;
-    
-    print('🗺️ MAP: Checking for target focus flag: $shouldFocus');
-    
+
     if (shouldFocus) {
       final targetLat = prefs.getDouble('map_target_lat');
       final targetLng = prefs.getDouble('map_target_lng');
-      
-      print('🗺️ MAP: Target coordinates: $targetLat, $targetLng');
-      
+      final highlightId = prefs.getString('map_highlight_report_id');
+
       if (targetLat != null && targetLng != null && mounted) {
-        // Move to target location
         _mapController.move(LatLng(targetLat, targetLng), 17.0);
-        
-        // Clear the flags
+
+        // Highlight the specific hazard marker with a pulse animation
+        if (highlightId != null && highlightId.isNotEmpty) {
+          setState(() => _highlightedReportId = highlightId);
+          _pulseController.repeat(reverse: true);
+
+          // Auto-clear the highlight after 6 seconds
+          Future.delayed(const Duration(seconds: 6), () {
+            if (mounted) {
+              setState(() => _highlightedReportId = null);
+              _pulseController.stop();
+              _pulseController.reset();
+            }
+          });
+          await prefs.remove('map_highlight_report_id');
+        }
+
         await prefs.remove('map_should_focus');
         await prefs.remove('map_target_lat');
         await prefs.remove('map_target_lng');
-        
-        print('📍 MAP: Focused on target location: $targetLat, $targetLng');
       }
     }
   }
@@ -168,34 +211,15 @@ class _MapScreenState extends State<MapScreen> {
           });
         }
 
-        // Move map after widget is built - but check for target location first
+        // Move map after widget is built - delegate to shared focus helper
         if (_userLocation != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) async {
             if (mounted) {
-              // Check if we should focus on a specific target location from notification
               final prefs = await SharedPreferences.getInstance();
               final shouldFocus = prefs.getBool('map_should_focus') ?? false;
-              
               if (shouldFocus) {
-                final targetLat = prefs.getDouble('map_target_lat');
-                final targetLng = prefs.getDouble('map_target_lng');
-                
-                if (targetLat != null && targetLng != null) {
-                  // Move to target location instead of user location
-                  _mapController.move(LatLng(targetLat, targetLng), 17.0);
-                  
-                  // Clear the flags
-                  await prefs.remove('map_should_focus');
-                  await prefs.remove('map_target_lat');
-                  await prefs.remove('map_target_lng');
-                  
-                  print('📍 Map focused on target location: $targetLat, $targetLng');
-                } else {
-                  // Default: move to user location
-                  _mapController.move(_userLocation!, 16.0);
-                }
+                await _checkAndFocusTargetLocation();
               } else {
-                // Default: move to user location
                 _mapController.move(_userLocation!, 16.0);
               }
             }
@@ -659,7 +683,8 @@ class _MapScreenState extends State<MapScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkAndFocusTargetLocation();
     });
-    return Scaffold(
+    return ExitConfirmScope(
+      child: Scaffold(
       body: _isLoading
           ? const Center(
               child: Column(
@@ -677,9 +702,9 @@ class _MapScreenState extends State<MapScreen> {
                 FlutterMap(
                   mapController: _mapController,
                   options: MapOptions(
-                    initialCenter: _userLocation ?? LatLng(12.6699, 123.8758),
+                    initialCenter: _userLocation ?? const LatLng(12.6699, 123.8758),
                     initialZoom: 16.0,
-                    minZoom: 10.0,
+                    minZoom: 13.5,
                     maxZoom: 18.0,
                     onLongPress: _onLongPress,
                   ),
@@ -784,30 +809,105 @@ class _MapScreenState extends State<MapScreen> {
                         ..._hazardReports.map(
                           (report) {
                             final isPending = report['status'] == 'pending';
+                            final confirmationCount = report['confirmation_count'] as int? ?? 0;
+                            final hasHighConfirmations = confirmationCount >= 3;
+                            final isHighlighted =
+                                _highlightedReportId != null &&
+                                report['id']?.toString() == _highlightedReportId;
+
+                            // Expanded hit area for highlighted marker
+                            final markerSize = isHighlighted ? 72.0 : (hasHighConfirmations ? 55.0 : 40.0);
+
                             return Marker(
                               point: LatLng(report['lat'], report['lng']),
-                              width: 40,
-                              height: 40,
+                              width: markerSize,
+                              height: markerSize,
                               child: GestureDetector(
                                 onTap: () => _viewHazardReport(report),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: isPending ? Colors.yellow[700] : Colors.red[600],
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 2),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.3),
-                                        blurRadius: 4,
-                                        offset: const Offset(0, 2),
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    // Pulsing outer ring – only for the highlighted marker
+                                    if (isHighlighted)
+                                      AnimatedBuilder(
+                                        animation: _pulseAnimation,
+                                        builder: (_, __) => Transform.scale(
+                                          scale: _pulseAnimation.value,
+                                          child: Container(
+                                            width: 56,
+                                            height: 56,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: Colors.orangeAccent.withOpacity(
+                                                  1.6 - _pulseAnimation.value,
+                                                ),
+                                                width: 3,
+                                              ),
+                                              color: Colors.orangeAccent.withOpacity(
+                                                (1.6 - _pulseAnimation.value) * 0.15,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                    ],
-                                  ),
-                                  child: Icon(
-                                    Icons.warning,
-                                    color: Colors.white,
-                                    size: 24,
-                                  ),
+
+                                    // Main hazard marker
+                                    Container(
+                                      width: 40,
+                                      height: 40,
+                                      decoration: BoxDecoration(
+                                        color: isHighlighted
+                                            ? Colors.orange[700]
+                                            : (isPending ? Colors.yellow[700] : Colors.red[600]),
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: isHighlighted
+                                              ? Colors.white
+                                              : (hasHighConfirmations ? Colors.green : Colors.white),
+                                          width: isHighlighted ? 3 : (hasHighConfirmations ? 3 : 2),
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: isHighlighted
+                                                ? Colors.orangeAccent.withOpacity(0.6)
+                                                : Colors.black.withOpacity(0.3),
+                                            blurRadius: isHighlighted ? 10 : 4,
+                                            spreadRadius: isHighlighted ? 2 : 0,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Icon(
+                                        isHighlighted ? Icons.warning_amber_rounded : Icons.warning,
+                                        color: Colors.white,
+                                        size: 24,
+                                      ),
+                                    ),
+
+                                    // Confirmation badge (if high confirmations)
+                                    if (hasHighConfirmations)
+                                      Positioned(
+                                        top: isHighlighted ? 8 : 0,
+                                        right: isHighlighted ? 8 : 0,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(color: Colors.white, width: 2),
+                                          ),
+                                          child: Text(
+                                            '$confirmationCount',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             );
@@ -1205,9 +1305,13 @@ class _MapScreenState extends State<MapScreen> {
                     child: Icon(Icons.my_location, color: Colors.blue[700]),
                   ),
                 ),
+
+                // Offline mode indicator — always on top of all other overlays
+                const OfflineBanner(),
               ],
             ),
-    );
+      ), // Scaffold
+    ); // ExitConfirmScope
   }
 
   Widget _buildLegendItem(IconData icon, String label, Color color) {

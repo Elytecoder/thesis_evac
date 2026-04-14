@@ -50,6 +50,9 @@ class User(AbstractUser):
 
     class Meta:
         db_table = 'users_user'
+        indexes = [
+            models.Index(fields=['email'], name='users_user_email_idx'),
+        ]
 
     def __str__(self):
         return f"{self.username} ({self.role})"
@@ -120,19 +123,26 @@ class EmailVerificationCode(models.Model):
     
     @classmethod
     def verify_code(cls, email, code):
-        """Verify a code for an email. Returns True if valid."""
+        """
+        Verify a code for an email.
+
+        Returns one of:
+          'valid'   – code is correct and has been marked used
+          'expired' – code exists but is past the 5-minute window
+          'invalid' – no matching unused code found (wrong code or already used)
+        """
         try:
             verification = cls.objects.filter(
                 email=email,
                 code=code,
                 is_used=False
             ).latest('created_at')
-            
+
             if verification.is_expired():
-                return False
-            
+                return 'expired'
+
             verification.is_used = True
             verification.save()
-            return True
+            return 'valid'
         except cls.DoesNotExist:
-            return False
+            return 'invalid'

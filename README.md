@@ -8,7 +8,7 @@ A full-stack system for **intelligent evacuation route recommendation** using ma
 
 This project provides:
 
-- **Mobile app (Flutter)** — Residents view evacuation centers on a map, get multiple route options with risk levels (Green / Yellow / Red), report hazards with photo/video, receive notifications when reports are approved/rejected, and use cached data when offline.
+- **Mobile app (Flutter)** — Residents view evacuation centers on a map, get multiple route options with risk levels (Green / Yellow / Red), report hazards with photo/video, receive notifications when reports are approved/rejected, and use fully cached data when offline — including an offline report queue that syncs automatically when connectivity returns.
 - **Backend API (Django REST)** — Evacuation centers, risk-weighted route calculation (Modified Dijkstra on road segments), hazard report submission, Naive Bayes report validation, Random Forest segment risk, and MDRRMO workflows (approve/reject/delete reports, dashboard, analytics, user management).
 
 **Verified hazards** on the map are **resident reports that MDRRMO has approved**; the system can run with resident reports only (MDRRMO baseline data is optional). **Routing** uses a **road network** (e.g. from `load_mock_data`); without it, no routes are returned.
@@ -26,8 +26,8 @@ This project provides:
 | **Route options** | Up to 3 routes per destination with risk levels (Green / Yellow / Red); "High Risk" / "Safer Route" labels and "Possibly Blocked" tag; no-safe-route warning modal and alternative evacuation center suggestions when all routes are high-risk |
 | **Hazard reporting** | Submit reports with type, location, description, photo/video; too-far warning (within 1 km) |
 | **Notifications** | Report approved/rejected; tap approved notification to open map at report location |
-| **Offline support** | Hive cache for centers, routes, and hazards |
-| **Authentication** | Login, register, token-based; role-based (resident / MDRRMO) |
+| **Offline mode** | Full offline support: Hive cache for evacuation centers, verified hazards, and routes; offline report queue with automatic background sync on reconnect; animated offline banner |
+| **Authentication** | Login, register, token-based; role-based (resident / MDRRMO); session cached locally for instant app start without network call |
 | **Resident** | Map, report hazard, view routes, live navigation, notifications, settings |
 | **MDRRMO** | Dashboard (stats, hazard distribution, recent activity), reports (pending/approved/rejected), approve/reject/delete/restore, map monitor, evacuation center management, analytics, user management, system logs |
 
@@ -57,7 +57,7 @@ This project provides:
 
 | Layer | Technologies |
 |-------|--------------|
-| **Mobile** | Flutter 3.x, Dart; flutter_map, geolocator, dio, hive, image_picker, shared_preferences |
+| **Mobile** | Flutter 3.x, Dart 3.x; flutter_map, geolocator, dio, hive, connectivity_plus, flutter_secure_storage, shared_preferences, image_picker |
 | **Backend** | Python 3.10+, Django 4.2+, Django REST Framework |
 | **Database** | SQLite (dev); PostgreSQL recommended for production |
 | **Maps** | OpenStreetMap tiles; OSRM used only in app mock mode for route geometry |
@@ -73,6 +73,8 @@ High-level layout (see **[docs/FOLDER_STRUCTURE.md](docs/FOLDER_STRUCTURE.md)** 
 thesis_evac/
 ├── README.md                 # This file
 ├── docs/                     # SRS, test cases, diagrams, folder structure guide
+│   ├── OFFLINE_MODE.md       # Offline mode technical documentation
+│   └── ...
 ├── backend/                  # Django API (SQLite: backend/db.sqlite3)
 │   ├── config/               # Settings, URLs, middleware
 │   ├── apps/
@@ -91,11 +93,16 @@ thesis_evac/
 │   └── requirements.txt
 └── mobile/                   # Flutter app
     ├── lib/
-    │   ├── core/             # api_config (base URL, timeouts), API client, auth storage
-    │   ├── features/         # Auth, routing, hazards, residents, admin
+    │   ├── core/
+    │   │   ├── config/       # api_config, storage_config (Hive box names)
+    │   │   ├── network/      # ApiClient (Dio singleton, keep-alive)
+    │   │   ├── auth/         # SessionStorage (secure token)
+    │   │   ├── services/     # ConnectivityService, SyncService
+    │   │   └── storage/      # StorageService (Hive CRUD)
+    │   ├── features/         # Auth, routing, hazards, residents, admin, navigation
     │   ├── models/
     │   ├── data/             # Mock data
-    │   └── ui/               # Screens (map, login, admin, notifications, etc.)
+    │   └── ui/               # Screens + widgets (OfflineBanner, etc.)
     ├── android/, ios/, web/, ...
     └── pubspec.yaml
 ```
@@ -201,6 +208,38 @@ All endpoints are under `http://127.0.0.1:8000/api/`. Token auth required where 
 
 ---
 
+## Offline mode
+
+The app is fully functional offline using cached data. Core behaviour:
+
+- **Evacuation centers** and **verified hazards** are cached to Hive on every successful API fetch and served locally when offline.
+- **Routes** are cached per origin–destination pair for 7 days and replayed when offline.
+- **Hazard reports** submitted while offline are saved to a dedicated `pending_reports` Hive queue and automatically sent to the backend when connectivity returns.
+- A **red animated banner** appears at the top of the map screen when offline, showing how many reports are queued.
+- **Auto-sync** triggers as soon as the device reconnects: queued reports are flushed, then evacuation centers and hazards are refreshed.
+- **Session restore** on app startup uses the locally cached user role — no network call needed if the token is still valid.
+
+See **[docs/OFFLINE_MODE.md](docs/OFFLINE_MODE.md)** for full technical documentation.
+
+---
+
+## Performance optimizations
+
+### Backend
+- **Email field indexed** (`users_user_email_idx`) — login lookup is O(log n) instead of O(n).
+- **GZip compression** enabled on all responses via Django's `GZipMiddleware`.
+- **`SessionAuthentication` removed** from REST framework — mobile API uses token-only auth, eliminating session middleware overhead per request.
+- **Registration DB writes reduced** from 2 → 1 (password hashed inside `create_user` in a single step).
+- **Response-time logging** — login and registration endpoints log `"completed in XXXms"` to the server logger.
+
+### Mobile
+- **`ApiClient` singleton** — all services share one `Dio` instance with persistent HTTP keep-alive connections instead of reconnecting per request.
+- **`LogInterceptor` is debug-only** — zero request/response logging overhead in release APKs.
+- **Cache-first session restore** — `AuthGateScreen` reads the user role from `SharedPreferences` on startup; the profile API is only called on a cold cache miss.
+- **Parallel storage writes after login** — `SharedPreferences` and `SessionStorage` writes run concurrently via `Future.wait`.
+
+---
+
 ## Testing
 
 ### Backend
@@ -229,6 +268,7 @@ flutter test
 
 ## Documentation
 
+- **[docs/OFFLINE_MODE.md](docs/OFFLINE_MODE.md)** — Full technical documentation for the offline mode: architecture, Hive box layout, connectivity detection, queue lifecycle, auto-sync, UI indicator, and feature availability matrix.
 - **[docs/FOLDER_STRUCTURE.md](docs/FOLDER_STRUCTURE.md)** — **Folder structure**, where the **database**, **algorithms** (Dijkstra, Naive Bayes, Random Forest), **API modules**, and **Flutter layers** live.
 - **[backend/README.md](backend/README.md)** — Backend setup, commands, tests, deploy.
 - **[mobile/README.md](mobile/README.md)** — Mobile app structure, configuration, run instructions.
@@ -243,7 +283,7 @@ This repository supports a thesis on **AI-powered mobile evacuation route recomm
 - Risk-weighted pathfinding (Modified Dijkstra on road segments)
 - Machine learning for report validation (Naive Bayes) and road segment risk (Random Forest)
 - Resident hazard reporting and MDRRMO verification workflow
-- Offline-capable mobile client with cached data
+- Fully offline-capable mobile client with Hive caching, offline report queue, auto-sync, and animated connectivity indicator
 
 ---
 

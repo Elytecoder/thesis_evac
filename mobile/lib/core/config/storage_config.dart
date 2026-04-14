@@ -5,6 +5,12 @@ class StorageConfig {
   static const String baselineHazardsBox = 'baseline_hazards';
   static const String roadSegmentsBox = 'road_segments';
   static const String userBox = 'user';
+
+  /// Separate queue box for reports submitted while offline (pending sync).
+  static const String pendingReportsBox = 'pending_reports';
+
+  /// Cache of approved/verified hazards fetched from the server.
+  static const String verifiedHazardsBox = 'verified_hazards';
   
   // SharedPreferences keys
   /// Legacy plain-text token (migrated to secure storage on read).

@@ -1,84 +1,84 @@
 """
 Random Forest service for road segment risk prediction.
-Trains on mock road risk dataset; predicts risk per segment.
-Stores result in RoadSegment.predicted_risk_score.
+
+Primary implementation: sklearn RandomForestRegressor via ml_service.
+    One feature per actual hazard type in the system + average severity.
+
+Fallback: formula-based risk (aligned with HAZARD_TYPE_RISK_WEIGHT in route_service).
+
+# Using synthetic training data (temporary)
+# Replace with MDRRMO historical data when available
 
 TO REPLACE WITH REAL MDRRMO DATA:
-1. Remove mock loader.
-2. Use historical MDRRMO hazard data + road network: compute per-segment
-   features (nearby hazard count, severity, flood history, etc.).
-3. Use MDRRMO-verified incident data as labels (risk_score or binary).
-4. Retrain model when new historical data is available.
-5. Persist model (joblib) and version it; reload in app startup if needed.
+1. Collect historical MDRRMO road incident records with per-segment hazard type counts.
+2. Compute risk labels from verified incident severity.
+3. Replace ml_data/random_forest_dataset.csv and run:
+       python manage.py train_ml_models --rf-only --force
 """
-import json
-from pathlib import Path
-from typing import List, Dict, Any
+import logging
 
-# Optional: use sklearn if available
-try:
-    from sklearn.ensemble import RandomForestRegressor
-    import numpy as np
-    HAS_SKLEARN = True
-except ImportError:
-    HAS_SKLEARN = False
-
-MOCK_TRAINING_PATH = Path(__file__).resolve().parent.parent.parent.parent / 'mock_data' / 'mock_training_data.json'
+logger = logging.getLogger(__name__)
 
 
 class RoadRiskPredictor:
     """
-    Predicts risk score for road segments using Random Forest.
-    Features: nearby_hazard_count, avg_severity (and optionally segment geometry).
+    Predicts risk score for road segments using Random Forest via ml_service.
+
+    Features (one per hazard type + avg_severity):
+        flooded_road_count, landslide_count, fallen_tree_count, road_damage_count,
+        fallen_electric_post_count, road_blocked_count, bridge_damage_count,
+        storm_surge_count, avg_severity
+
+    # Using synthetic training data (temporary)
+    # Replace with MDRRMO historical data when available
     """
 
-    def __init__(self):
-        self._model = None
-        self._trained = False
-        self._fallback_risk = 0.3  # when no sklearn or no data
+    def predict_risk(
+        self,
+        flooded_road_count: int = 0,
+        landslide_count: int = 0,
+        fallen_tree_count: int = 0,
+        road_damage_count: int = 0,
+        fallen_electric_post_count: int = 0,
+        road_blocked_count: int = 0,
+        bridge_damage_count: int = 0,
+        storm_surge_count: int = 0,
+        avg_severity: float = 0.0,
+    ) -> float:
+        """
+        Predict risk score for a road segment given per-type hazard counts.
 
-    def _load_mock_training(self, path: Path = None) -> List[Dict[str, Any]]:
-        """
-        Load road_risk_training from mock JSON.
-        TO REPLACE: Build features from BaselineHazard + RoadSegment (e.g. count hazards near segment).
-        """
-        path = path or MOCK_TRAINING_PATH
-        if not path.exists():
-            return []
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return data.get('road_risk_training', [])
+        Returns float in [0, 1] (clamped).
 
-    def train(self, training_data: List[Dict[str, Any]] = None) -> None:
+        # Using synthetic training data (temporary)
+        # Replace with MDRRMO historical data when available
         """
-        Train Random Forest on segment features -> risk_score.
-        training_data: list of {segment_id, nearby_hazard_count, avg_severity, risk_score}.
-        """
-        if training_data is None:
-            training_data = self._load_mock_training()
-        if not training_data or not HAS_SKLEARN:
-            self._trained = False
-            return
+        try:
+            from ml_data.ml_service import get_ml_service
+            return get_ml_service().predict_road_risk(
+                flooded_road_count=flooded_road_count,
+                landslide_count=landslide_count,
+                fallen_tree_count=fallen_tree_count,
+                road_damage_count=road_damage_count,
+                fallen_electric_post_count=fallen_electric_post_count,
+                road_blocked_count=road_blocked_count,
+                bridge_damage_count=bridge_damage_count,
+                storm_surge_count=storm_surge_count,
+                avg_severity=avg_severity,
+            )
+        except Exception as e:
+            logger.warning('ml_service RF unavailable, using fallback: %s', e)
 
-        X = []
-        y = []
-        for row in training_data:
-            X.append([row.get('nearby_hazard_count', 0), row.get('avg_severity', 0)])
-            y.append(row.get('risk_score', 0))
-        X = np.array(X)
-        y = np.array(y)
-        self._model = RandomForestRegressor(n_estimators=10, random_state=42)
-        self._model.fit(X, y)
-        self._trained = True
-
-    def predict_risk(self, nearby_hazard_count: float, avg_severity: float) -> float:
-        """
-        Predict risk score for a segment given features.
-        Returns value in [0, 1] (clamped).
-        """
-        if not self._trained and HAS_SKLEARN:
-            self.train()
-        if self._trained and self._model is not None and HAS_SKLEARN:
-            pred = self._model.predict([[nearby_hazard_count, avg_severity]])[0]
-            return max(0.0, min(1.0, float(pred)))
-        return self._fallback_risk
+        # Fallback formula (aligned with HAZARD_TYPE_RISK_WEIGHT in route_service)
+        risk = (
+            flooded_road_count         * 0.04
+            + landslide_count          * 0.07
+            + fallen_tree_count        * 0.03
+            + road_damage_count        * 0.04
+            + fallen_electric_post_count * 0.05
+            + road_blocked_count       * 0.09
+            + bridge_damage_count      * 0.07
+            + storm_surge_count        * 0.07
+            + avg_severity             * 0.50
+        )
+        return max(0.0, min(1.0, risk))

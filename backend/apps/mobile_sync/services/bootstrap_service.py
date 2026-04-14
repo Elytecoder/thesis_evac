@@ -9,9 +9,14 @@ from apps.hazards.models import BaselineHazard
 def get_bootstrap_data():
     """
     Return dict with evacuation_centers and baseline_hazards for mobile cache.
+    Only OPERATIONAL centers are included so the app never caches deactivated ones.
+    is_operational and deactivated_at are included so the client model stays accurate.
     """
     centers = list(
-        EvacuationCenter.objects.values('id', 'name', 'latitude', 'longitude', 'address', 'description')
+        EvacuationCenter.objects.filter(is_operational=True).values(
+            'id', 'name', 'latitude', 'longitude', 'address', 'description',
+            'is_operational', 'deactivated_at',
+        )
     )
     hazards = list(
         BaselineHazard.objects.values('id', 'hazard_type', 'latitude', 'longitude', 'severity', 'source', 'created_at')

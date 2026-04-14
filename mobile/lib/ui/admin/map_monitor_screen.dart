@@ -83,7 +83,7 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
                   options: const MapOptions(
                     initialCenter: LatLng(12.6699, 123.8758),
                     initialZoom: 14.0,
-                    minZoom: 10.0,
+                    minZoom: 13.0,
                     maxZoom: 18.0,
                   ),
                   children: [
@@ -194,21 +194,30 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
     final pendingReports = _reports.where((r) => r.status == HazardStatus.pending).toList();
     
     return pendingReports.map((report) {
+      final confirmationCount = report.confirmationCount;
+      final hasHighConfirmations = confirmationCount >= 3;
+      
       return Marker(
         point: LatLng(report.latitude, report.longitude),
-        width: 50,
-        height: 50,
+        width: hasHighConfirmations ? 60 : 50,
+        height: hasHighConfirmations ? 60 : 50,
         child: GestureDetector(
           onTap: () => _showHazardInfo(report),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: Stack(
+            alignment: Alignment.center,
             children: [
+              // Main marker
               Container(
+                width: 50,
+                height: 50,
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: Colors.orange,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
+                  border: Border.all(
+                    color: hasHighConfirmations ? Colors.green : Colors.white,
+                    width: hasHighConfirmations ? 3 : 2,
+                  ),
                 ),
                 child: const Icon(
                   Icons.warning_amber,
@@ -216,6 +225,29 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
                   size: 24,
                 ),
               ),
+              
+              // Confirmation badge
+              if (hasHighConfirmations)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: Text(
+                      '$confirmationCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
