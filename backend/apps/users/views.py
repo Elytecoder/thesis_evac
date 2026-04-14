@@ -59,17 +59,10 @@ def send_verification_code(request):
 
         verification = EmailVerificationCode.create_verification(email)
 
-        # ── Send the verification email ───────────────────────────────────
-        subject = 'Your Evacuation System Verification Code'
-        message = (
-            f'Hello,\n\n'
-            f'Your email verification code is:\n\n'
-            f'  {verification.code}\n\n'
-            f'This code expires in 5 minutes.\n\n'
-            f'If you did not request this, you can safely ignore this email.\n\n'
-            f'— Bulan MDRRMO Evacuation System'
-        )
-        html_message = (
+        # ── Send the verification email via Brevo HTTP API ────────────────
+        # Uses HTTPS (port 443) instead of SMTP (port 587) so it works on
+        # Render's free plan which blocks outbound SMTP connections.
+        html_content = (
             f'<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;'
             f'border:1px solid #e0e0e0;border-radius:12px;padding:32px;">'
             f'<h2 style="color:#1565C0;margin-bottom:8px;">Email Verification</h2>'
@@ -81,25 +74,57 @@ def send_verification_code(request):
             f'<p style="color:#999;font-size:12px;">If you did not request this, you can safely ignore this email.</p>'
             f'</div>'
         )
+        text_content = (
+            f'Your verification code is: {verification.code}\n'
+            f'It expires in 5 minutes.\n\n'
+            f'— Bulan MDRRMO Evacuation System'
+        )
 
-        # Send email in a background thread so SMTP never blocks or crashes
-        # the HTTP response (critical for CORS — a hanging SMTP call would
-        # cause a timeout that the browser reports as a connection error).
         def _send():
+            import urllib.request, json as _json
+            brevo_api_key = os.environ.get('BREVO_API_KEY', '')
+            if not brevo_api_key:
+                # Fallback to Django SMTP backend (works locally with Gmail)
+                try:
+                    from django.core.mail import send_mail
+                    from django.conf import settings as django_settings
+                    send_mail(
+                        subject='Your Evacuation System Verification Code',
+                        message=text_content,
+                        from_email=django_settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[email],
+                        html_message=html_content,
+                        fail_silently=False,
+                    )
+                    logger.info(f"Verification email sent via SMTP to {email}")
+                except Exception as smtp_err:
+                    logger.exception(f"SMTP fallback failed for {email}: {smtp_err}")
+                return
+
+            # Use Brevo HTTP API (HTTPS port 443 — works on all servers)
+            sender_email = os.environ.get('DEFAULT_FROM_EMAIL', 'a8119e001@smtp-brevo.com')
+            payload = _json.dumps({
+                'sender': {'name': 'Bulan Evac System', 'email': sender_email},
+                'to': [{'email': email}],
+                'subject': 'Your Evacuation System Verification Code',
+                'htmlContent': html_content,
+                'textContent': text_content,
+            }).encode('utf-8')
+            req = urllib.request.Request(
+                'https://api.brevo.com/v3/smtp/email',
+                data=payload,
+                headers={
+                    'accept': 'application/json',
+                    'api-key': brevo_api_key,
+                    'content-type': 'application/json',
+                },
+                method='POST',
+            )
             try:
-                from django.core.mail import send_mail
-                from django.conf import settings as django_settings
-                send_mail(
-                    subject=subject,
-                    message=message,
-                    from_email=django_settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[email],
-                    html_message=html_message,
-                    fail_silently=False,
-                )
-                logger.info(f"Verification email sent to {email}")
-            except Exception as mail_err:
-                logger.exception(f"Failed to send verification email to {email}: {mail_err}")
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    logger.info(f"Verification email sent via Brevo API to {email} — status {resp.status}")
+            except Exception as api_err:
+                logger.exception(f"Brevo API failed for {email}: {api_err}")
 
         threading.Thread(target=_send, daemon=True).start()
         # ─────────────────────────────────────────────────────────────────
