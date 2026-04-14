@@ -81,8 +81,8 @@ def send_verification_code(request):
         )
 
         def _send():
-            import urllib.request, json as _json
-            brevo_api_key = os.environ.get('BREVO_API_KEY', '')
+            import urllib.request, json as _json, os as _os
+            brevo_api_key = _os.environ.get('BREVO_API_KEY', '')
             if not brevo_api_key:
                 # Fallback to Django SMTP backend (works locally with Gmail)
                 try:
@@ -102,7 +102,7 @@ def send_verification_code(request):
                 return
 
             # Use Brevo HTTP API (HTTPS port 443 — works on all servers)
-            sender_email = os.environ.get('DEFAULT_FROM_EMAIL', 'a8119e001@smtp-brevo.com')
+            sender_email = _os.environ.get('DEFAULT_FROM_EMAIL', 'a8119e001@smtp-brevo.com')
             payload = _json.dumps({
                 'sender': {'name': 'Bulan Evac System', 'email': sender_email},
                 'to': [{'email': email}],
