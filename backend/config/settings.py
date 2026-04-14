@@ -204,6 +204,9 @@ else:
     # Fallback: print emails to the terminal (safe for local dev without credentials)
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
     DEFAULT_FROM_EMAIL = 'noreply@evacsystem.local'
+
+# Timeout for SMTP connections in seconds (prevents background thread from hanging).
+EMAIL_TIMEOUT = 10
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Hazard media limits (enforced in apps.hazards.hazard_media and serializers).

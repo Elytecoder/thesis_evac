@@ -3,6 +3,7 @@ Authentication API views.
 """
 import time
 import logging
+import threading
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -81,23 +82,26 @@ def send_verification_code(request):
             f'</div>'
         )
 
-        try:
-            from django.core.mail import send_mail
-            from django.conf import settings as django_settings
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=django_settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                html_message=html_message,
-                fail_silently=False,
-            )
-            logger.info(f"Verification email sent to {email}")
-        except Exception as mail_err:
-            # Log the full error so it appears in Render logs for debugging.
-            logger.exception(f"Failed to send verification email to {email}: {mail_err}")
-            # Always return success to the client — the code is saved in the DB
-            # and the user can request a resend. Never expose SMTP errors to users.
+        # Send email in a background thread so SMTP never blocks or crashes
+        # the HTTP response (critical for CORS — a hanging SMTP call would
+        # cause a timeout that the browser reports as a connection error).
+        def _send():
+            try:
+                from django.core.mail import send_mail
+                from django.conf import settings as django_settings
+                send_mail(
+                    subject=subject,
+                    message=message,
+                    from_email=django_settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    html_message=html_message,
+                    fail_silently=False,
+                )
+                logger.info(f"Verification email sent to {email}")
+            except Exception as mail_err:
+                logger.exception(f"Failed to send verification email to {email}: {mail_err}")
+
+        threading.Thread(target=_send, daemon=True).start()
         # ─────────────────────────────────────────────────────────────────
 
         return Response({
