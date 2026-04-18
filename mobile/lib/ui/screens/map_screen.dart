@@ -501,7 +501,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   'Location', 
                   '${report['lat'].toStringAsFixed(4)}, ${report['lng'].toStringAsFixed(4)}'
                 ),
-                _buildDetailRow(Icons.calendar_today, 'Date Submitted', report['date_submitted']),
+                _buildDetailRow(Icons.access_time, 'Reported', report['date_submitted']),
                 
                 // Media Attachments (if any)
                 if (hasMedia) ...[

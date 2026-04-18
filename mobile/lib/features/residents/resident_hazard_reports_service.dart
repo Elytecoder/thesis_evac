@@ -30,7 +30,9 @@ class ResidentHazardReportsService {
       'date_submitted': r.createdAt != null
           ? () {
               final local = r.createdAt!.toLocal();
-              return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+              final h = local.hour.toString().padLeft(2, '0');
+              final m = local.minute.toString().padLeft(2, '0');
+              return '${local.month}/${local.day}/${local.year} at $h:$m';
             }()
           : '',
       'media': media,
