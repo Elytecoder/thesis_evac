@@ -180,21 +180,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _onLocationUpdate(LatLng location) async {
     if (_hasArrived || _currentRoute == null) return;
 
-    // Fallback movement bearing: used only when GPS compass hasn't fired yet.
-    // The heading stream drives _currentBearing in real time; this only catches
-    // the edge case where the device doesn't report heading (e.g. first fix).
-    if (_currentRoute!.polyline.isNotEmpty) {
-      final userIdx = _findClosestPointIndex(location, _currentRoute!.polyline);
-      if (userIdx < _currentRoute!.polyline.length - 1) {
-        final nextPoint = _currentRoute!.polyline[userIdx + 1];
-        final calculated = _gpsService.calculateBearing(location, nextPoint);
-        // Only apply fallback if heading stream hasn't provided a value yet
-        if (_headingSubscription != null && _currentBearing == 0.0) {
-          setState(() => _currentBearing = calculated);
-        }
-      }
-    }
-
     setState(() {
       _userLocation = location;
     });
@@ -278,15 +263,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     });
   }
 
-  /// Smooth camera follow: move + rotate map to match travel direction.
-  /// Bearing is calculated in _onLocationUpdate.
+  /// Smooth camera follow: keep user centred on screen; map stays north-up.
+  /// Only the arrow marker rotates — the map itself never rotates.
   void _smoothCameraFollow() {
     if (_userLocation == null || !_followUserLocation) return;
     try {
-      // Rotate map so "up" = direction of travel; move to user position.
-      _mapController.moveAndRotate(_userLocation!, 17.0, -_currentBearing);
+      _mapController.move(_userLocation!, 17.0);
     } catch (e) {
-      // Map controller not ready
+      // Map controller not ready yet
     }
   }
 

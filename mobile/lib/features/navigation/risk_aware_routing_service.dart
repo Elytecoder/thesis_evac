@@ -264,31 +264,27 @@ class RiskAwareRoutingService {
     _lastRerouteTime = DateTime.now();
   }
 
-  /// Check if user has deviated from route
-  /// Returns true if user is more than 50 meters from route
+  /// Check if user has deviated from route.
+  /// Measures the minimum distance from [userLocation] to any point on the
+  /// route polyline, not just segment starts (which produced false positives).
   bool hasDeviatedFromRoute({
     required LatLng userLocation,
     required NavigationRoute route,
   }) {
-    // Find nearest segment
-    final nearestSegment = _offlineService.findNearestSegment(
-      userLocation: userLocation,
-      segments: route.segments,
-    );
+    if (route.polyline.isEmpty) return false;
 
-    if (nearestSegment == null) return true;
+    double minDistance = double.infinity;
+    for (final point in route.polyline) {
+      final d = _gpsService.calculateDistance(userLocation, point);
+      if (d < minDistance) minDistance = d;
+    }
 
-    // Calculate distance to nearest segment
-    final distanceToRoute = _gpsService.calculateDistance(
-      userLocation,
-      nearestSegment.start,
-    );
-
-    // Deviation threshold: 50 meters
-    final hasDeviated = distanceToRoute > 50;
+    // Deviation threshold: 50 metres from the nearest polyline point.
+    const deviationThresholdM = 50.0;
+    final hasDeviated = minDistance > deviationThresholdM;
 
     if (hasDeviated) {
-      print('⚠️ User deviated from route: ${distanceToRoute.toStringAsFixed(0)}m from path');
+      print('⚠️ User deviated from route: ${minDistance.toStringAsFixed(0)}m from path');
     }
 
     return hasDeviated;

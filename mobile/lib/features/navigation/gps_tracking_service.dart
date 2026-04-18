@@ -36,7 +36,13 @@ class GPSTrackingService {
   static const int _minUpdateIntervalSeconds = 1;
   DateTime? _lastEmittedAt;
 
-  double? _lastHeading;
+  /// Minimum speed (m/s) before a heading reading is trusted.
+  /// GPS heading is random noise when stationary; ~0.5 m/s ≈ slow walk.
+  static const double _minSpeedForHeading = 0.5;
+
+  /// Minimum heading change (°) needed to emit a new value.
+  /// Raised to 10° to absorb sensor micro-jitter while moving.
+  static const double _minHeadingChangeDeg = 10.0;
 
   /// Start tracking user location and heading.
   Future<bool> startTracking() async {
@@ -62,15 +68,19 @@ class GPSTrackingService {
           final location = LatLng(position.latitude, position.longitude);
           _lastLocation = location;
 
-          // --- Heading: emit real-time whenever it changes ≥ 2° ---
+  double? _lastHeading;
+
+          // --- Heading: only trust sensor when device is actually moving ---
+          // GPS heading is pure noise at zero/near-zero speed.
           final heading = position.heading;
-          if (heading >= 0) {
+          final speed = position.speed; // m/s
+          if (heading >= 0 && speed >= _minSpeedForHeading) {
             final diff = _lastHeading == null
                 ? 360.0
                 : (heading - _lastHeading!).abs();
             // Normalise wrap-around (e.g. 359° vs 1° = 2°, not 358°)
             final circularDiff = diff > 180 ? 360 - diff : diff;
-            if (circularDiff >= 2.0) {
+            if (circularDiff >= _minHeadingChangeDeg) {
               _lastHeading = heading;
               _headingController.add(heading);
             }
