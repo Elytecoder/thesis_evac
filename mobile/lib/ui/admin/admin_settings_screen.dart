@@ -721,14 +721,6 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                         ),
 
                         _buildActionCard(
-                          icon: Icons.sync,
-                          title: 'Sync Baseline Data',
-                          subtitle: 'Synchronize hazard data from MDRRMO database',
-                          color: Colors.green,
-                          onTap: () => _handleSyncData(),
-                        ),
-
-                        _buildActionCard(
                           icon: Icons.clear_all,
                           title: 'Clear Cache',
                           subtitle: 'Clear all cached data',

@@ -170,6 +170,9 @@ class _EvacuationCenterDetailScreenState extends State<EvacuationCenterDetailScr
             backgroundColor: setOperational ? Colors.green : Colors.orange,
           ),
         );
+
+        // Pop back so the management list refreshes with the updated status
+        Navigator.pop(context, true);
       }
     } catch (e) {
       setState(() => _isUpdating = false);

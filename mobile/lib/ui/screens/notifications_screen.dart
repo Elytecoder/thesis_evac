@@ -70,11 +70,37 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final isApproved = notification['type'] == 'approved';
     if (isApproved) {
       final report = await _getReportLocationForApproved(notification);
-      if (report != null && mounted) {
-        final lat = report['lat'] as num?;
-        final lng = report['lng'] as num?;
-        if (lat != null && lng != null) {
-          showDialog(
+      if (!mounted) return;
+      if (report == null) {
+        // Report was deleted by MDRRMO after the notification was created
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.grey),
+                SizedBox(width: 12),
+                Text('Report Unavailable'),
+              ],
+            ),
+            content: const Text(
+              'This hazard report is no longer available. '
+              'It may have been removed by MDRRMO.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      final lat = report['lat'] as num?;
+      final lng = report['lng'] as num?;
+      if (lat != null && lng != null) {
+        showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: Row(
@@ -154,7 +180,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           );
         }
-      }
     } else {
       // For rejected reports, show popup with rejection info
       _showRejectionDetailsDialog(notification);

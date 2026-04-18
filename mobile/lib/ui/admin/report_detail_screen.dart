@@ -932,11 +932,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                 Text(systemDecisionLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Thresholds: ≥0.80 auto-approve · 0.50–0.79 pending · <0.50 reject',
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-            ),
           ],
         ),
       ),

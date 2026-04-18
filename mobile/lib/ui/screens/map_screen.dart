@@ -47,6 +47,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   // Show bottom sheet
   bool _showBottomSheet = true;
+  bool _isPanelExpanded = true;
   
   // Hazard reports
   List<Map<String, dynamic>> _hazardReports = [];
@@ -551,7 +552,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       runSpacing: 8,
       children: media.map<Widget>((item) {
         final isImage = item['type'] == 'image';
-        return Container(
+        final url = (item['url'] ?? '').toString();
+        return GestureDetector(
+          onTap: isImage && url.isNotEmpty
+              ? () => _openFullscreenImage(url)
+              : null,
+          child: Container(
           width: 100,
           height: 100,
           decoration: BoxDecoration(
@@ -562,19 +568,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: isImage
-                ? Image.network(
-                    item['url'],
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.broken_image, color: Colors.grey[400]),
-                          const SizedBox(height: 4),
-                          Text('Image', style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-                        ],
-                      );
-                    },
+                ? Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.network(
+                        url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.broken_image, color: Colors.grey[400]),
+                              const SizedBox(height: 4),
+                              Text('Image', style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+                            ],
+                          );
+                        },
+                      ),
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Icon(Icons.zoom_in, color: Colors.white, size: 12),
+                        ),
+                      ),
+                    ],
                   )
                 : Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -585,8 +608,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ],
                   ),
           ),
+        ),
         );
       }).toList(),
+    );
+  }
+
+  void _openFullscreenImage(String url) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            title: const Text('Photo'),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.network(
+                url,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white, size: 64),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
   
@@ -1058,13 +1109,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                   ),
 
-                // Nearby evacuation centers bottom sheet
+                // Nearby evacuation centers bottom sheet (collapsible)
                 if (_showBottomSheet)
                   Positioned(
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    child: Container(
+                    // Absorb all pointer events so the map below doesn't steal taps
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {}, // consume tap to prevent map interaction
+                      child: Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -1079,17 +1134,26 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            margin: const EdgeInsets.only(top: 12),
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: Colors.grey[300],
-                              borderRadius: BorderRadius.circular(2),
+                          // Drag handle — tap to toggle collapsed/expanded
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => setState(() => _isPanelExpanded = !_isPanelExpanded),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Center(
+                                child: Container(
+                                  width: 40,
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[300],
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                           Padding(
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -1100,111 +1164,130 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red[50],
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    '${_evacuationCenters.length} Available',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.red[700],
-                                      fontWeight: FontWeight.bold,
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red[50],
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        '${_evacuationCenters.length} Available',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.red[700],
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 8),
+                                    // Collapse/expand icon button
+                                    GestureDetector(
+                                      onTap: () => setState(() => _isPanelExpanded = !_isPanelExpanded),
+                                      child: AnimatedRotation(
+                                        turns: _isPanelExpanded ? 0 : 0.5,
+                                        duration: const Duration(milliseconds: 250),
+                                        child: Icon(Icons.expand_less, color: Colors.grey[600]),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
                           ),
-                          SizedBox(
-                            height: 220,
-                            child: ListView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              itemCount: _evacuationCenters.length,
-                              itemBuilder: (context, index) {
-                                final center = _evacuationCenters[index];
-                                final distance = _userLocation != null
-                                    ? _calculateDistance(
-                                        _userLocation!,
-                                        LatLng(center.latitude, center.longitude),
-                                      )
-                                    : 0.0;
+                          // Animated list — collapses to 0 height smoothly
+                          AnimatedSize(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeInOut,
+                            child: _isPanelExpanded
+                                ? SizedBox(
+                                    height: 220,
+                                    child: ListView.builder(
+                                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                                      itemCount: _evacuationCenters.length,
+                                      itemBuilder: (context, index) {
+                                        final center = _evacuationCenters[index];
+                                        final distance = _userLocation != null
+                                            ? _calculateDistance(
+                                                _userLocation!,
+                                                LatLng(center.latitude, center.longitude),
+                                              )
+                                            : 0.0;
 
-                                return Container(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[50],
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.grey[200]!),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 48,
-                                        height: 48,
-                                        decoration: BoxDecoration(
-                                          color: Colors.red[50],
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Icon(
-                                          Icons.emergency,
-                                          color: Colors.red[700],
-                                          size: 28,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              center.name,
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
+                                        return Container(
+                                          margin: const EdgeInsets.only(bottom: 12),
+                                          padding: const EdgeInsets.all(16),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[50],
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(color: Colors.grey[200]!),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Container(
+                                                width: 48,
+                                                height: 48,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.red[50],
+                                                  borderRadius: BorderRadius.circular(12),
+                                                ),
+                                                child: Icon(
+                                                  Icons.emergency,
+                                                  color: Colors.red[700],
+                                                  size: 28,
+                                                ),
                                               ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              '${distance.toStringAsFixed(1)} km',
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: Colors.grey[600],
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      center.name,
+                                                      style: const TextStyle(
+                                                        fontSize: 16,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      '${distance.toStringAsFixed(1)} km',
+                                                      style: TextStyle(
+                                                        fontSize: 14,
+                                                        color: Colors.grey[600],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      TextButton(
-                                        onPressed: () => _onSelectCenter(center),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.blue[700],
-                                        ),
-                                        child: const Row(
-                                          children: [
-                                            Text('View Routes'),
-                                            SizedBox(width: 4),
-                                            Icon(Icons.arrow_forward, size: 16),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                                              TextButton(
+                                                onPressed: () => _onSelectCenter(center),
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor: Colors.blue[700],
+                                                ),
+                                                child: const Row(
+                                                  children: [
+                                                    Text('View Routes'),
+                                                    SizedBox(width: 4),
+                                                    Icon(Icons.arrow_forward, size: 16),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
                           ),
                           const SizedBox(height: 16),
                         ],
                       ),
                     ),
                   ),
+                ),
 
                 // Active navigation bar
                 if (_activeRoute != null)
@@ -1292,7 +1375,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
                 // Compass/recenter button
                 Positioned(
-                  bottom: _showBottomSheet ? 260 : (_activeRoute != null ? 140 : 80),
+                  bottom: _showBottomSheet
+                      ? (_isPanelExpanded ? 260 : 84)
+                      : (_activeRoute != null ? 140 : 80),
                   right: 16,
                   child: FloatingActionButton(
                     heroTag: 'recenter',

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
@@ -7,8 +6,6 @@ import '../../core/config/api_config.dart';
 import '../../core/config/storage_config.dart';
 import '../../features/authentication/auth_service.dart';
 import '../../features/emergency_contacts/emergency_contacts_service.dart';
-import '../../utils/input_validators.dart';
-import '../../utils/input_formatters.dart';
 import 'welcome_screen.dart';
 
 /// Resident Settings Screen - Complete account management
@@ -30,8 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _profileImagePath; // Store profile image path
   bool _voiceNavigationEnabled = true;
 
-  // Controllers for profile editing (only phone and street are editable)
-  final TextEditingController _phoneController = TextEditingController();
+  // Controllers for profile editing (only street is editable)
   final TextEditingController _streetController = TextEditingController();
   final ImagePicker _imagePicker = ImagePicker();
 
@@ -43,7 +39,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _phoneController.dispose();
     _streetController.dispose();
     super.dispose();
   }
@@ -61,7 +56,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _profileImagePath = savedImagePath;
         _voiceNavigationEnabled =
             prefs.getBool(StorageConfig.enableVoiceNavigationKey) ?? true;
-        _phoneController.text = profile['phone_number']?.toString() ?? profile['phone']?.toString() ?? '';
         _streetController.text = profile['street']?.toString() ?? '';
         _isLoading = false;
       });
@@ -77,7 +71,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       setState(() {
         _userProfile = fallback;
-        _phoneController.text = fallback?['phone_number']?.toString() ?? fallback?['phone']?.toString() ?? '';
         _streetController.text = fallback?['street']?.toString() ?? '';
         _voiceNavigationEnabled =
             prefs.getBool(StorageConfig.enableVoiceNavigationKey) ?? true;
@@ -91,7 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       final updated = await _authService.updateProfile(
-        phoneNumber: _phoneController.text.trim(),
+        phoneNumber: '',
         street: _streetController.text.trim(),
       );
       setState(() {
@@ -119,11 +112,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   bool _validateProfile() {
-    final phoneError = InputValidators.validatePhoneNumber(_phoneController.text);
-    if (phoneError != null) {
-      _showError(phoneError);
-      return false;
-    }
     return true;
   }
   
@@ -611,25 +599,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildReadOnlyField('Email', _userProfile?['email'] ?? '-', Icons.email_outlined),
               const SizedBox(height: 16),
 
-              // Phone Number (editable)
-              TextField(
-                controller: _phoneController,
-                enabled: _isEditing,
-                keyboardType: TextInputType.phone,
-                inputFormatters: [
-                  PhoneNumberInputFormatter(),
-                ],
-                decoration: InputDecoration(
-                  labelText: 'Phone Number',
-                  hintText: '09XXXXXXXXX',
-                  prefixIcon: const Icon(Icons.phone_outlined),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  filled: !_isEditing,
-                  fillColor: !_isEditing ? Colors.grey[100] : null,
-                ),
-              ),
-              const SizedBox(height: 16),
-
               // Province (read-only)
               _buildReadOnlyField('Province', _userProfile?['province'] ?? '-', Icons.location_city),
               const SizedBox(height: 16),
@@ -665,7 +634,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onPressed: () {
                           setState(() {
                             _isEditing = false;
-                            _phoneController.text = _userProfile?['phone_number'] ?? _userProfile?['phone'] ?? '';
                             _streetController.text = _userProfile?['street'] ?? '';
                           });
                         },

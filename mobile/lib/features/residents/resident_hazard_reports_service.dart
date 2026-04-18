@@ -28,7 +28,10 @@ class ResidentHazardReportsService {
       'reported_by': isCurrentUser ? currentUserId : (r.userId?.toString() ?? ''),
       'description': r.description,
       'date_submitted': r.createdAt != null
-          ? '${r.createdAt!.year}-${r.createdAt!.month.toString().padLeft(2, '0')}-${r.createdAt!.day.toString().padLeft(2, '0')}'
+          ? () {
+              final local = r.createdAt!.toLocal();
+              return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')}';
+            }()
           : '',
       'media': media,
     };

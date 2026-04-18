@@ -3,13 +3,22 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 /// GPS Tracking Service for Live Navigation
-/// Provides real-time location updates during navigation with smoothing
+/// Provides real-time location updates and compass heading during navigation.
 class GPSTrackingService {
   StreamSubscription<Position>? _positionStream;
-  final StreamController<LatLng> _locationController = StreamController<LatLng>.broadcast();
+  final StreamController<LatLng> _locationController =
+      StreamController<LatLng>.broadcast();
+  final StreamController<double> _headingController =
+      StreamController<double>.broadcast();
 
-  /// Stream of user locations
+  /// Stream of user locations (throttled to avoid rapid jumps).
   Stream<LatLng> get locationStream => _locationController.stream;
+
+  /// Stream of device heading in degrees [0, 360).
+  /// Sourced from GPS/sensor `Position.heading`.
+  /// Emitted immediately (no throttle) whenever heading changes by ≥2°.
+  /// Negative values from the sensor indicate unavailability and are skipped.
+  Stream<double> get headingStream => _headingController.stream;
 
   LatLng? _lastLocation;
   LatLng? get lastLocation => _lastLocation;
@@ -17,41 +26,35 @@ class GPSTrackingService {
   bool _isTracking = false;
   bool get isTracking => _isTracking;
 
-  // Location smoothing
   final List<LatLng> _recentLocations = [];
-  static const int SMOOTHING_WINDOW = 3; // Average last 3 locations
-  static const double MIN_ACCURACY = 50.0; // Ignore locations with >50m accuracy
+  static const int SMOOTHING_WINDOW = 3;
 
-  /// Minimum meters moved before emitting an update (reduces jitter when stationary)
-  static const int _distanceFilterMeters = 15;
-  /// Minimum seconds between updates (avoids rapid jumps from GPS drift)
-  static const int _minUpdateIntervalSeconds = 2;
+  /// Minimum meters moved before emitting a location update.
+  static const int _distanceFilterMeters = 5;
+
+  /// Minimum seconds between location updates.
+  static const int _minUpdateIntervalSeconds = 1;
   DateTime? _lastEmittedAt;
 
-  /// Start tracking user location
-  /// Returns true if started successfully
+  double? _lastHeading;
+
+  /// Start tracking user location and heading.
   Future<bool> startTracking() async {
-    if (_isTracking) {
-      print('⚠️ GPS tracking already active');
-      return true;
-    }
+    if (_isTracking) return true;
 
     try {
-      // Check permission
       final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied || 
+      if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         print('❌ Location permission denied');
         return false;
       }
 
-      // Configure location settings: larger distanceFilter reduces jumping when not moving
       const LocationSettings locationSettings = LocationSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: _distanceFilterMeters,
       );
 
-      // Start position stream
       _positionStream = Geolocator.getPositionStream(
         locationSettings: locationSettings,
       ).listen(
@@ -59,16 +62,35 @@ class GPSTrackingService {
           final location = LatLng(position.latitude, position.longitude);
           _lastLocation = location;
 
-          // Throttle: don't emit more than once per _minUpdateIntervalSeconds
+          // --- Heading: emit real-time whenever it changes ≥ 2° ---
+          final heading = position.heading;
+          if (heading >= 0) {
+            final diff = _lastHeading == null
+                ? 360.0
+                : (heading - _lastHeading!).abs();
+            // Normalise wrap-around (e.g. 359° vs 1° = 2°, not 358°)
+            final circularDiff = diff > 180 ? 360 - diff : diff;
+            if (circularDiff >= 2.0) {
+              _lastHeading = heading;
+              _headingController.add(heading);
+            }
+          }
+
+          // --- Location: throttle to avoid rapid jumps from GPS drift ---
           final now = DateTime.now();
           if (_lastEmittedAt != null &&
-              now.difference(_lastEmittedAt!).inSeconds < _minUpdateIntervalSeconds) {
+              now.difference(_lastEmittedAt!).inSeconds <
+                  _minUpdateIntervalSeconds) {
             return;
           }
           _lastEmittedAt = now;
           _locationController.add(location);
-          
-          print('📍 GPS Update: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)} | Speed: ${position.speed} m/s');
+
+          print(
+            '📍 GPS: ${position.latitude.toStringAsFixed(5)}, '
+            '${position.longitude.toStringAsFixed(5)} | '
+            'Heading: ${position.heading.toStringAsFixed(1)}°',
+          );
         },
         onError: (error) {
           print('❌ GPS Error: $error');
@@ -78,31 +100,27 @@ class GPSTrackingService {
       _isTracking = true;
       print('✅ GPS tracking started');
       return true;
-      
     } catch (e) {
       print('❌ Failed to start GPS tracking: $e');
       return false;
     }
   }
 
-  /// Stop tracking user location
+  /// Stop tracking.
   void stopTracking() {
     if (!_isTracking) return;
-
     _positionStream?.cancel();
     _positionStream = null;
     _isTracking = false;
-    
     print('🛑 GPS tracking stopped');
   }
 
-  /// Get current location (one-time)
+  /// Get current location (one-time).
   Future<LatLng?> getCurrentLocation() async {
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-      
       return LatLng(position.latitude, position.longitude);
     } catch (e) {
       print('❌ Failed to get current location: $e');
@@ -110,7 +128,7 @@ class GPSTrackingService {
     }
   }
 
-  /// Calculate distance between two points in meters
+  /// Distance between two points in meters.
   double calculateDistance(LatLng point1, LatLng point2) {
     return Geolocator.distanceBetween(
       point1.latitude,
@@ -120,7 +138,7 @@ class GPSTrackingService {
     );
   }
 
-  /// Calculate bearing between two points (direction in degrees)
+  /// Bearing from [from] to [to] in degrees.
   double calculateBearing(LatLng from, LatLng to) {
     return Geolocator.bearingBetween(
       from.latitude,
@@ -130,40 +148,10 @@ class GPSTrackingService {
     );
   }
 
-  /// Smooth location using moving average
-  LatLng _smoothLocation(LatLng newLocation) {
-    // Add to recent locations
-    _recentLocations.add(newLocation);
-    
-    // Keep only last N locations
-    if (_recentLocations.length > SMOOTHING_WINDOW) {
-      _recentLocations.removeAt(0);
-    }
-    
-    // If we don't have enough data yet, return as-is
-    if (_recentLocations.length < 2) {
-      return newLocation;
-    }
-    
-    // Calculate average position
-    double avgLat = 0;
-    double avgLng = 0;
-    
-    for (final loc in _recentLocations) {
-      avgLat += loc.latitude;
-      avgLng += loc.longitude;
-    }
-    
-    avgLat /= _recentLocations.length;
-    avgLng /= _recentLocations.length;
-    
-    return LatLng(avgLat, avgLng);
-  }
-
-  /// Dispose resources
   void dispose() {
     stopTracking();
     _locationController.close();
+    _headingController.close();
     _recentLocations.clear();
   }
 }

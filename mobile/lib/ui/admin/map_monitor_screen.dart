@@ -24,7 +24,6 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
   bool _showEvacuationCenters = true;
   bool _showVerifiedHazards = true;
   bool _showPendingHazards = true;
-  bool _showRiskOverlay = false;
   
   List<HazardReport> _reports = [];
   List<EvacuationCenter> _centers = [];
@@ -451,16 +450,6 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> {
               onChanged: (value) {
                 setState(() {
                   _showPendingHazards = value;
-                });
-                Navigator.pop(context);
-              },
-            ),
-            SwitchListTile(
-              title: const Text('Risk Overlay'),
-              value: _showRiskOverlay,
-              onChanged: (value) {
-                setState(() {
-                  _showRiskOverlay = value;
                 });
                 Navigator.pop(context);
               },

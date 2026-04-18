@@ -34,7 +34,14 @@ urlpatterns = [
     
     # Routing
     path('calculate-route/', views.calculate_route, name='calculate_route'),
-    
+
     # Bootstrap data
     path('bootstrap-sync/', views.bootstrap_sync, name='bootstrap_sync'),
+
+    # MDRRMO: User management
+    path('users/', views.list_users, name='list_users'),
+    path('users/<int:user_id>/', views.get_user_detail, name='get_user_detail'),
+    path('users/<int:user_id>/suspend/', views.suspend_user, name='suspend_user'),
+    path('users/<int:user_id>/activate/', views.activate_user, name='activate_user'),
+    path('users/<int:user_id>/delete/', views.delete_user_admin, name='delete_user_admin'),
 ]

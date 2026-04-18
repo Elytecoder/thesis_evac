@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/utils/barangay_normalize.dart';
 import '../../features/admin/user_management_service.dart';
 import '../../models/user.dart';
 
@@ -17,11 +16,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   
   List<Map<String, dynamic>> _users = [];
   List<Map<String, dynamic>> _filteredUsers = [];
-  List<String> _barangays = ['All'];
   bool _isLoading = true;
   
   final TextEditingController _searchController = TextEditingController();
-  String _selectedBarangay = 'All';
   String _selectedStatus = 'All';
   
   final List<String> _statusOptions = [
@@ -73,34 +70,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           : _selectedStatus == 'Suspended'
               ? 'suspended'
               : null;
-      final barangayParam = _selectedBarangay == 'All' ? null : _selectedBarangay;
       final searchParam = _searchController.text.trim().isEmpty ? null : _searchController.text.trim();
       final list = await _userService.listUsers(
         status: statusParam,
-        barangay: barangayParam,
         search: searchParam,
       );
       final maps = list.map(_userToMap).toList();
-      // Build barangay list from data when loading all (no barangay filter)
-      List<String> barangays = ['All'];
-      if (barangayParam == null) {
-        final seen = <String>{};
-        for (final m in maps) {
-          final b = (m['barangay'] ?? '').toString().trim();
-          if (b.isNotEmpty && b != '—' && !seen.contains(b)) {
-            seen.add(b);
-            barangays.add(b);
-          }
-        }
-        barangays.sort((a, b) => a == 'All' ? -1 : (b == 'All' ? 1 : a.compareTo(b)));
-      } else {
-        barangays = _barangays;
-      }
       setState(() {
         _users = maps;
         _filteredUsers = maps;
-        _barangays = barangays;
-        if (!_barangays.contains(_selectedBarangay)) _selectedBarangay = 'All';
         _isLoading = false;
       });
     } catch (e) {
@@ -122,14 +100,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         final matchesSearch = query.isEmpty ||
             name.toLowerCase().contains(query) ||
             email.toLowerCase().contains(query);
-        final userBarangay = user['barangay']?.toString() ?? '';
-        final bRaw = userBarangay == '—' ? '' : userBarangay;
-        final matchesBarangay = _selectedBarangay == 'All' ||
-            BarangayNormalize.matches(bRaw, _selectedBarangay);
         final userStatus = user['status']?.toString() ?? '';
         final matchesStatus = _selectedStatus == 'All' ||
             userStatus == _selectedStatus;
-        return matchesSearch && matchesBarangay && matchesStatus;
+        return matchesSearch && matchesStatus;
       }).toList();
     });
   }
@@ -374,104 +348,49 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 ),
                 const SizedBox(height: 12),
                 
-                // Filter Dropdowns Row
-                Row(
+                // Status Filter
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Barangay Filter
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Barangay',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                            ],
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Status',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey[700],
                           ),
-                          const SizedBox(height: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _selectedBarangay,
-                                isExpanded: true,
-                                items: _barangays.map((barangay) {
-                                  return DropdownMenuItem(
-                                    value: barangay,
-                                    child: Text(barangay, style: const TextStyle(fontSize: 14)),
-                                  );
-                                }).toList(),
-                                onChanged: (value) {
-                                  setState(() => _selectedBarangay = value!);
-                                  _loadUsers();
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    // Status Filter
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Status',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.grey[700],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _selectedStatus,
-                                isExpanded: true,
-                                items: _statusOptions.map((status) {
-                                  return DropdownMenuItem(
-                                    value: status,
-                                    child: Text(status, style: const TextStyle(fontSize: 14)),
-                                  );
-                                }).toList(),
-                                onChanged: (value) {
-                                  setState(() {
-                                    _selectedStatus = value!;
-                                    _loadUsers();
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedStatus,
+                          isExpanded: true,
+                          items: _statusOptions.map((status) {
+                            return DropdownMenuItem(
+                              value: status,
+                              child: Text(status, style: const TextStyle(fontSize: 14)),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedStatus = value!;
+                              _loadUsers();
+                            });
+                          },
+                        ),
                       ),
                     ),
                   ],
@@ -497,7 +416,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       color: Colors.grey[700],
                     ),
                   ),
-                  if (_selectedBarangay != 'All' || _selectedStatus != 'All') ...[
+                  if (_selectedStatus != 'All') ...[
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

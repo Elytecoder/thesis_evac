@@ -999,7 +999,7 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
 
                     // Media upload (optional)
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
                           'Attach Media (Optional)',
@@ -1008,13 +1008,19 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-                        Text(
-                          HazardMediaConfig.videoUploadEnabled
-                              ? 'JPG/PNG max 2 MB · MP4 max 10 MB / 10 s'
-                              : 'JPG or PNG, max 2 MB',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            HazardMediaConfig.videoUploadEnabled
+                                ? 'JPG/PNG max 2 MB · MP4 max 10 MB / 10 s'
+                                : 'JPG or PNG, max 2 MB',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                            textAlign: TextAlign.end,
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 2,
                           ),
                         ),
                       ],

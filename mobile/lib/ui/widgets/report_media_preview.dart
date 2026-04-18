@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/config/api_config.dart';
 import '../../models/hazard_report.dart';
 
 bool reportHasMedia(HazardReport r) {
@@ -11,10 +12,35 @@ bool reportHasMedia(HazardReport r) {
   return p.isNotEmpty || v.isNotEmpty;
 }
 
+/// Normalise a media URL so it always points to the currently configured backend host.
+/// This handles stale URLs stored from a different session/deployment.
+String _normalizeMediaUrl(String url) {
+  if (url.isEmpty) return url;
+  if (!url.startsWith('http')) return url; // data: URL or relative — leave as-is
+
+  try {
+    final stored = Uri.parse(url);
+    // Derive the expected media host from the configured API base URL
+    final apiBase = Uri.parse(ApiConfig.baseUrl);
+    if (stored.host == apiBase.host && stored.port == apiBase.port) {
+      return url; // Already correct
+    }
+    // Re-base the path onto the current API host
+    final corrected = stored.replace(
+      scheme: apiBase.scheme,
+      host: apiBase.host,
+      port: apiBase.hasPort ? apiBase.port : null,
+    );
+    return corrected.toString();
+  } catch (_) {
+    return url;
+  }
+}
+
 /// Small square preview for list cards (photo only).
 Widget reportMediaListThumb(HazardReport report, {double size = 56}) {
-  final url = report.photoUrl?.trim();
-  if (url == null || url.isEmpty) {
+  final url = _normalizeMediaUrl(report.photoUrl?.trim() ?? '');
+  if (url.isEmpty) {
     return SizedBox(
       width: size,
       height: size,
@@ -107,6 +133,54 @@ Widget _brokenImage(double? width, double? height) {
   );
 }
 
+/// Opens the image full-screen in a modal overlay
+void _openFullscreenImage(BuildContext context, String url) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => _FullscreenImageViewer(url: url),
+    ),
+  );
+}
+
+class _FullscreenImageViewer extends StatelessWidget {
+  final String url;
+
+  const _FullscreenImageViewer({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text('Photo'),
+        actions: [
+          if (url.startsWith('http'))
+            IconButton(
+              icon: const Icon(Icons.open_in_new),
+              tooltip: 'Open in browser',
+              onPressed: () async {
+                final uri = Uri.tryParse(url);
+                if (uri != null && await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+        ],
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 4.0,
+          child: _buildImageFromUrl(url, fit: BoxFit.contain),
+        ),
+      ),
+    );
+  }
+}
+
 /// Full-width photo + video actions for report detail.
 class ReportMediaSection extends StatelessWidget {
   final HazardReport report;
@@ -115,9 +189,9 @@ class ReportMediaSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final photo = report.photoUrl?.trim();
-    final video = report.videoUrl?.trim();
-    if ((photo == null || photo.isEmpty) && (video == null || video.isEmpty)) {
+    final photo = _normalizeMediaUrl(report.photoUrl?.trim() ?? '');
+    final video = _normalizeMediaUrl(report.videoUrl?.trim() ?? '');
+    if (photo.isEmpty && video.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -133,18 +207,42 @@ class ReportMediaSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        if (photo != null && photo.isNotEmpty) ...[
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: SizedBox(
-              width: double.infinity,
-              height: 220,
-              child: _buildImageFromUrl(photo, fit: BoxFit.contain),
+        if (photo.isNotEmpty) ...[
+          GestureDetector(
+            onTap: () => _openFullscreenImage(context, photo),
+            child: Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 220,
+                    child: _buildImageFromUrl(photo, fit: BoxFit.contain),
+                  ),
+                ),
+                Container(
+                  margin: const EdgeInsets.all(8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                      SizedBox(width: 4),
+                      Text('Tap to enlarge', style: TextStyle(color: Colors.white, fontSize: 11)),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
         ],
-        if (video != null && video.isNotEmpty) _VideoRow(url: video),
+        if (video.isNotEmpty) _VideoRow(url: video),
       ],
     );
   }

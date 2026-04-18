@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/config/storage_config.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/hazard_report.dart';
 import '../../models/navigation_route.dart';
@@ -13,10 +11,8 @@ import '../../models/navigation_step.dart';
 import '../../models/route_segment.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../features/navigation/gps_tracking_service.dart';
-import '../../features/navigation/voice_guidance_service.dart';
 import '../../features/navigation/risk_aware_routing_service.dart';
 import '../widgets/navigation/top_instruction_banner.dart';
-import '../widgets/navigation/bottom_eta_panel.dart';
 import 'report_hazard_screen.dart';
 
 /// Enhanced Live Turn-by-Turn Navigation Screen
@@ -39,7 +35,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     with TickerProviderStateMixin {
   // Services
   final GPSTrackingService _gpsService = GPSTrackingService();
-  final VoiceGuidanceService _voiceService = VoiceGuidanceService();
   final RiskAwareRoutingService _routingService = RiskAwareRoutingService();
   final HazardService _hazardService = HazardService();
   final MapController _mapController = MapController();
@@ -50,19 +45,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   NavigationStep? _currentStep;
   RouteSegment? _currentHighRiskSegment;
   List<HazardReport> _verifiedHazards = [];
+  List<HazardReport> _pendingHazards = [];
   bool _isLoading = true;
   bool _hasArrived = false;
   bool _isRerouting = false;
-  bool _voiceEnabled = true;
   /// When true, camera follows user; when false, user can pan/explore freely.
   bool _followUserLocation = true;
 
-  /// One-shot voice cues per step index (30–50 m and imminent bands).
-  final Set<int> _voiceProximitySteps = {};
-  final Set<int> _voiceImminentSteps = {};
-
   // Streams
   StreamSubscription<LatLng>? _locationSubscription;
+  StreamSubscription<double>? _headingSubscription;
 
   // Distance tracking
   double _distanceToNextStep = 0.0;
@@ -100,17 +92,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   /// Initialize navigation system
   Future<void> _initializeNavigation() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      _voiceEnabled =
-          prefs.getBool(StorageConfig.enableVoiceNavigationKey) ?? true;
-      _voiceService.setUserWantsVoice(_voiceEnabled);
-      _voiceService.setSessionEnabled(_voiceEnabled);
-      await _voiceService.initialize();
-
-      // Load verified hazards (identified hazards on the map) and calculate route in parallel
+      // Load verified hazards and calculate route in parallel
       await Future.wait([
         _calculateRoute(),
         _loadVerifiedHazards(),
+        _loadPendingHazards(),
       ]);
 
       // Start GPS tracking
@@ -123,20 +109,17 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       // Listen to location updates
       _locationSubscription = _gpsService.locationStream.listen(_onLocationUpdate);
 
+      // Listen to heading updates for real-time arrow rotation
+      _headingSubscription = _gpsService.headingStream.listen((heading) {
+        if (mounted) setState(() => _currentBearing = heading);
+      });
+
       setState(() {
         _isLoading = false;
       });
 
       // Start smooth camera updates
       _startCameraUpdates();
-
-      // Initial spoken instruction (only when online + voice on — handled inside service)
-      if (_currentStep != null) {
-        await _voiceService.speakTurnInstruction(
-          _currentStep!.maneuver,
-          _currentStep!.distanceToNext,
-        );
-      }
     } catch (e) {
       debugPrint('Navigation initialization failed: $e');
       _showError('Failed to start navigation: $e');
@@ -150,6 +133,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       if (mounted) setState(() => _verifiedHazards = list);
     } catch (e) {
       print('Could not load verified hazards: $e');
+    }
+  }
+
+  /// Load pending hazards so the resident can see queued community reports while navigating
+  Future<void> _loadPendingHazards() async {
+    try {
+      final list = await _hazardService.getPendingReports();
+      if (mounted) setState(() => _pendingHazards = list);
+    } catch (e) {
+      print('Could not load pending hazards: $e');
     }
   }
 
@@ -187,25 +180,23 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _onLocationUpdate(LatLng location) async {
     if (_hasArrived || _currentRoute == null) return;
 
-    // Calculate bearing toward the next route point so the arrow
-    // always points in the direction of travel. setState is called here
-    // so the Transform.rotate widget actually redraws.
-    double newBearing = _currentBearing;
+    // Fallback movement bearing: used only when GPS compass hasn't fired yet.
+    // The heading stream drives _currentBearing in real time; this only catches
+    // the edge case where the device doesn't report heading (e.g. first fix).
     if (_currentRoute!.polyline.isNotEmpty) {
       final userIdx = _findClosestPointIndex(location, _currentRoute!.polyline);
       if (userIdx < _currentRoute!.polyline.length - 1) {
         final nextPoint = _currentRoute!.polyline[userIdx + 1];
         final calculated = _gpsService.calculateBearing(location, nextPoint);
-        // Dead-zone: only update if heading changed by more than 3° to prevent jitter
-        if ((calculated - _currentBearing).abs() > 3.0) {
-          newBearing = calculated;
+        // Only apply fallback if heading stream hasn't provided a value yet
+        if (_headingSubscription != null && _currentBearing == 0.0) {
+          setState(() => _currentBearing = calculated);
         }
       }
     }
 
     setState(() {
       _userLocation = location;
-      _currentBearing = newBearing;
     });
 
     // Check if arrived
@@ -263,48 +254,18 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       step: step,
     );
 
-    _maybeAnnounceApproach(step, distanceToStep);
-
     // Check if we need to advance to next step
     if (distanceToStep < 20 && step.stepIndex < _currentRoute!.steps.length - 1) {
-      // Move to next step
       final nextStep = _currentRoute!.steps[step.stepIndex + 1];
-      
       setState(() {
         _currentStep = nextStep;
         _distanceToNextStep = nextStep.distanceToNext;
       });
-
-      _voiceService.speakTurnInstruction(
-        nextStep.maneuver,
-        nextStep.distanceToNext,
-      );
     } else {
       setState(() {
         _currentStep = step;
         _distanceToNextStep = distanceToStep;
       });
-    }
-  }
-
-  /// Voice when approaching a turn (online only; service enforces). Avoids duplicate per step.
-  void _maybeAnnounceApproach(NavigationStep step, double distanceMeters) {
-    if (!_voiceEnabled) return;
-    final m = step.maneuver.toLowerCase();
-    if (m == 'arrive' || m == 'destination') return;
-
-    if (distanceMeters <= 50 &&
-        distanceMeters >= 30 &&
-        !_voiceProximitySteps.contains(step.stepIndex)) {
-      _voiceProximitySteps.add(step.stepIndex);
-      _voiceService.speakTurnInstruction(step.maneuver, distanceMeters);
-      return;
-    }
-    if (distanceMeters < 28 &&
-        distanceMeters > 10 &&
-        !_voiceImminentSteps.contains(step.stepIndex)) {
-      _voiceImminentSteps.add(step.stepIndex);
-      _voiceService.speakImminentTurn(step.maneuver);
     }
   }
 
@@ -317,13 +278,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     });
   }
 
-  /// Smooth camera follow: move camera to user position (only when follow mode is on).
-  /// Bearing is now calculated in _onLocationUpdate so the arrow always rotates
-  /// regardless of whether the user has panned the map.
+  /// Smooth camera follow: move + rotate map to match travel direction.
+  /// Bearing is calculated in _onLocationUpdate.
   void _smoothCameraFollow() {
     if (_userLocation == null || !_followUserLocation) return;
     try {
-      _mapController.move(_userLocation!, 17.0);
+      // Rotate map so "up" = direction of travel; move to user position.
+      _mapController.moveAndRotate(_userLocation!, 17.0, -_currentBearing);
     } catch (e) {
       // Map controller not ready
     }
@@ -352,7 +313,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     });
 
     _cameraUpdateTimer?.cancel();
-    await _voiceService.speakArrival();
     
     if (mounted) {
       _showSuccessDialog();
@@ -363,9 +323,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   Future<void> _onHighRiskDetected() async {
     print('🚨 HIGH RISK DETECTED - Triggering reroute');
     
-    // Speak warning
-    await _voiceService.speakRiskWarning();
-
     // Vibrate device
     HapticFeedback.heavyImpact();
 
@@ -379,9 +336,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   Future<void> _onDeviationDetected() async {
     print('⚠️ DEVIATION DETECTED - Triggering reroute');
     
-    // Speak warning
-    await _voiceService.speakDeviationWarning();
-
     // Trigger reroute if allowed
     if (_routingService.canReroute()) {
       await _reroute();
@@ -431,18 +385,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Toggle voice guidance (persisted for next sessions)
-  Future<void> _toggleVoice() async {
-    setState(() {
-      _voiceEnabled = !_voiceEnabled;
-      _voiceService.setUserWantsVoice(_voiceEnabled);
-      _voiceService.setSessionEnabled(_voiceEnabled);
-    });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(
-      StorageConfig.enableVoiceNavigationKey,
-      _voiceEnabled,
+  /// Distance from current location to destination (straight-line, in km)
+  double get _distanceRemainingKm {
+    if (_userLocation == null) return 0;
+    final dist = _gpsService.calculateDistance(
+      _userLocation!,
+      LatLng(widget.destination.latitude, widget.destination.longitude),
     );
+    return dist / 1000;
   }
 
   /// Maximum distance (m) from user to hazard location to allow reporting. Matches backend 1 km rule.
@@ -554,7 +504,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                         userLocation: _userLocation,
                       ),
                     ),
-                  );
+                  ).then((_) {
+                    // Inject newly submitted report into the map immediately
+                    _loadPendingHazards();
+                  });
                 },
                 icon: const Icon(Icons.report),
                 label: const Text('Report Hazard'),
@@ -648,10 +601,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   @override
   void dispose() {
     _locationSubscription?.cancel();
+    _headingSubscription?.cancel();
     _cameraUpdateTimer?.cancel();
     _pulseController.dispose();
     _gpsService.stopTracking();
-    _voiceService.dispose();
     _routingService.dispose();
     super.dispose();
   }
@@ -680,85 +633,209 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       );
     }
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Full-screen map (edge-to-edge)
-          _buildMap(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _confirmExitNavigation();
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            // Full-screen map (edge-to-edge)
+            _buildMap(),
 
-          // Top instruction banner - positioned at top only
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: TopInstructionBanner(
-                currentStep: _currentStep,
-                distanceToNext: _distanceToNextStep,
-              ),
-            ),
-          ),
-
-          // High-risk warning banner (animated) - positioned at top
-          if (_currentHighRiskSegment != null)
+            // Top instruction banner - positioned at top only
             Positioned(
-              top: 100,
+              top: 0,
               left: 0,
               right: 0,
-              child: _buildHighRiskBanner(),
-            ),
-
-          // Rerouting indicator (animated) - positioned at top
-          if (_isRerouting)
-            Positioned(
-              top: 150,
-              left: 0,
-              right: 0,
-              child: _buildReroutingIndicator(),
-            ),
-
-          // Re-center on user button (when user has panned the map)
-          Positioned(
-            right: 16,
-            bottom: 180,
-            child: SafeArea(
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(28),
-                color: _followUserLocation
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.white,
-                child: IconButton(
-                  onPressed: _recenterOnUser,
-                  icon: Icon(
-                    Icons.my_location,
-                    color: _followUserLocation
-                        ? Colors.white
-                        : Theme.of(context).colorScheme.primary,
-                  ),
-                  tooltip: 'Center on my location',
+              child: SafeArea(
+                bottom: false,
+                child: TopInstructionBanner(
+                  currentStep: _currentStep,
+                  distanceToNext: _distanceToNextStep,
                 ),
               ),
             ),
-          ),
 
-          // Bottom ETA panel
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              top: false,
-              child: BottomETAPanel(
-                route: _currentRoute,
-                voiceEnabled: _voiceEnabled,
-                onVoiceToggle: () {
-                  _toggleVoice();
-                },
-                onCancel: _cancelNavigation,
+            // High-risk warning banner (animated) - positioned at top
+            if (_currentHighRiskSegment != null)
+              Positioned(
+                top: 100,
+                left: 0,
+                right: 0,
+                child: _buildHighRiskBanner(),
+              ),
+
+            // Rerouting indicator (animated) - positioned at top
+            if (_isRerouting)
+              Positioned(
+                top: 150,
+                left: 0,
+                right: 0,
+                child: _buildReroutingIndicator(),
+              ),
+
+            // Destination info banner — always visible at bottom
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: _buildDestinationBanner(),
+            ),
+
+            // Re-center on user button (when user has panned the map)
+            Positioned(
+              right: 16,
+              bottom: 100,
+              child: SafeArea(
+                child: Material(
+                  elevation: 4,
+                  borderRadius: BorderRadius.circular(28),
+                  color: _followUserLocation
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.white,
+                  child: IconButton(
+                    onPressed: _recenterOnUser,
+                    icon: Icon(
+                      Icons.my_location,
+                      color: _followUserLocation
+                          ? Colors.white
+                          : Theme.of(context).colorScheme.primary,
+                    ),
+                    tooltip: 'Center on my location',
+                  ),
+                ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Confirm exit navigation (Android back button)
+  void _confirmExitNavigation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Leave Navigation?'),
+        content: const Text('Do you want to stop navigating to the evacuation center?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Continue Navigation'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Exit navigation screen
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Exit Navigation'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Destination info panel pinned at the bottom of the screen
+  Widget _buildDestinationBanner() {
+    final distKm = _distanceRemainingKm;
+    final distText = distKm >= 1
+        ? '${distKm.toStringAsFixed(1)} km remaining'
+        : '${(distKm * 1000).toStringAsFixed(0)} m remaining';
+    final barangay = widget.destination.barangay?.isNotEmpty == true
+        ? widget.destination.barangay!
+        : widget.destination.description;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E3A8A),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
+          ),
+        ],
+      ),
+      padding: EdgeInsets.only(
+        top: 12,
+        left: 16,
+        right: 16,
+        bottom: MediaQuery.of(context).padding.bottom + 12,
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.location_city, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  widget.destination.name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (barangay.isNotEmpty)
+                  Text(
+                    barangay,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.75),
+                      fontSize: 12,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                distText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              GestureDetector(
+                onTap: _confirmExitNavigation,
+                child: Container(
+                  margin: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade600,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'End',
+                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -830,6 +907,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         // Verified/approved hazard markers (identified hazards visible during navigation)
         MarkerLayer(
           markers: _buildVerifiedHazardMarkers(),
+        ),
+
+        // Pending hazard markers (community-reported, not yet approved)
+        MarkerLayer(
+          markers: _buildPendingHazardMarkers(),
         ),
 
         // High-risk segment markers with pulsing animation
@@ -944,6 +1026,32 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       ],
     ),
     );
+  }
+
+  /// Build markers for pending (not yet approved) hazard reports
+  List<Marker> _buildPendingHazardMarkers() {
+    return _pendingHazards.map((report) {
+      return Marker(
+        point: LatLng(report.latitude, report.longitude),
+        width: 40,
+        height: 40,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.orange.shade600,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.25),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+        ),
+      );
+    }).toList();
   }
 
   /// Build markers for verified/approved hazards (identified hazards on the map)
@@ -1147,10 +1255,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
               ),
               SizedBox(width: 12),
               Text(
-                'Recalculating route...',
+                'You are off route. Recalculating safer path...',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),

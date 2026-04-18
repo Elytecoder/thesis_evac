@@ -22,7 +22,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // Form controllers
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
   final _streetController = TextEditingController();
   final _verificationCodeController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -62,7 +61,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void dispose() {
     _fullNameController.dispose();
     _emailController.dispose();
-    _phoneController.dispose();
     _streetController.dispose();
     _verificationCodeController.dispose();
     _passwordController.dispose();
@@ -209,7 +207,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text,
         passwordConfirm: _confirmPasswordController.text,
         fullName: _fullNameController.text.trim(),
-        phoneNumber: _phoneController.text.trim(),
+        phoneNumber: '',
         province: _selectedProvince!,
         municipality: _selectedMunicipality!,
         barangay: _selectedBarangay!,
@@ -549,38 +547,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                                   const SizedBox(height: 16),
                                 ],
-                                
-                                // Phone number
-                                TextFormField(
-                                  controller: _phoneController,
-                                  keyboardType: TextInputType.phone,
-                                  maxLength: 11,
-                                  decoration: InputDecoration(
-                                    labelText: 'Phone Number *',
-                                    hintText: '09XXXXXXXXX',
-                                    prefixIcon: const Icon(Icons.phone),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly,
-                                    LengthLimitingTextInputFormatter(11),
-                                  ],
-                                  validator: (value) {
-                                    if (value == null || value.isEmpty) {
-                                      return 'Please enter your phone number';
-                                    }
-                                    if (value.length != 11) {
-                                      return 'Enter a valid 11-digit phone number';
-                                    }
-                                    if (!value.startsWith('09')) {
-                                      return 'Phone number must start with 09';
-                                    }
-                                    return null;
-                                  },
-                                  enabled: !_isLoading,
-                                ),
                                 
                                 const SizedBox(height: 16),
                                 

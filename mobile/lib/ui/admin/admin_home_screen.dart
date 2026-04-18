@@ -14,6 +14,7 @@ import 'evacuation_centers_management_screen.dart';
 import 'analytics_screen.dart';
 import 'user_management_screen.dart';
 import 'admin_settings_screen.dart';
+import 'report_detail_screen.dart';
 
 /// MDRRMO Admin Home Screen with bottom navigation.
 ///
@@ -139,6 +140,67 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     setState(() => _currentIndex = 1);
   }
 
+  // ── Notification bell ──────────────────────────────────────────────────────
+
+  /// Total new-report badge count (active banner + queued).
+  int get _newReportCount =>
+      _notificationQueue.length + (_activeNotification != null ? 1 : 0);
+
+  /// Bell icon widget with optional red badge.
+  Widget _buildNotificationBell() {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        SizedBox(
+          width: kToolbarHeight,
+          height: kToolbarHeight,
+          child: IconButton(
+            tooltip: 'Notifications',
+            icon: const Icon(Icons.notifications_rounded,
+                color: Colors.white, size: 26),
+            onPressed: _showNotificationPanel,
+          ),
+        ),
+        if (_newReportCount > 0)
+          Positioned(
+            top: 10,
+            right: 10,
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                _newReportCount > 9 ? '9+' : '$_newReportCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Show a bottom sheet listing all currently pending reports.
+  void _showNotificationPanel() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _NotificationPanel(
+        hazardService: _hazardService,
+        onViewReport: (report) {
+          Navigator.pop(context);
+          _openReportFromNotification(report);
+        },
+      ),
+    );
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
 
   @override
@@ -248,7 +310,211 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               onView: () => _openReportFromNotification(_activeNotification!),
               onDismiss: _dismissNotification,
             ),
+
+          // Persistent notification bell — top-left corner, visible on all tabs
+          Positioned(
+            top: MediaQuery.of(context).padding.top,
+            left: 4,
+            child: _buildNotificationBell(),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Notification panel (bottom sheet) ────────────────────────────────────────
+
+class _NotificationPanel extends StatefulWidget {
+  final HazardService hazardService;
+  final void Function(HazardReport) onViewReport;
+
+  const _NotificationPanel({
+    required this.hazardService,
+    required this.onViewReport,
+  });
+
+  @override
+  State<_NotificationPanel> createState() => _NotificationPanelState();
+}
+
+class _NotificationPanelState extends State<_NotificationPanel> {
+  List<HazardReport> _pendingReports = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final reports = await widget.hazardService.getPendingReports();
+      if (mounted) setState(() { _pendingReports = reports; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _hazardLabel(String raw) => raw
+      .split('_')
+      .map((w) => w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      minChildSize: 0.35,
+      maxChildSize: 0.85,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Handle
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.notifications_rounded,
+                      color: Color(0xFF1E3A8A), size: 22),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Pending Reports',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A8A),
+                      ),
+                    ),
+                  ),
+                  if (!_loading)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _pendingReports.isEmpty
+                            ? Colors.green
+                            : Colors.orange,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_pendingReports.length} pending',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // Body
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _pendingReports.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_outline,
+                                  size: 48, color: Colors.green[400]),
+                              const SizedBox(height: 12),
+                              const Text('No pending reports',
+                                  style: TextStyle(
+                                      fontSize: 15, color: Colors.grey)),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          controller: controller,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: _pendingReports.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 1, indent: 16),
+                          itemBuilder: (_, i) {
+                            final r = _pendingReports[i];
+                            final score = r.validationBreakdown != null
+                                ? (r.validationBreakdown!['final_validation_score'] as num?)?.toDouble()
+                                : r.naiveBayesScore;
+                            final scoreText = score != null
+                                ? '${(score * 100).toStringAsFixed(0)}%'
+                                : '—';
+                            final scoreColor = score == null
+                                ? Colors.grey
+                                : score >= 0.7
+                                    ? Colors.green
+                                    : score >= 0.4
+                                        ? Colors.orange
+                                        : Colors.red;
+                            return ListTile(
+                              leading: Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.12),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.report_problem_rounded,
+                                    color: Colors.orange, size: 22),
+                              ),
+                              title: Text(
+                                _hazardLabel(r.hazardType),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600, fontSize: 14),
+                              ),
+                              subtitle: Text(
+                                '${r.reporterBarangay ?? 'Unknown'} · AI score: $scoreText',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey[600]),
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: scoreColor.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      scoreText,
+                                      style: TextStyle(
+                                          color: scoreColor,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Icon(Icons.chevron_right,
+                                      color: Colors.grey),
+                                ],
+                              ),
+                              onTap: () => widget.onViewReport(r),
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
       ),
     );
   }

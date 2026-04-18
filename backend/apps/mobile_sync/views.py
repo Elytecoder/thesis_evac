@@ -3,6 +3,7 @@ API views for mobile app. Thin layer; business logic in services.
 All responses are JSON only.
 """
 from django.conf import settings as django_settings
+from django.db import models
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -27,6 +28,7 @@ from apps.mobile_sync.services.report_service import process_new_report
 from apps.mobile_sync.services.route_service import calculate_safest_routes
 from apps.mobile_sync.services.bootstrap_service import get_bootstrap_data
 from apps.notifications.models import Notification
+from apps.users.serializers import MdrrmoUserListSerializer
 
 
 def _report_hazard_json_500(detail: str) -> Response:
@@ -206,20 +208,28 @@ def mdrrmo_dashboard_stats(request):
     """
     from django.db.models import Count
     from django.utils import timezone
-    total_reports = HazardReport.objects.filter(auto_rejected=False).count()
+    total_reports = HazardReport.objects.filter(auto_rejected=False, is_deleted=False).count()
     pending_reports = HazardReport.objects.filter(
         status=HazardReport.Status.PENDING,
         auto_rejected=False,
+        is_deleted=False,
     ).count()
     verified_hazards = HazardReport.objects.filter(
         status=HazardReport.Status.APPROVED,
+        is_deleted=False,
     ).count()
     total_evacuation_centers = EvacuationCenter.objects.count()
     non_operational_centers = EvacuationCenter.objects.filter(is_operational=False).count()
+    # Count road segments whose predicted risk score exceeds the high-risk threshold
+    try:
+        from apps.routing.models import RoadSegment
+        high_risk_roads = RoadSegment.objects.filter(predicted_risk_score__gte=0.7).count()
+    except Exception:
+        high_risk_roads = 0
 
     # Hazard type distribution from verified (approved) reports only
     hazard_distribution = dict(
-        HazardReport.objects.filter(status=HazardReport.Status.APPROVED)
+        HazardReport.objects.filter(status=HazardReport.Status.APPROVED, is_deleted=False)
         .values('hazard_type')
         .annotate(count=Count('id'))
         .values_list('hazard_type', 'count')
@@ -227,7 +237,7 @@ def mdrrmo_dashboard_stats(request):
 
     # Recent activity: last 10 report-related events (submitted / approved / rejected)
     recent_reports = (
-        HazardReport.objects.filter(auto_rejected=False)
+        HazardReport.objects.filter(auto_rejected=False, is_deleted=False)
         .order_by('-created_at')[:10]
         .select_related('user')
     )
@@ -254,7 +264,7 @@ def mdrrmo_dashboard_stats(request):
         'total_reports': total_reports,
         'pending_reports': pending_reports,
         'verified_hazards': verified_hazards,
-        'high_risk_roads': 0,
+        'high_risk_roads': high_risk_roads,
         'total_evacuation_centers': total_evacuation_centers,
         'non_operational_centers': non_operational_centers,
         'hazard_distribution': hazard_distribution,
@@ -270,7 +280,7 @@ def mdrrmo_pending_reports(request):
     MDRRMO only.
     """
     qs = (
-        HazardReport.objects.filter(status=HazardReport.Status.PENDING)
+        HazardReport.objects.filter(status=HazardReport.Status.PENDING, is_deleted=False)
         .select_related('user')
         .order_by('-created_at')
     )
@@ -351,7 +361,8 @@ def my_reports(request):
     qs = (
         HazardReport.objects.filter(
             user=request.user,
-            auto_rejected=False,  # Don't show auto-rejected reports
+            auto_rejected=False,
+            is_deleted=False,
         )
         .select_related('user')
         .order_by('-created_at')
@@ -393,7 +404,7 @@ def verified_hazards(request):
     GET /api/verified-hazards/
     Returns all approved hazard reports for map display.
     """
-    qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED).select_related('user')
+    qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED, is_deleted=False).select_related('user')
     serializer = HazardReportSerializer(qs, many=True)
     return Response(serializer.data)
 
@@ -447,6 +458,7 @@ def check_similar_reports(request):
         status=HazardReport.Status.PENDING,
         hazard_type=hazard_type,
         auto_rejected=False,
+        is_deleted=False,
     ).select_related('user')
     
     for report in pending_reports:
@@ -529,7 +541,7 @@ def confirm_hazard_report(request):
         consensus = ConsensusScoringService()
         nearby = consensus.count_nearby_reports(
             float(report.latitude), float(report.longitude),
-            HazardReport.objects.exclude(id=report.id),
+            HazardReport.objects.exclude(id=report.id).filter(is_deleted=False),
             exclude_report_id=report.id,
             time_window_hours=1,
             hazard_type=report.hazard_type,
@@ -589,11 +601,11 @@ def restore_report(request):
     MDRRMO only.
     """
     report_id = request.data.get('report_id')
-    restoration_reason = request.data.get('restoration_reason', '')
+    restoration_reason = request.data.get('restoration_reason', '').strip() or 'Restored by MDRRMO'
     
-    if not report_id or not restoration_reason:
+    if not report_id:
         return Response(
-            {'error': 'report_id and restoration_reason required'},
+            {'error': 'report_id required'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -617,10 +629,12 @@ def restore_report(request):
 def mdrrmo_delete_report(request, report_id: int):
     """
     DELETE /api/mdrrmo/reports/<report_id>/
-    MDRRMO can delete an approved or rejected report. Removes it from the system.
+    Soft-deletes the report so notifications remain valid and algorithms stay clean.
+    Returns 404 if already deleted.
     """
+    from django.utils import timezone as tz
     try:
-        report = HazardReport.objects.get(pk=report_id)
+        report = HazardReport.objects.get(pk=report_id, is_deleted=False)
     except HazardReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
     if report.status == HazardReport.Status.PENDING:
@@ -628,7 +642,9 @@ def mdrrmo_delete_report(request, report_id: int):
             {'error': 'Cannot delete pending reports. Approve or reject them first.'},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    report.delete()
+    report.is_deleted = True
+    report.deleted_at = tz.now()
+    report.save(update_fields=['is_deleted', 'deleted_at'])
     return Response({'message': 'Report deleted successfully'}, status=status.HTTP_200_OK)
 
 
@@ -643,7 +659,8 @@ def mdrrmo_rejected_reports(request):
     qs = (
         HazardReport.objects.filter(
             status=HazardReport.Status.REJECTED,
-            auto_rejected=False,  # Don't show auto-rejected reports
+            auto_rejected=False,
+            is_deleted=False,
         )
         .select_related('user')
         .order_by('-rejected_at')
@@ -790,3 +807,139 @@ def reactivate_evacuation_center(request, center_id):
     
     center.reactivate()
     return Response(EvacuationCenterSerializer(center).data)
+
+
+# ── MDRRMO: User Management ──────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def list_users(request):
+    """
+    GET /api/users/
+    List all resident users. MDRRMO only.
+    Query params: status (active/suspended), barangay, search (email/name).
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    qs = User.objects.filter(role=User.Role.RESIDENT).order_by('-date_joined')
+
+    status_filter = request.GET.get('status')
+    if status_filter == 'suspended':
+        qs = qs.filter(is_suspended=True)
+    elif status_filter == 'active':
+        qs = qs.filter(is_suspended=False, is_active=True)
+
+    barangay = request.GET.get('barangay')
+    if barangay:
+        qs = qs.filter(barangay__icontains=barangay)
+
+    search = request.GET.get('search')
+    if search:
+        qs = qs.filter(
+            models.Q(email__icontains=search) |
+            models.Q(full_name__icontains=search)
+        )
+
+    serializer = MdrrmoUserListSerializer(qs, many=True)
+    return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def get_user_detail(request, user_id):
+    """
+    GET /api/users/<user_id>/
+    Get a specific resident's details with report stats. MDRRMO only.
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    report_count = HazardReport.objects.filter(user=user, auto_rejected=False).count()
+    approved_count = HazardReport.objects.filter(
+        user=user, status=HazardReport.Status.APPROVED
+    ).count()
+
+    data = MdrrmoUserListSerializer(user).data
+    data['report_count'] = report_count
+    data['approved_report_count'] = approved_count
+    return Response(data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def suspend_user(request, user_id):
+    """
+    POST /api/users/<user_id>/suspend/
+    Suspend a resident account. MDRRMO only.
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if user.role == User.Role.MDRRMO:
+        return Response(
+            {'error': 'Cannot suspend an MDRRMO account.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user.is_suspended = True
+    user.is_active = False
+    user.save(update_fields=['is_suspended', 'is_active'])
+    return Response(MdrrmoUserListSerializer(user).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def activate_user(request, user_id):
+    """
+    POST /api/users/<user_id>/activate/
+    Reactivate a suspended resident account. MDRRMO only.
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    user.is_suspended = False
+    user.is_active = True
+    user.save(update_fields=['is_suspended', 'is_active'])
+    return Response(MdrrmoUserListSerializer(user).data)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def delete_user_admin(request, user_id):
+    """
+    DELETE /api/users/<user_id>/delete/
+    Permanently delete a resident account. MDRRMO only.
+    Cannot delete MDRRMO accounts or self.
+    """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if user.role == User.Role.MDRRMO:
+        return Response(
+            {'error': 'Cannot delete an MDRRMO account.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if user == request.user:
+        return Response(
+            {'error': 'You cannot delete your own account from this endpoint.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user.delete()
+    return Response({'message': 'User deleted successfully.'}, status=status.HTTP_200_OK)

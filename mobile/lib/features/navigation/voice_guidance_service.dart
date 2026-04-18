@@ -18,7 +18,7 @@ class VoiceGuidanceService {
 
   String? _lastSpokenText;
   DateTime? _lastSpokenAt;
-  static const Duration _dedupeWindow = Duration(seconds: 12);
+  static const Duration _dedupeWindow = Duration(seconds: 6);
   static const Duration _internetCacheTtl = Duration(seconds: 4);
 
   /// User setting from Settings + in-nav toggle (both gate speech).
@@ -127,13 +127,25 @@ class VoiceGuidanceService {
     switch (m) {
       case 'left':
       case 'turn-left':
-      case 'sharp-left':
         instruction = 'Turn left';
+        break;
+      case 'sharp-left':
+        instruction = 'Turn sharp left';
+        break;
+      case 'slight-left':
+      case 'fork-left':
+        instruction = 'Keep left';
         break;
       case 'right':
       case 'turn-right':
-      case 'sharp-right':
         instruction = 'Turn right';
+        break;
+      case 'sharp-right':
+        instruction = 'Turn sharp right';
+        break;
+      case 'slight-right':
+      case 'fork-right':
+        instruction = 'Keep right';
         break;
       case 'straight':
       case 'continue':
@@ -141,6 +153,12 @@ class VoiceGuidanceService {
         break;
       case 'u-turn':
         instruction = 'Make a U-turn';
+        break;
+      case 'roundabout':
+        instruction = 'Enter the roundabout';
+        break;
+      case 'roundabout-exit':
+        instruction = 'Exit the roundabout';
         break;
       default:
         instruction = maneuver;
@@ -173,13 +191,25 @@ class VoiceGuidanceService {
     switch (maneuver.toLowerCase()) {
       case 'left':
       case 'turn-left':
-      case 'sharp-left':
         instruction = 'Turn left $distanceText';
+        break;
+      case 'sharp-left':
+        instruction = 'Turn sharp left $distanceText';
+        break;
+      case 'slight-left':
+      case 'fork-left':
+        instruction = 'Keep left $distanceText';
         break;
       case 'right':
       case 'turn-right':
-      case 'sharp-right':
         instruction = 'Turn right $distanceText';
+        break;
+      case 'sharp-right':
+        instruction = 'Turn sharp right $distanceText';
+        break;
+      case 'slight-right':
+      case 'fork-right':
+        instruction = 'Keep right $distanceText';
         break;
       case 'straight':
       case 'continue':
@@ -191,6 +221,12 @@ class VoiceGuidanceService {
         break;
       case 'u-turn':
         instruction = 'Make a U-turn $distanceText';
+        break;
+      case 'roundabout':
+        instruction = 'Enter the roundabout $distanceText';
+        break;
+      case 'roundabout-exit':
+        instruction = 'Exit the roundabout $distanceText';
         break;
       default:
         instruction = '$maneuver $distanceText';

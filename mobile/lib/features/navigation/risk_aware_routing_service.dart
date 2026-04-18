@@ -106,20 +106,94 @@ class RiskAwareRoutingService {
         String ourManeuver = 'straight';
         String instruction = step['name'] ?? 'Continue';
 
-        if (maneuverType == 'turn') {
-          if (modifier?.contains('left') == true) {
-            ourManeuver = 'left';
-            instruction = 'Turn left';
-          } else if (modifier?.contains('right') == true) {
-            ourManeuver = 'right';
-            instruction = 'Turn right';
+        // Normalise modifier: "slight left" → "slight-left", "sharp right" → "sharp-right", etc.
+        final rawMod = (modifier ?? '').toLowerCase().trim().replaceAll(' ', '-');
+
+        if (maneuverType == 'turn' || maneuverType == 'end of road') {
+          switch (rawMod) {
+            case 'sharp-left':
+              ourManeuver = 'sharp-left';
+              instruction = 'Turn sharp left';
+              break;
+            case 'left':
+              ourManeuver = 'left';
+              instruction = 'Turn left';
+              break;
+            case 'slight-left':
+              ourManeuver = 'slight-left';
+              instruction = 'Keep left';
+              break;
+            case 'slight-right':
+              ourManeuver = 'slight-right';
+              instruction = 'Keep right';
+              break;
+            case 'right':
+              ourManeuver = 'right';
+              instruction = 'Turn right';
+              break;
+            case 'sharp-right':
+              ourManeuver = 'sharp-right';
+              instruction = 'Turn sharp right';
+              break;
+            case 'uturn':
+              ourManeuver = 'u-turn';
+              instruction = 'Make a U-turn';
+              break;
+            default:
+              ourManeuver = 'straight';
+              instruction = 'Continue straight';
           }
+        } else if (maneuverType == 'fork') {
+          if (rawMod.contains('left')) {
+            ourManeuver = 'fork-left';
+            instruction = 'Keep left at fork';
+          } else if (rawMod.contains('right')) {
+            ourManeuver = 'fork-right';
+            instruction = 'Keep right at fork';
+          } else {
+            ourManeuver = 'straight';
+            instruction = 'Continue at fork';
+          }
+        } else if (maneuverType == 'merge') {
+          if (rawMod.contains('left')) {
+            ourManeuver = 'slight-left';
+            instruction = 'Merge left';
+          } else if (rawMod.contains('right')) {
+            ourManeuver = 'slight-right';
+            instruction = 'Merge right';
+          } else {
+            ourManeuver = 'straight';
+            instruction = 'Merge onto road';
+          }
+        } else if (maneuverType == 'on ramp' || maneuverType == 'off ramp') {
+          if (rawMod.contains('left')) {
+            ourManeuver = 'slight-left';
+            instruction = 'Take the ramp on the left';
+          } else if (rawMod.contains('right')) {
+            ourManeuver = 'slight-right';
+            instruction = 'Take the ramp on the right';
+          } else {
+            ourManeuver = 'straight';
+            instruction = 'Take the ramp';
+          }
+        } else if (maneuverType == 'roundabout' || maneuverType == 'rotary') {
+          ourManeuver = 'roundabout';
+          instruction = 'Enter the roundabout';
+        } else if (maneuverType == 'exit roundabout' || maneuverType == 'exit rotary') {
+          ourManeuver = 'roundabout-exit';
+          instruction = 'Exit the roundabout';
         } else if (maneuverType == 'arrive') {
           ourManeuver = 'arrive';
           instruction = 'Arrive at destination';
         } else if (maneuverType == 'depart') {
           ourManeuver = 'straight';
-          instruction = 'Head ${modifier ?? "forward"}';
+          instruction = 'Head ${rawMod.isEmpty ? "forward" : rawMod.replaceAll('-', ' ')}';
+        } else if (maneuverType == 'new name' || maneuverType == 'continue' || maneuverType == 'use lane') {
+          ourManeuver = 'straight';
+          instruction = 'Continue straight';
+        } else if (maneuverType == 'notification') {
+          ourManeuver = 'straight';
+          instruction = 'Continue';
         }
 
         // Add street name if available

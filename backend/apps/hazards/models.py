@@ -87,6 +87,11 @@ class HazardReport(models.Model):
     restoration_reason = models.TextField(blank=True)  # Reason for restoring a rejected report
     restored_at = models.DateTimeField(null=True, blank=True)  # When report was restored
     
+    # Soft-delete: MDRRMO can mark reports as deleted without losing history.
+    # All operational queries MUST filter is_deleted=False.
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     rejected_at = models.DateTimeField(null=True, blank=True)  # When report was rejected

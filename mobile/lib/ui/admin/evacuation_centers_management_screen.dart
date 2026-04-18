@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/utils/barangay_normalize.dart';
 import '../../features/evacuation/evacuation_center_service.dart';
 import '../../models/evacuation_center.dart';
 import 'add_evacuation_center_screen.dart';
@@ -22,18 +21,7 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
   List<EvacuationCenter> _centers = [];
   bool _isLoading = true;
   String _searchQuery = '';
-  String _selectedBarangay = 'all';
-  bool _filterOnlyNonOperational = false; // NEW: filter for non-operational centers
-
-  List<String> get _centerBarangayDropdownValues {
-    final fromData = <String>{};
-    for (final c in _centers) {
-      final b = c.barangay?.trim();
-      if (b != null && b.isNotEmpty) fromData.add(b);
-    }
-    final sorted = fromData.toList()..sort();
-    return ['all', ...sorted];
-  }
+  bool _filterOnlyNonOperational = false;
 
   @override
   void initState() {
@@ -103,11 +91,6 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
           return false;
         }
       }
-      if (_selectedBarangay != 'all') {
-        if (!BarangayNormalize.matches(center.barangay, _selectedBarangay)) {
-          return false;
-        }
-      }
       if (_filterOnlyNonOperational) {
         if (center.isOperational) {
           return false;
@@ -159,36 +142,6 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                   },
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _centerBarangayDropdownValues.contains(_selectedBarangay)
-                      ? _selectedBarangay
-                      : 'all',
-                  decoration: InputDecoration(
-                    labelText: 'Filter by Barangay',
-                    prefixIcon: const Icon(Icons.location_on, size: 20),
-                    filled: true,
-                    fillColor: Colors.white,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                  items: _centerBarangayDropdownValues.map((barangay) {
-                    return DropdownMenuItem(
-                      value: barangay,
-                      child: Text(
-                        barangay == 'all' ? 'All Barangays' : barangay,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => _selectedBarangay = value);
-                    }
-                  },
-                ),
-                
                 // Non-Operational Filter Chip
                 if (_filterOnlyNonOperational) ...[
                   const SizedBox(height: 12),
@@ -305,6 +258,61 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
         backgroundColor: const Color(0xFF1E3A8A),
       ),
     );
+  }
+
+  Future<void> _deleteCenter(EvacuationCenter center) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Expanded(child: Text('Delete Center')),
+          ],
+        ),
+        content: Text(
+          'Permanently delete "${center.name}"?\n\nThis action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.delete_forever),
+            label: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _evacuationCenterService.deleteEvacuationCenter(center.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${center.name}" deleted.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadCenters();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildCenterCard(EvacuationCenter center) {
@@ -426,8 +434,8 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                           builder: (context) => EvacuationCenterDetailScreen(center: center),
                         ),
                       );
-                      
-                      if (result == true) {
+                      // Always reload — status may have been toggled inside the detail screen
+                      if (result == true || result == null) {
                         _loadCenters();
                       }
                     },
@@ -437,6 +445,15 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
                       backgroundColor: const Color(0xFF1E3A8A),
                       foregroundColor: Colors.white,
                     ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: () => _deleteCenter(center),
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  tooltip: 'Delete center',
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.red.withOpacity(0.08),
                   ),
                 ),
               ],

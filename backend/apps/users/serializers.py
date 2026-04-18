@@ -83,6 +83,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             'full_name', 'phone_number',
             'province', 'municipality', 'barangay', 'street'
         ]
+        extra_kwargs = {
+            'phone_number': {'required': False, 'allow_blank': True, 'default': ''},
+        }
     
     def validate_email(self, value):
         """Validate email format and uniqueness."""
@@ -117,8 +120,10 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
     
     def validate_phone_number(self, value):
-        """Validate Philippine mobile number format."""
-        value = value.strip()
+        """Phone number is optional. If provided, validate Philippine mobile number format."""
+        value = (value or '').strip()
+        if not value:
+            return value  # allow empty
         
         # Must be exactly 11 digits
         if not value.isdigit():

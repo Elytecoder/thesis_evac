@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/utils/barangay_normalize.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 import '../widgets/report_media_preview.dart';
@@ -22,21 +21,11 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   bool _isLoading = true;
   
   String _selectedStatus = 'all';
-  String _selectedBarangay = 'all';
   String _searchQuery = '';
 
   final List<String> _statusOptions = ['all', 'pending', 'approved', 'rejected'];
 
-  /// Built from loaded reports (`reporter_barangay`); always includes `all`.
-  List<String> get _reportBarangayDropdownValues {
-    final fromData = <String>{};
-    for (final r in _reports) {
-      final b = r.reporterBarangay?.trim();
-      if (b != null && b.isNotEmpty) fromData.add(b);
-    }
-    final sorted = fromData.toList()..sort();
-    return ['all', ...sorted];
-  }
+  
 
   @override
   void initState() {
@@ -227,82 +216,29 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   }
 
   /// Show restore modal for rejected reports
-  /// Allows MDRRMO to restore rejected reports back to pending status with a reason
   Future<void> _showRestoreModal(HazardReport report) async {
-    final TextEditingController reasonController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
     final confirmed = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
             Icon(Icons.restore, color: Colors.green[700], size: 28),
             const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Restore Hazard Report',
-                style: TextStyle(fontSize: 18),
-              ),
-            ),
+            const Expanded(child: Text('Restore Report')),
           ],
         ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Please provide your reason for the restoration of this hazard report.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[700],
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: reasonController,
-                decoration: InputDecoration(
-                  labelText: 'Restoration Reason *',
-                  hintText: 'Enter reason for restoring this report',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  prefixIcon: const Icon(Icons.edit_note),
-                ),
-                maxLines: 3,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please provide a reason for restoration';
-                  }
-                  if (value.trim().length < 10) {
-                    return 'Reason must be at least 10 characters';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
+        content: const Text(
+          'Move this rejected report back to pending status for re-review?',
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              reasonController.dispose();
-              Navigator.pop(context, false);
-            },
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel'),
           ),
           ElevatedButton.icon(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(context, true);
-              }
-            },
-            icon: const Icon(Icons.check),
-            label: const Text('Submit'),
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.restore),
+            label: const Text('Restore'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green,
               foregroundColor: Colors.white,
@@ -314,30 +250,27 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
     );
 
     if (confirmed == true) {
-      // Perform restoration
       try {
         await _hazardService.restoreReport(
           reportId: report.id ?? 0,
-          restorationReason: reasonController.text.trim(),
+          restorationReason: 'Restored by MDRRMO',
         );
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('✅ Report successfully restored and moved to Pending'),
+              content: Text('Report successfully restored and moved to Pending'),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 3),
             ),
           );
-          
-          // Reload reports to reflect change
           _loadReports();
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('❌ Failed to restore report: $e'),
+              content: Text('Failed to restore report: $e'),
               backgroundColor: Colors.red,
               duration: const Duration(seconds: 3),
             ),
@@ -345,8 +278,6 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
         }
       }
     }
-
-    reasonController.dispose();
   }
 
   List<HazardReport> get _filteredReports {
@@ -355,11 +286,6 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
         final query = _searchQuery.toLowerCase();
         if (!report.hazardType.toLowerCase().contains(query) &&
             !report.description.toLowerCase().contains(query)) {
-          return false;
-        }
-      }
-      if (_selectedBarangay != 'all') {
-        if (!BarangayNormalize.matches(report.reporterBarangay, _selectedBarangay)) {
           return false;
         }
       }
@@ -413,75 +339,34 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                 
                 const SizedBox(height: 12),
                 
-                // Status and Barangay Filters
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: _selectedStatus,
-                        decoration: InputDecoration(
-                          labelText: 'Status',
-                          prefixIcon: const Icon(Icons.filter_list, size: 20),
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        ),
-                        items: _statusOptions.map((status) {
-                          return DropdownMenuItem(
-                            value: status,
-                            child: Text(status.toUpperCase()),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() {
-                              _selectedStatus = value;
-                            });
-                            _loadReports();
-                          }
-                        },
-                      ),
+                // Status Filter
+                DropdownButtonFormField<String>(
+                  value: _selectedStatus,
+                  decoration: InputDecoration(
+                    labelText: 'Status',
+                    prefixIcon: const Icon(Icons.filter_list, size: 20),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
                     ),
-                    
-                    const SizedBox(width: 12),
-                    
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        value: _reportBarangayDropdownValues.contains(_selectedBarangay)
-                            ? _selectedBarangay
-                            : 'all',
-                        decoration: InputDecoration(
-                          labelText: 'Barangay',
-                          prefixIcon: const Icon(Icons.location_on, size: 20),
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        ),
-                        items: _reportBarangayDropdownValues.map((barangay) {
-                          return DropdownMenuItem(
-                            value: barangay,
-                            child: Text(
-                              barangay == 'all' ? 'All Barangays' : barangay,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            setState(() => _selectedBarangay = value);
-                          }
-                        },
-                      ),
-                    ),
-                  ],
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  items: _statusOptions.map((status) {
+                    return DropdownMenuItem(
+                      value: status,
+                      child: Text(status.toUpperCase()),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _selectedStatus = value;
+                      });
+                      _loadReports();
+                    }
+                  },
                 ),
               ],
             ),
@@ -502,15 +387,12 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                if (_searchQuery.isNotEmpty ||
-                    _selectedStatus != 'all' ||
-                    _selectedBarangay != 'all')
+                if (_searchQuery.isNotEmpty || _selectedStatus != 'all')
                   TextButton.icon(
                     onPressed: () {
                       setState(() {
                         _searchQuery = '';
                         _selectedStatus = 'all';
-                        _selectedBarangay = 'all';
                       });
                       _loadReports();
                     },
