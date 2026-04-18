@@ -16,7 +16,7 @@ import '../../features/residents/resident_hazard_reports_service.dart';
 import '../../features/residents/resident_notifications_service.dart';
 import '../widgets/offline_banner.dart';
 import '../widgets/exit_confirm_scope.dart';
-import '../widgets/report_media_preview.dart' show normalizeMediaUrl;
+import '../widgets/report_media_preview.dart' show normalizeMediaUrl, buildImageFromUrl;
 import 'routes_selection_screen.dart';
 import 'report_hazard_screen.dart';
 import 'settings_screen.dart';
@@ -577,19 +577,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 ? Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(
+                      buildImageFromUrl(
                         url,
+                        width: 100,
+                        height: 100,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.broken_image, color: Colors.grey[400]),
-                              const SizedBox(height: 4),
-                              Text('Image', style: TextStyle(fontSize: 10, color: Colors.grey[600])),
-                            ],
-                          );
-                        },
                       ),
                       Positioned(
                         bottom: 4,
@@ -635,11 +627,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             child: InteractiveViewer(
               minScale: 0.5,
               maxScale: 4.0,
-              child: Image.network(
-                url,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white, size: 64),
-              ),
+              child: buildImageFromUrl(url, fit: BoxFit.contain),
             ),
           ),
         ),

@@ -48,14 +48,16 @@ Widget reportMediaListThumb(HazardReport report, {double size = 56}) {
       child: Icon(Icons.perm_media_outlined, size: size * 0.45, color: Colors.grey[500]),
     );
   }
-  final child = _buildImageFromUrl(url, width: size, height: size, fit: BoxFit.cover);
+  final child = buildImageFromUrl(url, width: size, height: size, fit: BoxFit.cover);
   return ClipRRect(
     borderRadius: BorderRadius.circular(8),
     child: SizedBox(width: size, height: size, child: child),
   );
 }
 
-Widget _buildImageFromUrl(String url, {double? width, double? height, BoxFit fit = BoxFit.cover}) {
+/// Builds an image widget from either a data URL (`data:image/...`) or an HTTP URL.
+/// Public so other screens (e.g. map_screen, live_navigation_screen) can reuse it.
+Widget buildImageFromUrl(String url, {double? width, double? height, BoxFit fit = BoxFit.cover}) {
   // Handle data URLs (base64)
   if (url.startsWith('data:image')) {
     try {
@@ -175,7 +177,7 @@ class _FullscreenImageViewer extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.5,
           maxScale: 4.0,
-          child: _buildImageFromUrl(url, fit: BoxFit.contain),
+          child: buildImageFromUrl(url, fit: BoxFit.contain),
         ),
       ),
     );
@@ -219,7 +221,7 @@ class ReportMediaSection extends StatelessWidget {
                   child: SizedBox(
                     width: double.infinity,
                     height: 220,
-                    child: _buildImageFromUrl(photo, fit: BoxFit.contain),
+                    child: buildImageFromUrl(photo, fit: BoxFit.contain),
                   ),
                 ),
                 Container(
