@@ -1,9 +1,21 @@
 """
 Service for route calculation: load segments, run Modified Dijkstra, return 3 safest routes.
-Uses base risk (Random Forest / mock) plus proximity-based risk from approved hazard reports.
-Effective segment risk = (base × 0.6) + (dynamic × 0.4), normalized to [0, 1].
-Dynamic risk is hazard-type aware; road_block forces segment risk to 1.0 (impassable).
+
+Hazard-to-road influence uses GRADUATED proximity, not a binary radius:
+  - True perpendicular distance from hazard to road segment centerline.
+  - Per-type influence radius: physical blockers (fallen tree, road_blocked) have
+    tight radii; spreading hazards (flood, storm_surge) have wider radii.
+  - Per-type decay profile: 'sharp' (quadratic) for blockers, 'gradual' (sqrt)
+    for fluids, 'moderate' (linear) for everything else.
+  - On-segment bonus: hazard projected onto the segment itself (not just near an
+    endpoint) receives a 20 % boost.
+  - Severity multiplier: final_validation_score (NB + distance + consensus) scales
+    each hazard's contribution.
+
+Effective segment risk = (base_RF × 0.6) + (dynamic × 0.4), clamped to [0, 1].
+road_blocked within its tight radius forces segment risk to 1.0 (impassable).
 """
+import math
 from decimal import Decimal
 
 from apps.evacuation.models import EvacuationCenter
@@ -18,8 +30,45 @@ from core.utils.geo import haversine_meters
 HIGH_RISK_THRESHOLD = 0.7
 EXTREME_RISK_THRESHOLD = 0.9  # "Possibly Blocked" tag
 
-# Proximity threshold: hazards within this distance (meters) of a segment add to its risk
-HAZARD_PROXIMITY_METERS = 100
+# ── Per-type influence radius (meters from road centerline) ──────────────────
+# Physical blockers have tight radii: they must be on/across the road to matter.
+# Spreading hazards (flood, storm_surge) have wide radii: water fills the area.
+HAZARD_INFLUENCE_RADIUS: dict = {
+    'road_blocked':               25,   # must physically block the road
+    'road_block':                 25,
+    'fallen_tree':                15,   # trunk across the road; small lateral spread
+    'road_damage':                20,   # surface damage is on the road
+    'bridge_damage':              30,   # bridge is a narrow point
+    'flood':                      80,   # water spreads laterally
+    'flooded_road':               80,
+    'storm_surge':               150,   # large-area inundation
+    'landslide':                  60,   # debris field can spread uphill/downhill
+    'fallen_electric_post':       20,   # post falls across road; wires trail farther
+    'fallen_electric_post_wires': 45,
+    'other':                      40,
+}
+DEFAULT_INFLUENCE_RADIUS = 50
+
+# ── Per-type decay profile ────────────────────────────────────────────────────
+# 'sharp'    → quadratic drop  (1 - t²): blockers must be ON the road
+# 'moderate' → linear drop     (1 - t):  debris / damage fields
+# 'gradual'  → sqrt drop       (1 - √t): fluid / spreading hazards maintain
+#              impact across a wide band before fading
+HAZARD_DECAY_PROFILE: dict = {
+    'road_blocked':               'sharp',
+    'road_block':                 'sharp',
+    'fallen_tree':                'sharp',
+    'road_damage':                'moderate',
+    'bridge_damage':              'sharp',
+    'flood':                      'gradual',
+    'flooded_road':               'gradual',
+    'storm_surge':                'gradual',
+    'landslide':                  'moderate',
+    'fallen_electric_post':       'moderate',
+    'fallen_electric_post_wires': 'moderate',
+    'other':                      'moderate',
+}
+
 # For path-based check: hazards within this distance (m) of any path point count as "on route"
 PATH_HAZARD_PROXIMITY_METERS = 300
 # Caps for dynamic risk accumulation before normalization
@@ -92,58 +141,161 @@ def _hazard_routing_impact(hazard) -> float:
     return 0.7
 
 
-def _distance_point_to_segment_meters(
-    point_lat: float, point_lng: float,
+def _perpendicular_distance_m(
+    p_lat: float, p_lng: float,
+    a_lat: float, a_lng: float,
+    b_lat: float, b_lng: float,
+) -> tuple:
+    """
+    True minimum distance (meters) from point P to line segment A–B, plus a flag
+    indicating whether the closest point lies in the interior of the segment (True)
+    or at one of its endpoints (False).
+
+    Uses a flat-earth approximation centred on the segment midpoint.  Valid for
+    segment lengths < ~10 km, which covers all road segments in this system.
+    """
+    cos_lat = math.cos(math.radians((a_lat + b_lat) / 2.0))
+    M = 111_319.9  # metres per degree latitude
+
+    # Translate everything so that A is the origin
+    bx = (b_lng - a_lng) * cos_lat * M
+    by = (b_lat - a_lat) * M
+    px = (p_lng - a_lng) * cos_lat * M
+    py = (p_lat - a_lat) * M
+
+    ab2 = bx * bx + by * by
+    if ab2 < 1e-6:
+        # Degenerate segment (start == end): return distance to the point
+        return math.sqrt(px * px + py * py), False
+
+    t = (px * bx + py * by) / ab2
+    on_segment = 0.0 <= t <= 1.0
+    t_clamped = max(0.0, min(1.0, t))
+
+    cx = t_clamped * bx
+    cy = t_clamped * by
+    dx = px - cx
+    dy = py - cy
+    return math.sqrt(dx * dx + dy * dy), on_segment
+
+
+def _decay_factor(distance_m: float, radius_m: float, profile: str) -> float:
+    """
+    Graduated decay multiplier in [0, 1] based on distance and decay profile.
+
+    sharp    → 1 − t²   quadratic: drops fast; blockers must be on/near the road
+    moderate → 1 − t    linear:    steady drop; debris / surface damage
+    gradual  → 1 − √t   square-root: drops slowly; fluid hazards maintain wide impact
+
+    t = distance_m / radius_m.  Returns 0 when distance ≥ radius.
+    """
+    if radius_m <= 0 or distance_m >= radius_m:
+        return 0.0
+    t = distance_m / radius_m
+    if profile == 'sharp':
+        return max(0.0, 1.0 - t * t)
+    if profile == 'gradual':
+        return max(0.0, 1.0 - math.sqrt(t))
+    # 'moderate' (default) — linear
+    return max(0.0, 1.0 - t)
+
+
+def _hazard_segment_impact(
+    hazard,
     seg_start_lat: float, seg_start_lng: float,
     seg_end_lat: float, seg_end_lng: float,
 ) -> float:
-    """Minimum distance in meters from point to the road segment (start, end, or midpoint)."""
-    d_start = haversine_meters(point_lat, point_lng, seg_start_lat, seg_start_lng)
-    d_end = haversine_meters(point_lat, point_lng, seg_end_lat, seg_end_lng)
-    mid_lat = (seg_start_lat + seg_end_lat) / 2
-    mid_lng = (seg_start_lng + seg_end_lng) / 2
-    d_mid = haversine_meters(point_lat, point_lng, mid_lat, mid_lng)
-    return min(d_start, d_end, d_mid)
+    """
+    Graduated impact [0, 1] of a single hazard on a road segment.
+
+    Replaces the previous binary within-100 m check with five factors:
+      1. True perpendicular distance from hazard to segment centerline.
+      2. Type-specific influence radius  (tight for blockers, wide for floods).
+      3. Type-specific decay profile     (sharp / moderate / gradual).
+      4. On-segment bonus: when the hazard projects onto the segment interior
+         (not just near an endpoint), impact is multiplied by 1.2 — the hazard
+         directly flanks this road, not a neighbouring one.
+      5. Severity multiplier via final_validation_score (NB + distance + consensus).
+
+    Returns 0.0 when the hazard is beyond the effective influence radius.
+    Does NOT handle road_blocked early-exit (caller does that separately).
+    """
+    ht = (getattr(hazard, 'hazard_type', '') or 'other').lower().replace(' ', '_')
+    h_lat = _float(hazard.latitude)
+    h_lng = _float(hazard.longitude)
+
+    dist_m, on_segment = _perpendicular_distance_m(
+        h_lat, h_lng,
+        seg_start_lat, seg_start_lng,
+        seg_end_lat, seg_end_lng,
+    )
+
+    radius  = HAZARD_INFLUENCE_RADIUS.get(ht, DEFAULT_INFLUENCE_RADIUS)
+    profile = HAZARD_DECAY_PROFILE.get(ht, 'moderate')
+
+    decay = _decay_factor(dist_m, radius, profile)
+    if decay <= 0.0:
+        return 0.0
+
+    # On-segment bonus: hazard projects directly onto this road stretch
+    if on_segment:
+        decay = min(1.0, decay * 1.2)
+
+    type_weight = _hazard_type_weight(ht)
+    severity    = _hazard_routing_impact(hazard)
+    return decay * type_weight * severity
 
 
 def calculate_segment_risk(segment, hazards) -> float:
     """
     Effective risk for a road segment combining base (Random Forest) and dynamic (approved hazards).
 
-    Improvement 1 — Normalized formula:
-        effective_risk = (base × 0.6) + (dynamic × 0.4)
-    Keeps result in [0, 1] and balances historical vs real-time signals.
+    Formula:  effective_risk = (base × 0.6) + (dynamic × 0.4)   clamped to [0, 1]
 
-    Improvement 2 — Hazard-type aware weights:
-        Each hazard type contributes a different dynamic increment (see HAZARD_TYPE_RISK_WEIGHT).
+    Dynamic risk uses GRADUATED proximity (not binary radius):
+      • True perpendicular distance from each hazard to the segment centerline.
+      • Per-type influence radius and decay profile (see HAZARD_INFLUENCE_RADIUS /
+        HAZARD_DECAY_PROFILE).
+      • On-segment bonus when the hazard projects onto the road interior.
+      • Severity multiplier from final_validation_score.
 
-    Improvement 3 — Blocked road logic:
-        If any nearby hazard is road_blocked, effective_risk = 1.0 immediately,
-        forcing Dijkstra to treat this segment as impassable.
+    Road-blocked / road-block hazards within their tight radius (≤ 25 m of
+    centerline) make the segment fully impassable (risk = 1.0) immediately.
     """
     base = min(1.0, max(0.0, _float(getattr(segment, 'predicted_risk_score', 0))))
     dynamic = 0.0
     seg_start_lat = _float(segment.start_lat)
     seg_start_lng = _float(segment.start_lng)
-    seg_end_lat = _float(segment.end_lat)
-    seg_end_lng = _float(segment.end_lng)
+    seg_end_lat   = _float(segment.end_lat)
+    seg_end_lng   = _float(segment.end_lng)
 
     for hazard in hazards:
-        h_lat = _float(hazard.latitude)
-        h_lng = _float(hazard.longitude)
-        dist_m = _distance_point_to_segment_meters(
-            h_lat, h_lng, seg_start_lat, seg_start_lng, seg_end_lat, seg_end_lng
-        )
-        if dist_m <= HAZARD_PROXIMITY_METERS:
-            # Improvement 3: road_block → fully impassable, no need to keep accumulating
-            if _is_blocking(getattr(hazard, 'hazard_type', '')):
+        ht = (getattr(hazard, 'hazard_type', '') or 'other').lower().replace(' ', '_')
+
+        # Physical road-blockers: check perpendicular distance against their tight radius.
+        # If within that radius they make the segment fully impassable — skip accumulation.
+        if _is_blocking(ht):
+            h_lat = _float(hazard.latitude)
+            h_lng = _float(hazard.longitude)
+            block_dist, _ = _perpendicular_distance_m(
+                h_lat, h_lng,
+                seg_start_lat, seg_start_lng,
+                seg_end_lat, seg_end_lng,
+            )
+            block_radius = HAZARD_INFLUENCE_RADIUS.get(ht, 25)
+            if block_dist <= block_radius:
                 return 1.0
-            # Improvement 2: type-aware weight × validation impact
-            type_weight = _hazard_type_weight(getattr(hazard, 'hazard_type', ''))
-            dynamic += type_weight * _hazard_routing_impact(hazard)
+            # Blocker is too far away — it may still contribute a graduated penalty
+            # via the general impact calculation below (e.g. blocks a nearby lane).
+
+        impact = _hazard_segment_impact(
+            hazard,
+            seg_start_lat, seg_start_lng,
+            seg_end_lat, seg_end_lng,
+        )
+        dynamic += impact
 
     dynamic = min(dynamic, HAZARD_RISK_CAP)
-    # Improvement 1: weighted blend instead of plain sum
     return min(1.0, (base * BASE_RISK_WEIGHT) + (dynamic * DYNAMIC_RISK_WEIGHT))
 
 
