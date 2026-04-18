@@ -47,6 +47,7 @@ dependencies:
 
   # Open http(s) media links (e.g. hosted video) from MDRRMO report detail
   url_launcher: ^6.2.5
+  flutter_compass: ^0.8.1
 
 dev_dependencies:
   flutter_test:

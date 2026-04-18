@@ -277,22 +277,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Find closest point index on polyline
-  int _findClosestPointIndex(LatLng userLocation, List<LatLng> polyline) {
-    double minDistance = double.infinity;
-    int closestIndex = 0;
-
-    for (int i = 0; i < polyline.length; i++) {
-      final distance = _gpsService.calculateDistance(userLocation, polyline[i]);
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestIndex = i;
-      }
-    }
-
-    return closestIndex;
-  }
-
   /// Handle arrival at destination
   void _onArrival() async {
     setState(() {
