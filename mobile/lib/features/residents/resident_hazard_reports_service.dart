@@ -183,6 +183,9 @@ class ResidentHazardReportsService {
       out.add(_reportToMap(r, isCurrentUser: false));
     }
     for (final r in myReports) {
+      // Only show own reports that are still pending — rejected / deleted
+      // reports must not appear as map markers for the resident.
+      if (r.status != HazardStatus.pending) continue;
       if (r.id != null && verifiedIds.contains(r.id)) continue;
       out.add(_reportToMap(r, isCurrentUser: true));
     }

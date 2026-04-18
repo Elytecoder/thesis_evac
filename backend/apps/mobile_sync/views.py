@@ -533,6 +533,9 @@ def confirm_hazard_report(request):
     
     # Recalculate validation scores with new confirmation count
     from apps.mobile_sync.services.report_service import process_new_report
+    # Read count once, outside try/except so it is always defined for the
+    # log and response message below even if score re-calculation fails.
+    confirmation_count = report.confirmation_count
     try:
         # Re-run validation with updated confirmation count
         from apps.validation.services.consensus import ConsensusScoringService
@@ -548,7 +551,6 @@ def confirm_hazard_report(request):
         )
         
         # Update consensus score with new confirmation count
-        confirmation_count = report.confirmation_count
         consensus_score_val = consensus_rule_score(nearby, confirmation_count)
         
         # Recalculate final score

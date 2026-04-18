@@ -453,7 +453,8 @@ def _ensure_segment_risk_scores(force: bool = False):
 
     predictor = RoadRiskPredictor()
     approved_hazards = list(HazardReport.objects.filter(
-        status=HazardReport.Status.APPROVED
+        status=HazardReport.Status.APPROVED,
+        is_deleted=False,
     ).only('latitude', 'longitude', 'hazard_type',
            'final_validation_score', 'naive_bayes_score'))
 
@@ -479,8 +480,11 @@ def _ensure_segment_risk_scores(force: bool = False):
 
 
 def _get_approved_hazards():
-    """Return approved hazard reports used to influence route risk (real data first)."""
-    return list(HazardReport.objects.filter(status=HazardReport.Status.APPROVED))
+    """Return approved, non-deleted hazard reports used to influence route risk."""
+    return list(HazardReport.objects.filter(
+        status=HazardReport.Status.APPROVED,
+        is_deleted=False,
+    ))
 
 
 def _geographic_path_for_hazard_check(start_lat: float, start_lng: float, end_lat: float, end_lng: float):
