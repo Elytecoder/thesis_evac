@@ -871,8 +871,9 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   }
 
   String _formatDateTime(DateTime dateTime) {
+    final local = dateTime.toLocal();
     final now = DateTime.now();
-    final difference = now.difference(dateTime);
+    final difference = now.difference(local);
 
     if (difference.inMinutes < 60) {
       return '${difference.inMinutes}m ago';
@@ -881,7 +882,7 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
     } else if (difference.inDays < 7) {
       return '${difference.inDays}d ago';
     } else {
-      return '${dateTime.month}/${dateTime.day}/${dateTime.year}';
+      return '${local.month}/${local.day}/${local.year}';
     }
   }
 }

@@ -1220,6 +1220,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
   }
 
   String _formatFullDateTime(DateTime dateTime) {
-    return '${dateTime.month}/${dateTime.day}/${dateTime.year} at ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+    final local = dateTime.toLocal();
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '${local.month}/${local.day}/${local.year} at $hour:$minute';
   }
 }
