@@ -1,7 +1,7 @@
 # Software Requirements Specification (SRS)
 ## AI-Powered Mobile Evacuation Routing Application
 
-**Version:** 2.0  
+**Version:** 3.0  
 **Date:** April 17, 2026  
 **Prepared for:** MDRRMO, Bulan, Sorsogon  
 **Prepared by:** Thesis Team  
@@ -12,9 +12,9 @@
 
 | Document ID | SRS-EVAC-001 |
 |-------------|--------------|
-| Version | 2.0 |
+| Version | 3.0 |
 | Status | Updated |
-| Last Updated | April 17, 2026 |
+| Last Updated | April 18, 2026 |
 | Classification | Public |
 
 ---
@@ -356,11 +356,12 @@ The system SHALL calculate risk-aware evacuation routes using Modified Dijkstra 
 - **Input:** Start GPS (lat/lng), destination center
 - **Process:** 
   1. Validate location is in Philippines (use Bulan default if not)
-  2. Call OSRM API for road-following routes
-  3. Apply risk weighting from road risk scores
+  2. Call Django backend (Modified Dijkstra + Random Forest) for risk-weighted routes
+  3. Apply graduated hazard proximity to segment effective risk (REQ-159)
   4. Rank routes by safety (Green > Yellow > Red)
-- **Output:** 3 routes with distance, risk score, estimated time
+- **Output:** 3 routes with distance, risk score, estimated time, hazards along route
 - **Algorithm:** Modified Dijkstra with weight = distance + (risk × 500)
+- **OSRM role:** Used **only** for turn-instruction extraction during live navigation (REQ-156 / REQ-157); OSRM geometry is **never** used as the navigation polyline
 
 **REQ-010:** Route Display
 - **Description:** Display routes on map with color-coded polylines
@@ -497,14 +498,13 @@ System SHALL predict risk scores for road segments using Random Forest algorithm
 **Functional Requirements:**
 
 **REQ-023:** Risk Score Calculation
-- **Description:** Calculate risk score for each road segment
-- **Algorithm:** Random Forest Regressor
-- **Features:** 
-  - Nearby hazard count (within 100m)
-  - Average hazard severity
-  - Historical flooding frequency
-  - Road elevation (if available)
-- **Output:** Risk score (0.0 = safe to 1.0 = very dangerous)
+- **Description:** Calculate risk score for each road segment using graduated hazard proximity
+- **Algorithm:** Random Forest Regressor (base risk) + graduated dynamic risk at route time
+- **Features (Random Forest):** 
+  - Per-type hazard counts within 200 m of segment midpoint (8 hazard types)
+  - Average hazard severity (`avg_severity` = mean `final_validation_score`)
+- **Dynamic risk (at route time):** True perpendicular distance from hazard to road centerline; per-type influence radius (15–150 m); per-type decay profile (sharp/moderate/gradual); on-segment ×1.2 bonus; severity multiplier
+- **Output:** `effective_risk` score (0.0 = safe to 1.0 = impassable)
 
 **REQ-024:** Risk Level Classification
 - **Description:** Classify roads into risk levels
@@ -2111,6 +2111,42 @@ Multiple reports at the same location are treated as **corroboration** that the 
 - **Rationale:** Stored URLs may reference a different host (e.g., `127.0.0.1` vs `10.0.2.2` or the deployed domain) leading to broken image loads
 - **Process:** Extract path from stored URL; prepend the current `ApiConfig.baseUrl`; display via `Image.network`
 
+**REQ-156:** Live Navigation Follows Backend Route Polyline
+- **Description:** When a resident starts navigation from the route-selection screen, the live navigation screen SHALL follow the **exact polyline** returned by the Django Modified Dijkstra backend, not a new route computed by OSRM
+- **Process:** The selected `Route` object (path, risk, hazards) is passed from the route-selection screen to `LiveNavigationScreen` as `selectedRoute`; the navigation system builds its `NavigationRoute` directly from `Route.path`
+- **Rationale:** Ensures the route seen on the recommendation screen is the route followed during navigation, preserving hazard-aware routing
+
+**REQ-157:** OSRM Restricted to Turn-Instruction Extraction
+- **Description:** OSRM (OpenStreetMap Routing Machine) SHALL be used **only** as a turn-instruction hint provider and last-resort fallback; it SHALL NOT be used as the primary navigation polyline source
+- **Permitted uses:**
+  1. Extracting turn-by-turn step instructions (start → destination, road-snapped) for the backend polyline
+  2. Full route fallback when the Django backend is completely unreachable
+- **Prohibited:** Using OSRM geometry to replace or override the backend-computed route polyline
+
+**REQ-158:** Rerouting Preserves Hazard-Aware Routing
+- **Description:** When the user deviates from the route during live navigation, the rerouting system SHALL call the Django backend (Modified Dijkstra + Random Forest) first to compute the next safest route from the user's current position
+- **Fallback:** OSRM is used only if the backend returns no routes or is unreachable
+- **Consistency:** The rerouted path inherits the same hazard-awareness and risk scoring as the original route recommendation
+
+**REQ-159:** Graduated Hazard-to-Road Influence
+- **Description:** Hazard proximity impact on road segments SHALL use **graduated weighted proximity**, not a binary within/outside radius check
+- **Factors:**
+  1. **Perpendicular distance** — true minimum distance from hazard to segment centerline (flat-earth projection)
+  2. **Per-type influence radius** — road_blocked=25 m, fallen_tree=15 m, flood=80 m, storm_surge=150 m, landslide=60 m
+  3. **Decay profile** — sharp (1−t²) for blockers; moderate (1−t) for debris; gradual (1−√t) for fluids
+  4. **On-segment bonus** — hazard projecting onto segment interior receives ×1.2 multiplier (capped at 1.0)
+  5. **Severity multiplier** — `final_validation_score` scales each contribution
+- **Road-block override:** A `road_blocked` hazard within 25 m of the centerline forces `effective_risk = 1.0` (impassable)
+
+**REQ-160:** Hazard Impact Proportional to Physical Plausibility
+- **Description:** Hazards located off-road SHALL have minimal or zero impact on road segments they cannot physically affect
+- **Examples:**
+  - Flood 5 m from road centerline → strong impact (wide radius, gradual decay)
+  - Flood 90 m away → zero impact (beyond 80 m influence radius)
+  - Fallen tree 3 m from centerline → very strong impact (15 m radius, sharp decay near 0)
+  - Fallen tree 20 m away → zero impact (beyond 15 m radius)
+  - Road_blocked 30 m away → graduated penalty only (beyond 25 m block threshold; no impassable override)
+
 ---
 
 ## Document Approval
@@ -2137,6 +2173,7 @@ Multiple reports at the same location are treated as **corroboration** that the 
 | 0.5 | 2026-02-05 | Team | Added AI requirements |
 | 1.0 | 2026-02-08 | Team | Final version for review |
 | 2.0 | 2026-04-17 | Team | QA Patch 1 & 2: removed phone number from registration; removed voice navigation (visual-only); updated proximity limit to 150 m; soft-delete reports; Asia/Manila timezone; barangay filters removed; Risk Overlay removed; Sync Baseline Data removed; compass heading for navigation arrow; collapsible evacuation center panel; delete evacuation center; graceful deleted-report notification handling |
+| 3.0 | 2026-04-18 | Team | Routing consistency fix: live navigation now uses exact backend Modified Dijkstra polyline (REQ-156); OSRM restricted to turn-instruction extraction and last-resort fallback (REQ-157); rerouting calls backend first (REQ-158); graduated hazard-to-road influence replacing binary 100 m radius (REQ-159/160); updated REQ-009, REQ-023 |
 
 - **Distribution List:**
   - Thesis Committee
@@ -2146,6 +2183,6 @@ Multiple reports at the same location are treated as **corroboration** that the 
 
 ---
 
-**Total Requirements:** 155 requirements (REQ-001 to REQ-155)
+**Total Requirements:** 160 requirements (REQ-001 to REQ-160)
 **Total Pages:** 85+
 **Total Words:** 16,000+

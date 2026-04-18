@@ -65,7 +65,7 @@ Resident Report
 
 ---
 
-## 5. Road Segment Risk (Two-layer model)
+## 5. Road Segment Risk (Three-layer model)
 
 For each **road segment** (edge in the graph), an **effective risk** is computed:
 
@@ -78,10 +78,31 @@ effective_risk = (base_risk x 0.6) + (dynamic_risk x 0.4)
 - Stored in the DB via `python manage.py update_segment_risks`.
 - Auto-updated after RF model retraining (`python manage.py train_ml_models`).
 
-**Dynamic risk** — computed live at route time from approved hazards within 100 m:
-- Each nearby hazard contributes `type_weight x validation_impact` to dynamic risk.
-- Type weights: `road_blocked=0.7`, `bridge_damage=0.5`, `landslide=0.5`, `storm_surge=0.5`, `fallen_electric_post=0.4`, `flooded_road=0.3`, `road_damage=0.3`, `fallen_tree=0.2`.
-- **Road block override:** If any nearby hazard is `road_blocked`, `effective_risk = 1.0` immediately (fully impassable, Dijkstra avoids this edge).
+**Dynamic risk** — computed live at route time using **graduated proximity** (not a binary radius):
+
+Each approved hazard contributes a **decay-weighted impact** based on:
+1. **True perpendicular distance** from hazard to road centerline (flat-earth projection, not endpoint/midpoint approximation).
+2. **Per-type influence radius** — physical blockers have tight radii; spreading hazards have wider radii:
+   - `road_blocked` / `fallen_tree`: **25 m / 15 m** — must be on or across the road
+   - `road_damage` / `bridge_damage`: **20 m / 30 m** — surface-bound
+   - `flood` / `flooded_road`: **80 m** — water spreads laterally
+   - `storm_surge`: **150 m** — large-area inundation
+   - `landslide`: **60 m** — debris field
+3. **Decay profile** — how fast impact drops with distance:
+   - `sharp` (1 − t²): blockers must be ON the road
+   - `moderate` (1 − t): debris, surface damage
+   - `gradual` (1 − √t): fluid hazards stay influential across a wide band
+4. **On-segment bonus ×1.2**: hazard whose projection falls in the segment interior (directly flanking this road) gets 20% extra weight.
+5. **Severity multiplier**: `final_validation_score` (NB + distance + consensus) scales each contribution.
+
+Impact formula per hazard:
+```
+impact = decay(dist, radius, profile) × [1.2 if on_segment] × type_weight × severity
+```
+
+Type weights: `road_blocked=0.7`, `bridge_damage=0.5`, `landslide=0.5`, `storm_surge=0.5`, `fallen_electric_post=0.4`, `flooded_road=0.3`, `road_damage=0.3`, `fallen_tree=0.2`.
+
+- **Road block override:** If any `road_blocked` hazard is within **25 m** of the centerline, `effective_risk = 1.0` immediately (fully impassable, Dijkstra avoids this edge).
 
 **Fallback:** If no approved hazards exist, `effective_risk = base_risk` (RF prediction). System still returns valid routes.
 
@@ -93,10 +114,21 @@ effective_risk = (base_risk x 0.6) + (dynamic_risk x 0.4)
   ```
   cost = segment.base_distance + (effective_risk x 500)
   ```
-  Higher risk -> higher cost -> algorithm tends to **avoid** dangerous segments.
+  Higher risk → higher cost → algorithm tends to **avoid** dangerous segments.
 
 - **Algorithm:** Modified Dijkstra finds paths that minimize this cost (safest routes, not only shortest).
 - **Output:** Up to 3 route alternatives with total distance, total risk, and risk level.
+
+### Live Navigation — Routing Consistency
+
+The selected route's **exact polyline is preserved** into live navigation:
+
+- When the user taps "Start Navigation" on the route-selection screen, the selected `Route` object (from Modified Dijkstra) is passed directly to `LiveNavigationScreen` as `selectedRoute`.
+- `LiveNavigationScreen` builds its `NavigationRoute` from `Route.path` — the hazard-aware, risk-weighted polyline computed by Django.
+- **OSRM is never used as the navigation polyline.** It is only called to extract turn-by-turn instruction hints (start → destination, road-snapped). If OSRM is unavailable, instructions are generated from bearing analysis of the polyline itself.
+- **On rerouting**, the system calls `RoutingService.calculateRoutes()` (Django backend) from the user's current position to find the next safest path. OSRM is the fallback only if the backend is unreachable.
+
+This ensures the route shown on the selection screen is exactly the route followed during navigation.
 
 ---
 
@@ -127,8 +159,10 @@ After Modified Dijkstra returns the top 3 routes, a **safety layer** evaluates t
 | Validation | `naive_bayes_score` (CountVectorizer + MultinomialNB), `distance_weight` (150 m limit), `consensus_score` (same-type, 100 m, /5), `final_validation_score` (weighted 0.5/0.3/0.2) |
 | Verification | MDRRMO approves or rejects |
 | Segment risk (base) | RF with 9 features (8 hazard type counts + avg_severity, 200 m radius) |
-| Segment risk (effective) | base x 0.6 + dynamic x 0.4 (live from approved hazards at route time) |
+| Segment risk (effective) | base x 0.6 + dynamic x 0.4 (graduated proximity: perpendicular distance + per-type radius + decay profile + on-segment bonus + severity) |
 | Pathfinding | Modified Dijkstra: cost = distance + (effective_risk x 500) |
+| Live navigation | Exact backend polyline followed; OSRM used only for turn instructions |
+| Rerouting | Backend Modified Dijkstra first; OSRM only if backend unreachable |
 | Risk evaluation | Thresholds 0.7 / 0.9; risk_label, possibly_blocked, contributing_factors; no_safe_route + alternative_centers |
 | Result | Routes + warnings + alternatives; UI shows labels and warning modal |
 
@@ -140,6 +174,8 @@ After Modified Dijkstra returns the top 3 routes, a **safety layer** evaluates t
 - **Separation of roles:** NB is text-only; distance and consensus are rules; Random Forest predicts base road risk; Dijkstra finds routes.
 - **Dynamic and real-time:** As MDRRMO approves more reports, segment risks update via `update_segment_risks` and new hazards immediately affect dynamic risk at route time.
 - **AI assists, not decides:** MDRRMO always makes the final approve/reject decision.
+- **Routing consistency:** The route computed by Modified Dijkstra on the recommendation screen is the exact route followed in live navigation. OSRM is strictly a turn-instruction helper and last-resort fallback — it never overrides the backend polyline.
+- **Graduated hazard influence:** Hazard-to-segment impact uses true perpendicular distance with type-specific radii and decay profiles. A hazard 3 m from the centerline has near-full impact; the same hazard 90 m away (if outside its type's radius) has zero impact. This prevents over-penalizing roads near off-road hazards.
 
 ---
 

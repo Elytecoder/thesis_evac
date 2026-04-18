@@ -1,7 +1,7 @@
 # Test Case Document
 ## AI-Powered Mobile Evacuation Routing Application
 
-**Version:** 3.0
+**Version:** 4.0
 **Date:** April 17, 2026
 **Project:** Thesis — Evacuation Routing System for Bulan, Sorsogon
 **Test Lead:** [Name]
@@ -12,9 +12,9 @@
 
 | Document ID | TEST-EVAC-001 |
 |-------------|---------------|
-| Version | 3.0 |
+| Version | 4.0 |
 | Status | Updated |
-| Last Updated | April 17, 2026 |
+| Last Updated | April 18, 2026 |
 | Classification | Internal |
 
 ### Revision History
@@ -26,6 +26,7 @@
 | 1.0 | 2026-02-08 | Team | Final version |
 | 2.0 | 2026-04-13 | Team | Added navigation, confirmation, notification, media, and QA-patch test cases; updated affected existing cases; removed obsolete Risk Overlay cases; removed phone number from registration cases |
 | 3.0 | 2026-04-17 | Team | QA Patch 2: replaced voice navigation TCs (TC-NAV-004/005/006) with compass heading TC (TC-NAV-012); updated TC-NAV-001 for real-time compass rotation; updated TC-NAV-007 (visual only); removed voice UAT survey question; added TC-NOTIF-006 (deleted report graceful dialog); added TC-ADMIN-016 (soft delete integrity); updated QA Patch Coverage table; total updated to 118 |
+| 4.0 | 2026-04-18 | Team | Routing consistency + graduated hazard influence: added TC-NAV-013 (backend polyline in navigation), TC-NAV-014 (OSRM turn-instructions only), TC-NAV-015 (rerouting via backend first), TC-AI-009 (perpendicular distance impact), TC-AI-010 (flood gradual decay), TC-AI-011 (road_blocked 25 m impassable); updated QA Patch Coverage table; 118 → 124 test cases |
 
 ---
 
@@ -1297,7 +1298,65 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ---
 
-## 10. Offline Mode Test Cases
+### TC-AI-007: Graduated Hazard Segment Impact — Perpendicular Distance
+
+**Priority:** P1
+**Type:** Algorithm / Unit
+**Precondition:** Backend running; road segment exists; approved hazard report exists near segment
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Create approved hazard report at **2 m** from road centerline (flooded_road) | Hazard saved with APPROVED status |
+| 2 | Request route calculation including this segment | Route returned |
+| 3 | Inspect effective_risk for the segment | High dynamic contribution (≥ 0.20); close hazard has near-full weight |
+| 4 | Move hazard to **50 m** from centerline | Lower effective_risk on same segment |
+| 5 | Move hazard to **90 m** from centerline (beyond 80 m flood radius) | Dynamic contribution = 0.0 for that hazard; effective_risk drops to base only |
+
+**Expected:** Impact decreases continuously with distance; zero beyond type-specific radius
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
+### TC-AI-008: Flood Gradual Decay — Wide Influence Band
+
+**Priority:** P1
+**Type:** Algorithm
+**Precondition:** Approved flood hazard report; road segment within 80 m
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Place flood hazard at **10 m** from road centerline | Dynamic contribution ≈ decay(10, 80, gradual) × 0.3 × severity ≈ high |
+| 2 | Place flood hazard at **40 m** from road centerline | Dynamic contribution reduced but still meaningful (gradual decay) |
+| 3 | Place flood hazard at **70 m** from road centerline | Small but non-zero contribution (still within 80 m radius) |
+| 4 | Place flood hazard at **85 m** from road centerline | Contribution = 0.0 (outside 80 m radius) |
+| 5 | Compare with fallen_tree at 40 m | fallen_tree contribution = 0.0 (beyond 15 m radius); flood still contributes |
+
+**Expected:** Flood maintains graduated influence up to 80 m; other types cut off at their tighter radii
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
+### TC-AI-009: road_blocked Within 25 m Makes Segment Impassable
+
+**Priority:** P0
+**Type:** Algorithm / Functional
+**Precondition:** Approved road_blocked hazard report; road segment within 25 m of centerline
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Create approved road_blocked hazard at **10 m** from segment centerline | Hazard saved |
+| 2 | Request route to evacuation center requiring this segment | Route calculation runs |
+| 3 | Inspect effective_risk for the segment | effective_risk = 1.0 (impassable) |
+| 4 | Observe route result | Dijkstra avoids this segment; alternate route returned |
+| 5 | Move road_blocked hazard to **30 m** from centerline | effective_risk < 1.0; graduated penalty only; segment may still be used |
+
+**Expected:** road_blocked within 25 m → immediate impassable (1.0); beyond 25 m → graduated penalty only
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
 
 ### TC-OFFLINE-001: App Launch Offline
 
@@ -2048,6 +2107,67 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ---
 
+### TC-NAV-013: Navigation Uses Backend Modified Dijkstra Polyline
+
+**Priority:** P0
+**Type:** Functional
+**Precondition:** User has selected a route on the route-selection screen and tapped "Start Navigation"
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Complete route calculation on `RoutesSelectionScreen` | Route list displayed with risk levels from Django backend |
+| 2 | Tap "Start Navigation" on a Green route | `LiveNavigationScreen` opens |
+| 3 | Observe the polyline drawn on the map | Polyline matches the path coordinates returned by the Django backend route API |
+| 4 | Confirm polyline does NOT change immediately upon navigation start | No new route request to OSRM on startup when `selectedRoute` is provided |
+| 5 | Inspect network traffic (or logs) | No OSRM route geometry request; only optional OSRM step-instruction request |
+
+**Expected:** Navigation polyline = Django backend polyline; no OSRM geometry request at navigation start
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
+### TC-NAV-014: OSRM Used for Turn Instructions Only
+
+**Priority:** P1
+**Type:** Integration
+**Precondition:** Device online; route selected from backend; navigation active
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Start navigation with a backend-calculated route | Navigation screen shows route |
+| 2 | Monitor turn instruction banner | "Turn left", "Turn right", etc. are shown |
+| 3 | Inspect source of turn instructions (logs/network) | Turn steps sourced from OSRM `/route/v1/driving/…?steps=true` |
+| 4 | Confirm map polyline unchanged | Polyline still matches backend route, not OSRM geometry |
+| 5 | Disable network after navigation start | Turn instructions gracefully degrade (bearing-analysis fallback); polyline unchanged |
+
+**Expected:** OSRM provides steps only; backend polyline is never replaced by OSRM geometry
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
+### TC-NAV-015: Rerouting Calls Backend Modified Dijkstra First
+
+**Priority:** P0
+**Type:** Functional
+**Precondition:** Navigation active; user intentionally moves off the route (> 50 m from nearest polyline point)
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Begin live navigation on a selected route | Navigation active |
+| 2 | Move > 50 m off the displayed route | "Rerouting…" indicator appears |
+| 3 | Observe network requests (logs) | First request: POST to `/api/calculate-route/` (Django backend) with current GPS |
+| 4 | New route appears | New polyline displayed; matches Django backend response |
+| 5 | Simulate backend failure (disable API) then deviate again | OSRM fallback used; rerouting still completes (graceful degradation) |
+| 6 | Restore API; deviate again | Backend used again on next reroute attempt |
+
+**Expected:** Backend Modified Dijkstra called on every reroute; OSRM only when backend unreachable
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
 ## 15. Hazard Confirmation Test Cases
 
 ### TC-CONF-001: Resident Confirms an Existing Hazard
@@ -2645,7 +2765,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | Notifications | 6 | | | | | |
 | Media Handling | 6 | | | | | |
 | UAT | 7 | | | | | |
-| **TOTAL** | **118** | | | | | |
+| **TOTAL** | **124** | | | | | |
 
 ### 19.2 Defect Summary
 
@@ -2688,6 +2808,12 @@ The following items were addressed in QA Patches (v2.0 + v3.0) and must be regre
 | **Deleted report — graceful notification** | **v3.0** | **TC-NOTIF-006** |
 | **Asia/Manila timezone (date display)** | **v3.0** | **TC-ADMIN-003** |
 | **Phone number hidden from resident profile** | **v3.0** | **TC-AUTH-001** |
+| **Live navigation uses backend polyline (not OSRM)** | **v4.0** | **TC-NAV-013** |
+| **OSRM restricted to turn instructions only** | **v4.0** | **TC-NAV-014** |
+| **Rerouting calls backend Modified Dijkstra first** | **v4.0** | **TC-NAV-015** |
+| **Graduated hazard impact — perpendicular distance** | **v4.0** | **TC-AI-007** |
+| **Flood gradual decay — wide influence band** | **v4.0** | **TC-AI-008** |
+| **road_blocked within 25 m → segment impassable** | **v4.0** | **TC-AI-009** |
 
 ### 19.4 Test Environment Summary
 
@@ -2721,6 +2847,7 @@ The following items were addressed in QA Patches (v2.0 + v3.0) and must be regre
 | 1.0 | 2026-02-08 | Team | First final version |
 | 2.0 | 2026-04-13 | Team | Added Sections 14–17 (Navigation, Confirmation, Notifications, Media); updated Auth, Centers, Admin, Integration, Performance; removed phone number and Risk Overlay references; updated metrics from 71 to 117 test cases |
 | 3.0 | 2026-04-17 | Team | QA Patch 2: replaced voice TCs (TC-NAV-004/005/006) with visual-only TCs; added TC-NAV-012 (compass heading); added TC-NOTIF-006 (deleted report graceful dialog); added TC-ADMIN-017 (soft delete integrity); updated UAT survey; expanded QA Patch Coverage table; 117 → 118 test cases |
+| 4.0 | 2026-04-18 | Team | Routing consistency + graduated hazard influence: TC-NAV-013/014/015 (backend polyline, OSRM turn-instructions only, backend rerouting); TC-AI-007/008/009 (graduated impact, flood decay, road_blocked 25 m); updated QA Patch Coverage table; 118 → 124 test cases |
 
-**Total Test Cases:** 118
+**Total Test Cases:** 124
 **Total Sections:** 19

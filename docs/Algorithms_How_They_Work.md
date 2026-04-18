@@ -151,13 +151,51 @@ effective_risk = (base_risk x 0.6) + (dynamic_risk x 0.4)
 ```
 
 - **base_risk** = `predicted_risk_score` from RF (stored in DB)
-- **dynamic_risk** = live accumulation from approved hazards within 100 m at route time
+- **dynamic_risk** = live accumulation from approved hazards at route time, using **graduated proximity** (not a binary radius)
 
-If `hazard_type == road_blocked` near a segment: `effective_risk = 1.0` immediately (fully impassable).
+#### Graduated hazard-to-road influence (dynamic risk)
+
+Each approved hazard contributes impact based on five factors:
+
+1. **True perpendicular distance** from the hazard to the segment centerline (flat-earth projection — accurate for road-length segments).
+2. **Per-type influence radius** — tight for physical blockers, wide for spreading hazards:
+
+| Hazard type | Radius | Reason |
+|---|---|---|
+| `road_blocked` / `road_block` | **25 m** | Must physically block the carriageway |
+| `fallen_tree` | **15 m** | Trunk must cross the road |
+| `road_damage` | **20 m** | Surface-bound |
+| `bridge_damage` | **30 m** | Bridge is a narrow point |
+| `flood` / `flooded_road` | **80 m** | Water spreads laterally |
+| `storm_surge` | **150 m** | Large-area inundation |
+| `landslide` | **60 m** | Debris field |
+| `fallen_electric_post_wires` | **45 m** | Wire trailing radius |
+
+3. **Decay profile** — controls how fast impact falls with distance:
+
+| Profile | Formula | Used for |
+|---|---|---|
+| `sharp` | `1 − t²` | Blockers — must be on/near the road |
+| `moderate` | `1 − t` | Debris, surface damage |
+| `gradual` | `1 − √t` | Fluid hazards maintain wide impact |
+
+4. **On-segment bonus** — when the hazard's perpendicular projection falls in the *interior* of the segment (flanks this specific road), the decay is multiplied ×1.2.
+5. **Severity multiplier** — `final_validation_score` (NB + distance + consensus) scales each contribution.
+
+**Road-block override:** If any `road_blocked` hazard is within 25 m of the centerline, `effective_risk = 1.0` immediately — segment is fully impassable and Dijkstra avoids it entirely.
 
 ### Output
 
 Up to 3 routes ranked by safety (lowest risk-weighted cost first).
+
+### Live navigation — routing consistency
+
+When the user selects a route on the route-selection screen and starts navigation, the **exact polyline from Modified Dijkstra is preserved** through to the navigation screen:
+
+- `LiveNavigationScreen` receives the selected backend `Route` object and builds its `NavigationRoute` directly from `Route.path`.
+- **OSRM is never used as the primary navigation polyline.** Its role is limited to extracting turn-by-turn instruction hints (start → destination, road-snapped). If OSRM is unavailable, instructions are generated from bearing analysis of the backend polyline.
+- **On rerouting**, the system calls the Django backend (Modified Dijkstra) again from the user's current position. OSRM is only the fallback when the backend is unreachable.
+- This guarantees the route displayed on the selection screen is exactly the route followed during navigation — including all hazard-aware risk weighting.
 
 ---
 
@@ -216,19 +254,26 @@ Load all approved hazard reports
         |
         v
 Per segment: effective_risk = (base_risk x 0.6) + (dynamic_risk x 0.4)
-             If road_blocked nearby: effective_risk = 1.0
+             Dynamic risk uses graduated proximity:
+               - True perpendicular distance to centerline
+               - Per-type influence radius (road_blocked=25m, flood=80m, ...)
+               - Per-type decay profile (sharp/moderate/gradual)
+               - On-segment bonus x1.2
+             If road_blocked within 25m: effective_risk = 1.0
         |
         v
 Modified Dijkstra: cost = distance + (effective_risk x 500)
         |
         v
-Top 3 safest paths
+Top 3 safest paths → Risk evaluation: labels, possibly_blocked, no_safe_route
         |
         v
-Risk evaluation: labels, possibly_blocked, no_safe_route, alternative_centers
+Return routes to mobile app
         |
-        v
-Return routes + warnings to mobile app
+User selects route → exact backend polyline used in live navigation
+        |
+OSRM used only for turn instructions (start→destination, road-snapped)
+On reroute: backend Modified Dijkstra called first; OSRM is fallback only
 ```
 
 ---
@@ -241,8 +286,10 @@ Return routes + warnings to mobile app
 | Rule scoring | reporter distance (150 m); same-type nearby reports (100 m) | `distance_weight`, `consensus_score` | Combined with NB -> `final_validation_score` |
 | MDRRMO workflow | Human review | Approved / Rejected / Pending | Only approved hazards affect map and routing |
 | Random Forest | Per-type hazard counts (8 types) + avg_severity within 200 m | `predicted_risk_score` 0-1 per segment | Base road risk for Dijkstra edge weights |
-| Modified Dijkstra | Graph + cost = distance + (effective_risk x 500) | Top 3 paths | Safest route to evacuation center |
+| Modified Dijkstra | Graph + cost = distance + (effective_risk x 500) | Top 3 paths | Safest route to evacuation center; exact polyline used in live navigation |
 | Risk evaluation layer | Top 3 routes (total_risk, hazards along route) | `risk_label`, `possibly_blocked`, `no_safe_route`, `alternative_centers` | UI warnings and labels |
+| Graduated hazard impact | Perpendicular distance + type radius + decay profile + severity | Dynamic risk contribution per segment | Replaces binary 100 m check; closer/on-road hazards have stronger influence |
+| OSRM (turn hints) | Start + destination coordinates | Turn-by-turn step instructions | Navigation prompts only; backend polyline is never replaced by OSRM geometry |
 
 ---
 
