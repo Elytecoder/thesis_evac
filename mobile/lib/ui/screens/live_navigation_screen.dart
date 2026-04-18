@@ -370,9 +370,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _isRerouting = false;
       });
 
-      _voiceProximitySteps.clear();
-      _voiceImminentSteps.clear();
-
       // Update current step
       _updateCurrentStep(_userLocation!);
 
