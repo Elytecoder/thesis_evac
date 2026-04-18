@@ -187,31 +187,30 @@ CREATE TABLE hazards_confirmation (
 
 ### Before Confirmation System
 ```
-consensus_score = nearby_reports_count
+consensus_score = min(nearby_reports_count / 5.0, 1.0)
 - 0 nearby = 0.0
-- 1 nearby = 0.25
-- 2 nearby = 0.5
-- 3+ nearby = 1.0
+- 1 nearby = 0.2
+- 3 nearby = 0.6
+- 5+ nearby = 1.0
 ```
 
 ### After Confirmation System
 ```
-consensus_score = nearby_reports_count + confirmation_count
+consensus_score = min((nearby_reports_count + confirmation_count) / 5.0, 1.0)
 - 0 total = 0.0
-- 1 total = 0.25
-- 2 total = 0.5
-- 3-4 total = 0.75
-- 5+ total = 1.0 (very high confidence)
+- 1 total = 0.2
+- 3 total = 0.6
+- 5+ total = 1.0 (maximum community validation)
 ```
 
 ### Final Score Formula
 ```
-final_validation_score = (naive_bayes + distance_weight + consensus_score) / 3
+final_validation_score = (naive_bayes_score × 0.5) + (distance_weight × 0.3) + (consensus_score × 0.2)
 
 Where:
-- naive_bayes: Text classification probability
-- distance_weight: Reporter proximity to hazard
-- consensus_score: Nearby reports + confirmations
+- naive_bayes_score: P(valid | text) from CountVectorizer + MultinomialNB  [0, 1]
+- distance_weight:   1 - (distance_m / 150), clamped to [0, 1]             [0, 1]
+- consensus_score:   min((nearby_similar_reports + confirmation_count) / 5, 1.0)
 ```
 
 ---

@@ -10,13 +10,15 @@ Flutter mobile application for the AI-powered evacuation routing system. Provide
 - **Live Navigation** — Turn-by-turn navigation with voice guidance to evacuation centers
 - **Map View** — OpenStreetMap-based map showing evacuation centers and hazards
 - **Route Planning** — Multiple risk-weighted route options (Green / Yellow / Red)
-- **Hazard Reporting** — Submit hazard reports with photos/videos and location; queued offline and auto-synced when reconnected
-- **Notifications** — Real-time updates on report status (approved/rejected)
+- **Hazard Reporting** — Submit hazard reports with photos/videos and location; auto-rejected if reporter is more than 150 m from the hazard; queued offline and auto-synced when reconnected
+- **Hazard Confirmation** — Confirm existing approved hazards to strengthen the community consensus score
+- **Notifications** — Report approved/rejected; tap approved notification to jump to that hazard on the map with a pulsing highlight animation
 - **Offline Mode** — Full offline support: cached evacuation centers, hazards, and routes; offline report queue; animated offline banner; auto-sync on reconnect
 - **Settings** — Profile management, emergency contacts, account settings
 
 ### MDRRMO Features
 - **Dashboard** — Real-time statistics, hazard distribution, system status
+- **In-App Notifications** — Slide-in banner when a new hazard report is submitted; tap to open the report directly in the Reports tab
 - **Reports Management** — Review, approve, or reject hazard reports
 - **Map Monitoring** — View all hazards and evacuation centers on map
 - **Evacuation Center Management** — Add, edit, activate/deactivate centers
@@ -50,7 +52,7 @@ mobile/
 ├── lib/
 │   ├── core/
 │   │   ├── auth/              # SessionStorage (secure token + session metadata)
-│   │   ├── config/            # api_config.dart, storage_config.dart (Hive box names)
+│   │   ├── config/            # api_config.dart, storage_config.dart (Hive box names), hazard_media_config.dart
 │   │   ├── network/           # ApiClient — Dio singleton, keep-alive, debug-only logging
 │   │   ├── services/          # ConnectivityService, SyncService (auto-sync on reconnect)
 │   │   ├── storage/           # StorageService — all Hive read/write operations
@@ -58,17 +60,17 @@ mobile/
 │   ├── data/                  # Mock data providers
 │   ├── features/
 │   │   ├── admin/             # MDRRMO services
-│   │   ├── authentication/    # AuthService (login, register, session)
+│   │   ├── authentication/    # AuthService (login, register, email verify, session)
 │   │   ├── emergency_contacts/
-│   │   ├── hazards/           # HazardService (submit, queue, sync, cache)
+│   │   ├── hazards/           # HazardService (submit, confirm, queue, sync, cache)
 │   │   ├── navigation/        # Live navigation, offline routing
 │   │   ├── residents/         # Resident hazard reports, notifications
 │   │   └── routing/           # RoutingService (evacuation centers, route cache)
 │   ├── models/                # Data models (User, HazardReport, EvacuationCenter, Route, …)
 │   ├── ui/
-│   │   ├── admin/             # MDRRMO screens
-│   │   ├── screens/           # Resident screens (map, login, register, navigation, …)
-│   │   └── widgets/           # Reusable widgets (OfflineBanner, report media preview, …)
+│   │   ├── admin/             # MDRRMO screens (dashboard, reports, map monitor, user mgmt, logs)
+│   │   ├── screens/           # Resident screens (map, login, register, navigation, notifications, …)
+│   │   └── widgets/           # Reusable widgets (OfflineBanner, AdminNotificationBanner, HazardConfirmationDialog, ReportMediaPreview, …)
 │   └── main.dart              # App entry — Hive init, SyncService start
 ├── android/
 ├── ios/
@@ -225,12 +227,18 @@ flutter test
 | `geolocator` | `^12.0.0` | GPS location tracking |
 | `flutter_tts` | `^4.2.1` | Text-to-speech for live navigation |
 | `dio` | `^5.4.0` | HTTP client (singleton, keep-alive) |
+| `http` | `^1.2.0` | Supplementary HTTP requests |
 | `hive` | `^2.2.3` | Offline key-value storage engine |
 | `hive_flutter` | `^1.1.0` | Flutter integration for Hive |
 | `connectivity_plus` | `^6.0.0` | Network interface monitoring for offline mode |
 | `flutter_secure_storage` | `^9.2.4` | Secure auth token persistence |
-| `shared_preferences` | `^2.2.0` | Lightweight key-value store (profile cache, settings) |
+| `shared_preferences` | `^2.2.0` | Lightweight key-value store (profile cache, settings, map state) |
 | `image_picker` | `^1.0.7` | Camera/gallery access for hazard reports |
+| `flutter_image_compress` | `^2.3.0` | Photo compression before upload |
+| `permission_handler` | `^11.3.1` | Runtime permissions (location, camera) |
+| `intl` | `^0.19.0` | Date/time formatting |
+| `url_launcher` | `^6.2.5` | Open external URLs |
+| `collection` | `^1.18.0` | Extended collection utilities |
 
 Full list in `pubspec.yaml`.
 
