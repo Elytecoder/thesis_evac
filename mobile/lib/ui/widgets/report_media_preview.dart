@@ -14,7 +14,8 @@ bool reportHasMedia(HazardReport r) {
 
 /// Normalise a media URL so it always points to the currently configured backend host.
 /// This handles stale URLs stored from a different session/deployment.
-String _normalizeMediaUrl(String url) {
+/// Public so other screens (e.g. map_screen) can use it directly.
+String normalizeMediaUrl(String url) {
   if (url.isEmpty) return url;
   if (!url.startsWith('http')) return url; // data: URL or relative — leave as-is
 
@@ -39,7 +40,7 @@ String _normalizeMediaUrl(String url) {
 
 /// Small square preview for list cards (photo only).
 Widget reportMediaListThumb(HazardReport report, {double size = 56}) {
-  final url = _normalizeMediaUrl(report.photoUrl?.trim() ?? '');
+  final url = normalizeMediaUrl(report.photoUrl?.trim() ?? '');
   if (url.isEmpty) {
     return SizedBox(
       width: size,
@@ -189,8 +190,8 @@ class ReportMediaSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final photo = _normalizeMediaUrl(report.photoUrl?.trim() ?? '');
-    final video = _normalizeMediaUrl(report.videoUrl?.trim() ?? '');
+    final photo = normalizeMediaUrl(report.photoUrl?.trim() ?? '');
+    final video = normalizeMediaUrl(report.videoUrl?.trim() ?? '');
     if (photo.isEmpty && video.isEmpty) {
       return const SizedBox.shrink();
     }

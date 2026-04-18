@@ -25,8 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<EmergencyContact> _emergencyContacts = [];
   bool _isLoading = true;
   bool _isEditing = false;
-  String? _profileImagePath; // Store profile image path
-  bool _voiceNavigationEnabled = true;
+  String? _profileImagePath;
 
   // Controllers for profile editing (only street is editable)
   final TextEditingController _streetController = TextEditingController();
@@ -55,8 +54,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _userProfile = profile;
         _emergencyContacts = contacts;
         _profileImagePath = savedImagePath;
-        _voiceNavigationEnabled =
-            prefs.getBool(StorageConfig.enableVoiceNavigationKey) ?? true;
         _streetController.text = profile['street']?.toString() ?? '';
         _isLoading = false;
       });
@@ -73,8 +70,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _userProfile = fallback;
         _streetController.text = fallback?['street']?.toString() ?? '';
-        _voiceNavigationEnabled =
-            prefs.getBool(StorageConfig.enableVoiceNavigationKey) ?? true;
         _isLoading = false;
       });
     }
@@ -151,12 +146,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
-  }
-
-  Future<void> _setVoiceNavigationEnabled(bool value) async {
-    setState(() => _voiceNavigationEnabled = value);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(StorageConfig.enableVoiceNavigationKey, value);
   }
 
   Future<void> _handleLogout() async {
@@ -442,11 +431,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 16),
 
-                  // Navigation preferences
-                  _buildNavigationSection(),
-
-                  const SizedBox(height: 16),
-
                   // SECTION 2: Account Management
                   _buildAccountManagementSection(),
 
@@ -493,46 +477,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-    );
-  }
-
-  Widget _buildNavigationSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Card(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: Row(
-                children: [
-                  Icon(Icons.navigation, color: Colors.blue[700]),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Navigation',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SwitchListTile(
-              secondary: Icon(Icons.record_voice_over, color: Colors.blue[700]),
-              title: const Text('Enable Voice Navigation'),
-              subtitle: const Text(
-                'Spoken turn-by-turn directions during live navigation when you have internet. Without internet, the map still works but voice stays off.',
-              ),
-              value: _voiceNavigationEnabled,
-              onChanged: _setVoiceNavigationEnabled,
-            ),
-          ],
-        ),
-      ),
     );
   }
 

@@ -13,6 +13,7 @@ import '../../features/hazards/hazard_service.dart';
 import '../../features/navigation/gps_tracking_service.dart';
 import '../../features/navigation/risk_aware_routing_service.dart';
 import '../widgets/navigation/top_instruction_banner.dart';
+import '../widgets/report_media_preview.dart';
 import 'report_hazard_screen.dart';
 
 /// Enhanced Live Turn-by-Turn Navigation Screen
@@ -996,6 +997,117 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     );
   }
 
+  /// Show a concise detail sheet for a hazard report tapped during navigation.
+  void _showHazardDetail(HazardReport report) {
+    final isPending = report.status == HazardStatus.pending;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.45,
+          maxChildSize: 0.85,
+          minChildSize: 0.3,
+          builder: (context, scrollController) {
+            return SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isPending ? Colors.orange[100] : Colors.green[100],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isPending ? Icons.schedule : Icons.verified,
+                              size: 14,
+                              color: isPending ? Colors.orange[800] : Colors.green[800],
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              isPending ? 'Pending' : 'Verified',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isPending ? Colors.orange[800] : Colors.green[800],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          report.hazardType.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  if (report.description.isNotEmpty) ...[
+                    Text(
+                      report.description,
+                      style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  Row(
+                    children: [
+                      Icon(Icons.access_time, size: 14, color: Colors.grey[500]),
+                      const SizedBox(width: 6),
+                      Text(
+                        report.createdAt != null
+                            ? () {
+                                final l = report.createdAt!.toLocal();
+                                return '${l.year}-${l.month.toString().padLeft(2, '0')}-${l.day.toString().padLeft(2, '0')}';
+                              }()
+                            : 'Unknown date',
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Media (photo/video)
+                  if (reportHasMedia(report)) ...[
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    ReportMediaSection(report: report),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   /// Build markers for pending (not yet approved) hazard reports
   List<Marker> _buildPendingHazardMarkers() {
     return _pendingHazards.map((report) {
@@ -1003,7 +1115,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         point: LatLng(report.latitude, report.longitude),
         width: 40,
         height: 40,
-        child: Container(
+        child: GestureDetector(
+          onTap: () => _showHazardDetail(report),
+          child: Container(
           decoration: BoxDecoration(
             color: Colors.orange.shade600,
             shape: BoxShape.circle,
@@ -1018,6 +1132,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           ),
           child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
         ),
+        ),
       );
     }).toList();
   }
@@ -1029,7 +1144,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         point: LatLng(report.latitude, report.longitude),
         width: 44,
         height: 44,
-        child: Container(
+        child: GestureDetector(
+          onTap: () => _showHazardDetail(report),
+          child: Container(
           decoration: BoxDecoration(
             color: Colors.red.shade700,
             shape: BoxShape.circle,
@@ -1043,6 +1160,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
             ],
           ),
           child: const Icon(Icons.warning_rounded, color: Colors.white, size: 24),
+        ),
         ),
       );
     }).toList();

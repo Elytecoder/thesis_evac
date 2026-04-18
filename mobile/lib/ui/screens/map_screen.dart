@@ -16,6 +16,7 @@ import '../../features/residents/resident_hazard_reports_service.dart';
 import '../../features/residents/resident_notifications_service.dart';
 import '../widgets/offline_banner.dart';
 import '../widgets/exit_confirm_scope.dart';
+import '../widgets/report_media_preview.dart' show normalizeMediaUrl;
 import 'routes_selection_screen.dart';
 import 'report_hazard_screen.dart';
 import 'settings_screen.dart';
@@ -47,7 +48,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   // Show bottom sheet
   bool _showBottomSheet = true;
-  bool _isPanelExpanded = true;
+  // Panel height for draggable 3-snap evacuation center panel.
+  static const double _kPanelCollapsed = 72.0;
+  static const double _kPanelHalf = 240.0;
+  static const double _kPanelExpanded = 380.0;
+  double _panelHeight = _kPanelHalf;
   
   // Hazard reports
   List<Map<String, dynamic>> _hazardReports = [];
@@ -552,7 +557,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       runSpacing: 8,
       children: media.map<Widget>((item) {
         final isImage = item['type'] == 'image';
-        final url = (item['url'] ?? '').toString();
+        final rawUrl = (item['url'] ?? '').toString();
+        final url = normalizeMediaUrl(rawUrl);
         return GestureDetector(
           onTap: isImage && url.isNotEmpty
               ? () => _openFullscreenImage(url)
@@ -1109,37 +1115,48 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                   ),
 
-                // Nearby evacuation centers bottom sheet (collapsible)
+                // ── Draggable Evacuation Centers Panel ──────────────────
                 if (_showBottomSheet)
                   Positioned(
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    // Absorb all pointer events so the map below doesn't steal taps
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
-                      onTap: () {}, // consume tap to prevent map interaction
-                      child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, -2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Drag handle — tap to toggle collapsed/expanded
-                          GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => setState(() => _isPanelExpanded = !_isPanelExpanded),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                      onTap: () {}, // absorb taps to prevent map interaction
+                      onVerticalDragUpdate: (details) {
+                        setState(() {
+                          _panelHeight = (_panelHeight - details.delta.dy)
+                              .clamp(_kPanelCollapsed, _kPanelExpanded);
+                        });
+                      },
+                      onVerticalDragEnd: (details) {
+                        // Snap to nearest of three positions
+                        final snaps = [_kPanelCollapsed, _kPanelHalf, _kPanelExpanded];
+                        final closest = snaps.reduce((a, b) =>
+                            (_panelHeight - a).abs() < (_panelHeight - b).abs() ? a : b);
+                        setState(() => _panelHeight = closest);
+                      },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeOut,
+                        height: _panelHeight,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, -2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            // Drag handle bar
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
                               child: Center(
                                 child: Container(
                                   width: 40,
@@ -1151,144 +1168,131 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 ),
                               ),
                             ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Nearby Evacuation Centers',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
+                            // Header row
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Nearby Evacuation Centers',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
-                                Row(
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red[50],
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      child: Text(
-                                        '${_evacuationCenters.length} Available',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.red[700],
-                                          fontWeight: FontWeight.bold,
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red[50],
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          '${_evacuationCenters.length} Available',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.red[700],
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    // Collapse/expand icon button
-                                    GestureDetector(
-                                      onTap: () => setState(() => _isPanelExpanded = !_isPanelExpanded),
-                                      child: AnimatedRotation(
-                                        turns: _isPanelExpanded ? 0 : 0.5,
-                                        duration: const Duration(milliseconds: 250),
-                                        child: Icon(Icons.expand_less, color: Colors.grey[600]),
+                                      const SizedBox(width: 6),
+                                      GestureDetector(
+                                        onTap: () => setState(() =>
+                                            _panelHeight = _panelHeight > _kPanelCollapsed
+                                                ? _kPanelCollapsed
+                                                : _kPanelHalf),
+                                        child: AnimatedRotation(
+                                          turns: _panelHeight > _kPanelCollapsed ? 0 : 0.5,
+                                          duration: const Duration(milliseconds: 250),
+                                          child: Icon(Icons.expand_less, color: Colors.grey[600]),
+                                        ),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          // Animated list — collapses to 0 height smoothly
-                          AnimatedSize(
-                            duration: const Duration(milliseconds: 300),
-                            curve: Curves.easeInOut,
-                            child: _isPanelExpanded
-                                ? SizedBox(
-                                    height: 220,
-                                    child: ListView.builder(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                                      itemCount: _evacuationCenters.length,
-                                      itemBuilder: (context, index) {
-                                        final center = _evacuationCenters[index];
-                                        final distance = _userLocation != null
-                                            ? _calculateDistance(
-                                                _userLocation!,
-                                                LatLng(center.latitude, center.longitude),
-                                              )
-                                            : 0.0;
+                            // Scrollable list fills remaining height
+                            Expanded(
+                              child: ListView.builder(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                itemCount: _evacuationCenters.length,
+                                itemBuilder: (context, index) {
+                                  final center = _evacuationCenters[index];
+                                  final distance = _userLocation != null
+                                      ? _calculateDistance(
+                                          _userLocation!,
+                                          LatLng(center.latitude, center.longitude),
+                                        )
+                                      : 0.0;
 
-                                        return Container(
-                                          margin: const EdgeInsets.only(bottom: 12),
-                                          padding: const EdgeInsets.all(16),
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[50],
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.grey[200]!),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 44,
+                                          height: 44,
                                           decoration: BoxDecoration(
-                                            color: Colors.grey[50],
-                                            borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(color: Colors.grey[200]!),
+                                            color: Colors.red[50],
+                                            borderRadius: BorderRadius.circular(10),
                                           ),
-                                          child: Row(
+                                          child: Icon(Icons.emergency, color: Colors.red[700], size: 26),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              Container(
-                                                width: 48,
-                                                height: 48,
-                                                decoration: BoxDecoration(
-                                                  color: Colors.red[50],
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
-                                                child: Icon(
-                                                  Icons.emergency,
-                                                  color: Colors.red[700],
-                                                  size: 28,
+                                              Text(
+                                                center.name,
+                                                style: const TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.bold,
                                                 ),
                                               ),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      center.name,
-                                                      style: const TextStyle(
-                                                        fontSize: 16,
-                                                        fontWeight: FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 4),
-                                                    Text(
-                                                      '${distance.toStringAsFixed(1)} km',
-                                                      style: TextStyle(
-                                                        fontSize: 14,
-                                                        color: Colors.grey[600],
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              TextButton(
-                                                onPressed: () => _onSelectCenter(center),
-                                                style: TextButton.styleFrom(
-                                                  foregroundColor: Colors.blue[700],
-                                                ),
-                                                child: const Row(
-                                                  children: [
-                                                    Text('View Routes'),
-                                                    SizedBox(width: 4),
-                                                    Icon(Icons.arrow_forward, size: 16),
-                                                  ],
-                                                ),
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                '${distance.toStringAsFixed(1)} km away',
+                                                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                                               ),
                                             ],
                                           ),
-                                        );
-                                      },
+                                        ),
+                                        TextButton(
+                                          onPressed: () => _onSelectCenter(center),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: Colors.blue[700],
+                                          ),
+                                          child: const Row(
+                                            children: [
+                                              Text('Routes'),
+                                              SizedBox(width: 4),
+                                              Icon(Icons.arrow_forward, size: 14),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-
                 // Active navigation bar
                 if (_activeRoute != null)
                   Positioned(
@@ -1373,10 +1377,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                   ),
 
-                // Compass/recenter button
+                // Compass/recenter button — repositions with panel height
                 Positioned(
                   bottom: _showBottomSheet
-                      ? (_isPanelExpanded ? 260 : 84)
+                      ? _panelHeight + 16
                       : (_activeRoute != null ? 140 : 80),
                   right: 16,
                   child: FloatingActionButton(
