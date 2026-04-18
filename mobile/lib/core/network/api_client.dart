@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
 
 /// HTTP client wrapper for API communication.
-/// 
+///
 /// Singleton: all services share one Dio instance and one persistent connection pool.
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
@@ -13,6 +13,11 @@ class ApiClient {
 
   late final Dio _dio;
   String? _authToken;
+
+  /// Called when any authenticated request receives a 401 (session expired /
+  /// token invalidated on server).  Set this once in main() to clear the local
+  /// session and navigate back to the login screen.
+  static void Function()? onUnauthorized;
 
   ApiClient._internal() {
     _dio = Dio(BaseOptions(
@@ -26,6 +31,25 @@ class ApiClient {
         'Connection': 'keep-alive',
       },
     ));
+
+    // Intercept 401 responses on authenticated endpoints and trigger a global
+    // session-expiry callback so the user is immediately sent back to login.
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onError: (DioException error, ErrorInterceptorHandler handler) {
+          if (error.response?.statusCode == 401) {
+            final path = error.requestOptions.path;
+            final isAuthEndpoint = path.contains('/auth/login') ||
+                path.contains('/auth/register') ||
+                path.contains('/auth/send-verification');
+            if (!isAuthEndpoint && onUnauthorized != null) {
+              onUnauthorized!();
+            }
+          }
+          handler.next(error);
+        },
+      ),
+    );
 
     if (kDebugMode) {
       _dio.interceptors.add(LogInterceptor(
@@ -152,7 +176,16 @@ class ApiClient {
         if (statusCode == 400) {
           return ApiException(message, statusCode: statusCode);
         } else if (statusCode == 401) {
-          return ApiException(message != 'Server error' ? message : 'Invalid email or password.', statusCode: 401);
+          // On login, show credential error. On authenticated requests, the
+          // interceptor above already triggered onUnauthorized(); we still
+          // return a clear message in case the caller displays it.
+          final isCredentialError = message.toLowerCase().contains('invalid') &&
+              (message.toLowerCase().contains('password') ||
+               message.toLowerCase().contains('credentials'));
+          return ApiException(
+            isCredentialError ? message : 'Session expired. Please log in again.',
+            statusCode: 401,
+          );
         } else if (statusCode == 403) {
           return ApiException(message != 'Server error' ? message : 'Access forbidden.', statusCode: 403);
         } else if (statusCode == 404) {
