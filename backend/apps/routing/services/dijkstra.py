@@ -3,9 +3,17 @@ Modified Dijkstra: weight = base_distance + (predicted_risk_score × risk_multip
 Returns up to k distinct routes by reusing Dijkstra multiple times: run once for the best
 path, then penalize edges used in that path and run again to get alternatives. No new
 algorithm; only edge costs are adjusted temporarily via a penalty dict (graph is not mutated).
+
+Component bridging: OSM road data often has small gaps that split the graph into
+disconnected sub-graphs. After building the main adjacency list, _bridge_components()
+detects all components, then stitches each isolated component to the nearest node in the
+growing connected set via a synthetic edge. This is done once per get_safest_routes() call
+and ensures Dijkstra can always find a path as long as the road network is geographically
+continuous (even if the raw segment data has minor coverage gaps).
 """
 import heapq
-from collections import defaultdict
+import math
+from collections import defaultdict, deque
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
 
@@ -177,6 +185,154 @@ class ModifiedDijkstraService:
             return 'Yellow'
         return 'Red'
 
+    # Risk assigned to synthetic bridge edges that fill OSM coverage gaps.
+    # 0.3 = Yellow-band risk: passable but not ideal — encourages Dijkstra to prefer
+    # real road segments when available.
+    BRIDGE_RISK = 0.3
+
+    def _bridge_components(self, graph: dict, nodes: set) -> dict:
+        """
+        Detect disconnected graph components and stitch each one to the nearest node
+        in the growing connected set via a synthetic bidirectional bridge edge.
+
+        OSM exports of Bulan produce ~65 isolated sub-graphs due to minor data gaps
+        (missing junction nodes, slightly offset coordinates).  Without this step,
+        Dijkstra returns empty routes whenever the user's snapped start node and the
+        evacuation centre's snapped end node lie in different components.
+
+        Algorithm (O(V²) in the number of graph nodes, fast for ≤ ~3 000 nodes):
+          1. BFS to discover all components; sort largest-first.
+          2. Keep a "connected set" initialised with the main (largest) component.
+          3. For each remaining component, find the closest pair of nodes
+             (one from the component, one from the connected set) using squared
+             lat-lng distance as a cheap proxy.
+          4. Add a bidirectional bridge edge with haversine distance and BRIDGE_RISK.
+          5. Merge the newly connected component into the connected set.
+
+        Returns a NEW adjacency dict; the original is never mutated.
+        """
+        def _bfs_comp(start: str) -> set:
+            comp: set = set()
+            q = deque([start])
+            while q:
+                n = q.popleft()
+                if n in comp:
+                    continue
+                comp.add(n)
+                for v, *_ in graph.get(n, []):
+                    if v not in comp:
+                        q.append(v)
+            return comp
+
+        def _hav_m(la1: float, ln1: float, la2: float, ln2: float) -> float:
+            dlat = math.radians(la2 - la1)
+            dlng = math.radians(ln2 - ln1)
+            a = (math.sin(dlat / 2) ** 2
+                 + math.cos(math.radians(la1)) * math.cos(math.radians(la2))
+                 * math.sin(dlng / 2) ** 2)
+            return 6_371_000.0 * 2.0 * math.asin(min(1.0, math.sqrt(a)))
+
+        # 1. Discover all components
+        visited: set = set()
+        components: list = []
+        for nd in nodes:
+            if nd not in visited:
+                comp = _bfs_comp(nd)
+                visited.update(comp)
+                components.append(comp)
+
+        if len(components) <= 1:
+            return graph  # already fully connected — nothing to do
+
+        components.sort(key=lambda c: -len(c))
+
+        # 2. Shallow-copy adjacency lists so we can append bridge edges
+        bridged: dict = {k: list(v) for k, v in graph.items()}
+
+        connected_set: set = set(components[0])
+
+        # Pre-cache (lat, lng) tuples to avoid repeated string splits
+        _coords_cache: dict = {}
+
+        def _coords(key: str):
+            if key not in _coords_cache:
+                la, ln = key.split(',')
+                _coords_cache[key] = (float(la), float(ln))
+            return _coords_cache[key]
+
+        # Preload coords for the initial connected set
+        for k in connected_set:
+            _coords(k)
+
+        # Spatial grid over the connected set for fast nearest-neighbour lookup.
+        # Cell size ~2 km so each query searches ≤ a handful of cells.
+        GRID_DEG = 0.02
+        conn_grid: dict = defaultdict(list)
+        for mn in connected_set:
+            mla, mln = _coords(mn)
+            conn_grid[(int(mla / GRID_DEG), int(mln / GRID_DEG))].append(mn)
+
+        def _nearest_in_connected(query_key: str):
+            """Return (nearest_key, dist_sq) from the connected set using grid lookup."""
+            qla, qln = _coords(query_key)
+            qr = int(qla / GRID_DEG)
+            qc = int(qln / GRID_DEG)
+            best_d_sq = float('inf')
+            best_mn = None
+            # Expand search radius until we find at least one candidate
+            for radius in range(1, 12):
+                for dr in range(-radius, radius + 1):
+                    for dc in range(-radius, radius + 1):
+                        if abs(dr) != radius and abs(dc) != radius:
+                            continue  # only the outer ring of this radius
+                        for mn in conn_grid.get((qr + dr, qc + dc), []):
+                            mla, mln = _coords(mn)
+                            d_sq = (qla - mla) ** 2 + (qln - mln) ** 2
+                            if d_sq < best_d_sq:
+                                best_d_sq = d_sq
+                                best_mn = mn
+                # Stop expanding once we've found a node inside the current ring's bbox
+                if best_mn is not None:
+                    # Ensure we've searched far enough (node could be just outside a ring)
+                    if best_d_sq <= (radius * GRID_DEG) ** 2:
+                        break
+            return best_mn, best_d_sq
+
+        # 3-5. Bridge each isolated component to the connected set
+        for comp in components[1:]:
+            best_d_sq = float('inf')
+            best_cn = best_mn = None
+
+            for cn in comp:
+                mn_candidate, d_sq = _nearest_in_connected(cn)
+                if mn_candidate is not None and d_sq < best_d_sq:
+                    best_d_sq = d_sq
+                    best_cn = cn
+                    best_mn = mn_candidate
+
+            if best_cn is None:
+                continue
+
+            cla, cln = _coords(best_cn)
+            mla, mln = _coords(best_mn)
+            bridge_dist = _hav_m(cla, cln, mla, mln)
+            bridge_w = bridge_dist + self.BRIDGE_RISK * self.risk_multiplier
+
+            if best_cn not in bridged:
+                bridged[best_cn] = []
+            if best_mn not in bridged:
+                bridged[best_mn] = []
+            bridged[best_cn].append((best_mn, bridge_w, bridge_dist, self.BRIDGE_RISK))
+            bridged[best_mn].append((best_cn, bridge_w, bridge_dist, self.BRIDGE_RISK))
+
+            # Cache coords for newly connected nodes and add them to the spatial grid
+            for k in comp:
+                kla, kln = _coords(k)
+                conn_grid[(int(kla / GRID_DEG), int(kln / GRID_DEG))].append(k)
+            connected_set.update(comp)
+
+        return bridged
+
     def get_safest_routes(
         self,
         segments,
@@ -187,10 +343,13 @@ class ModifiedDijkstraService:
         k: int = 3,
     ) -> List[Dict[str, Any]]:
         """
-        Public API: build graph from segments, find nearest nodes to start/end,
-        return k safest routes with risk level.
+        Public API: build graph from segments, bridge disconnected components,
+        find nearest nodes to start/end, return k safest routes with risk level.
         """
         graph, nodes = self.build_graph(segments)
+        # Bridge isolated sub-graphs caused by OSM data gaps so Dijkstra can
+        # always find a path regardless of which component start/end snap to.
+        graph = self._bridge_components(graph, nodes)
         start_key = _key(_float(start_lat), _float(start_lng))
         end_key = _key(_float(end_lat), _float(end_lng))
         if start_key not in nodes:
