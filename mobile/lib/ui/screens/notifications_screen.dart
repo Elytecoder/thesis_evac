@@ -48,8 +48,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _loadNotifications();
   }
   
-  /// Get report location for approved notification (from notification metadata or by fetching report).
+  /// Get report location for approved notification.
+  /// ALWAYS verifies against the backend when a report_id is present so that
+  /// soft-deleted reports return null (triggering the graceful dialog) instead
+  /// of using stale lat/lng stored inside the notification.
   Future<Map<String, dynamic>?> _getReportLocationForApproved(Map<String, dynamic> notification) async {
+    final reportId = notification['report_id']?.toString();
+
+    // If we have a report_id, verify the report still exists on the backend first.
+    // Soft-deleted reports won't appear in my-reports or verified-hazards, so
+    // getReportById returns null → we return null → graceful dialog is shown.
+    if (reportId != null && reportId.isNotEmpty) {
+      final backendReport = await _hazardReportsService.getReportById(reportId);
+      if (backendReport != null) {
+        // Use backend lat/lng (most up-to-date), fall back to notification data.
+        final lat = backendReport['lat'] ?? notification['latitude'];
+        final lng = backendReport['lng'] ?? notification['longitude'];
+        final la = lat is double ? lat : double.tryParse(lat.toString());
+        final ln = lng is double ? lng : double.tryParse(lng.toString());
+        if (la != null && ln != null) return {'lat': la, 'lng': ln};
+      }
+      // Report not found on backend → deleted/unavailable
+      return null;
+    }
+
+    // No report_id: fall back to coordinates embedded in the notification.
     final lat = notification['latitude'];
     final lng = notification['longitude'];
     if (lat != null && lng != null) {
@@ -57,9 +80,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final ln = lng is double ? lng : double.tryParse(lng.toString());
       if (la != null && ln != null) return {'lat': la, 'lng': ln};
     }
-    final reportId = notification['report_id']?.toString();
-    if (reportId == null || reportId.isEmpty) return null;
-    return await _hazardReportsService.getReportById(reportId);
+    return null;
   }
 
   /// Handle notification click

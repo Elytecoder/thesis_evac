@@ -136,11 +136,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Load pending hazards so the resident can see queued community reports while navigating
+  /// Load pending hazards: uses the resident's own reports filtered by pending
+  /// status, because /mdrrmo/pending-reports/ is MDRRMO-only (403 for residents).
+  /// This ensures a just-submitted report appears on the map immediately.
   Future<void> _loadPendingHazards() async {
     try {
-      final list = await _hazardService.getPendingReports();
-      if (mounted) setState(() => _pendingHazards = list);
+      final all = await _hazardService.getMyReports();
+      final pending = all.where((r) => r.status == HazardStatus.pending).toList();
+      if (mounted) setState(() => _pendingHazards = pending);
     } catch (e) {
       print('Could not load pending hazards: $e');
     }
