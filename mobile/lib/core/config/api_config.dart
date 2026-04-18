@@ -47,8 +47,8 @@ class ApiConfig {
   static const String myReportsEndpoint = '/my-reports/';
   static const String verifiedHazardsEndpoint = '/verified-hazards/';
   
-  /// MDRRMO - Dashboard & Report management
-  static const String dashboardStatsEndpoint = '/mdrrmo/dashboard-stats/';
+  /// MDRRMO - Analytics
+  static const String analyticsEndpoint = '/mdrrmo/analytics/';
   static const String pendingReportsEndpoint = '/mdrrmo/pending-reports/';
   static const String rejectedReportsEndpoint = '/mdrrmo/rejected-reports/';
   static const String approveReportEndpoint = '/mdrrmo/approve-report/';

@@ -4,7 +4,6 @@ class User {
   final String username;
   final String email;
   final String fullName;
-  final String phoneNumber;
   
   // Structured address
   final String province;
@@ -27,7 +26,6 @@ class User {
     required this.username,
     required this.email,
     this.fullName = '',
-    this.phoneNumber = '',
     this.province = '',
     this.municipality = '',
     this.barangay = '',
@@ -60,7 +58,6 @@ class User {
       username: (userData['username'] as String?) ?? '',
       email: userData['email'] as String? ?? '',
       fullName: userData['full_name'] as String? ?? '',
-      phoneNumber: userData['phone_number'] as String? ?? '',
       province: userData['province'] as String? ?? '',
       municipality: userData['municipality'] as String? ?? '',
       barangay: userData['barangay'] as String? ?? '',
@@ -96,7 +93,6 @@ class User {
       'username': username,
       'email': email,
       'full_name': fullName,
-      'phone_number': phoneNumber,
       'province': province,
       'municipality': municipality,
       'barangay': barangay,

@@ -14,7 +14,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'email', 'full_name', 'phone_number',
+            'id', 'username', 'email', 'full_name',
             'province', 'municipality', 'barangay', 'street',
             'role', 'is_active', 'is_suspended', 'profile_picture',
             'email_verified', 'date_joined'
@@ -38,7 +38,6 @@ class MdrrmoUserListSerializer(serializers.ModelSerializer):
             'username',
             'email',
             'full_name',
-            'phone_number',
             'province',
             'municipality',
             'barangay',
@@ -56,7 +55,6 @@ class MdrrmoUserListSerializer(serializers.ModelSerializer):
             'username',
             'email',
             'full_name',
-            'phone_number',
             'province',
             'municipality',
             'barangay',
@@ -80,12 +78,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'email', 'password', 'password_confirm', 'verification_code',
-            'full_name', 'phone_number',
+            'full_name',
             'province', 'municipality', 'barangay', 'street'
         ]
-        extra_kwargs = {
-            'phone_number': {'required': False, 'allow_blank': True, 'default': ''},
-        }
     
     def validate_email(self, value):
         """Validate email format and uniqueness."""
@@ -116,24 +111,6 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         name_regex = r'^[a-zA-ZñÑáéíóúÁÉÍÓÚ\s\-]+$'
         if not re.match(name_regex, value):
             raise serializers.ValidationError("Please enter a valid name using letters only")
-        
-        return value
-    
-    def validate_phone_number(self, value):
-        """Phone number is optional. If provided, validate Philippine mobile number format."""
-        value = (value or '').strip()
-        if not value:
-            return value  # allow empty
-        
-        # Must be exactly 11 digits
-        if not value.isdigit():
-            raise serializers.ValidationError("Phone number must contain only digits")
-        
-        if len(value) != 11:
-            raise serializers.ValidationError("Enter a valid 11-digit Philippine mobile number")
-        
-        if not value.startswith('09'):
-            raise serializers.ValidationError("Phone number must start with 09")
         
         return value
     
@@ -239,11 +216,11 @@ class UserLoginSerializer(serializers.Serializer):
 
 
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating user profile. Only phone_number and street are editable (email requires re-verification)."""
+    """Serializer for updating user profile. Only street is editable."""
     
     class Meta:
         model = User
-        fields = ['phone_number', 'street']
+        fields = ['street']
 
 
 class PasswordChangeSerializer(serializers.Serializer):

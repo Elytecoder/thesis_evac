@@ -51,7 +51,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
       'public_user_id': u.publicUserId,
       'name': name.isEmpty ? (u.email.isNotEmpty ? u.email : 'User #${u.id}') : name,
       'email': u.email,
-      'phone_number': u.phoneNumber,
       'province': u.province,
       'municipality': u.municipality,
       'barangay': barangay.isEmpty ? '—' : barangay,
@@ -187,7 +186,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   void _viewUserProfile(Map<String, dynamic> user) {
-    final phoneRaw = (user['phone_number']?.toString() ?? '').trim();
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -199,7 +197,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           constraints: const BoxConstraints(maxWidth: 500),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
+            children:  [
               // User Avatar
               CircleAvatar(
                 radius: 50,
@@ -236,7 +234,6 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 'User ID',
                 user['public_user_id'] != null ? '#${user['public_user_id']}' : '—',
               ),
-              _buildDetailRow(Icons.phone, 'Phone', phoneRaw.isEmpty ? '—' : phoneRaw),
               _buildDetailRow(Icons.location_on, 'Barangay', user['barangay']?.toString() ?? '—'),
               _buildDetailRow(Icons.calendar_today, 'Registered', user['date_registered']?.toString() ?? '—'),
               _buildDetailRow(Icons.report, 'Total Reports', '${user['reports_count'] ?? 0}'),

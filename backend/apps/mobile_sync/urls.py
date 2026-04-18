@@ -15,6 +15,7 @@ urlpatterns = [
     
     # MDRRMO - Report management
     path('mdrrmo/dashboard-stats/', views.mdrrmo_dashboard_stats, name='mdrrmo_dashboard_stats'),
+    path('mdrrmo/analytics/', views.mdrrmo_analytics, name='mdrrmo_analytics'),
     path('mdrrmo/pending-reports/', views.mdrrmo_pending_reports, name='mdrrmo_pending_reports'),
     path('mdrrmo/rejected-reports/', views.mdrrmo_rejected_reports, name='mdrrmo_rejected_reports'),
     path('mdrrmo/approve-report/', views.mdrrmo_approve_report, name='mdrrmo_approve_report'),

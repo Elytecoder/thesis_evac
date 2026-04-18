@@ -80,7 +80,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       final updated = await _authService.updateProfile(
-        phoneNumber: '',
         street: _streetController.text.trim(),
       );
       setState(() {

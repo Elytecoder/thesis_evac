@@ -114,7 +114,6 @@ class AuthService {
     required String password,
     required String passwordConfirm,
     required String fullName,
-    required String phoneNumber,
     required String province,
     required String municipality,
     required String barangay,
@@ -130,7 +129,6 @@ class AuthService {
         username: email.split('@')[0],
         email: email,
         fullName: fullName,
-        phoneNumber: phoneNumber,
         province: province,
         municipality: municipality,
         barangay: barangay,
@@ -161,7 +159,6 @@ class AuthService {
           'password_confirm': passwordConfirm,
           'verification_code': verificationCode,
           'full_name': fullName,
-          'phone_number': phoneNumber,
           'province': province,
           'municipality': municipality,
           'barangay': barangay,
@@ -354,11 +351,10 @@ class AuthService {
     _apiClient.setAuthToken(token);
   }
 
-  /// Update profile (editable fields: phone_number, street only).
+  /// Update profile (editable field: street only).
   /// 
   /// Connects to Django API endpoint: PUT /api/auth/profile/update/
   Future<Map<String, dynamic>> updateProfile({
-    required String phoneNumber,
     required String street,
   }) async {
     if (ApiConfig.useMockData) {
@@ -367,7 +363,6 @@ class AuthService {
       final saved = prefs.getString('user_profile');
       if (saved != null) {
         final map = json.decode(saved) as Map<String, dynamic>;
-        map['phone_number'] = phoneNumber;
         map['street'] = street;
         await prefs.setString('user_profile', json.encode(map));
         return map;
@@ -378,7 +373,6 @@ class AuthService {
     final response = await _apiClient.put(
       ApiConfig.updateProfileEndpoint,
       data: {
-        'phone_number': phoneNumber,
         'street': street,
       },
     );
@@ -425,7 +419,6 @@ class AuthService {
         'email': savedEmail ?? 'resident1@gmail.com',
         'role': 'resident',
         'full_name': 'Juan Dela Cruz',
-        'phone_number': '09171234567',
       };
     }
 

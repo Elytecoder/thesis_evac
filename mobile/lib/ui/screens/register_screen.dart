@@ -207,7 +207,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text,
         passwordConfirm: _confirmPasswordController.text,
         fullName: _fullNameController.text.trim(),
-        phoneNumber: '',
         province: _selectedProvince!,
         municipality: _selectedMunicipality!,
         barangay: _selectedBarangay!,

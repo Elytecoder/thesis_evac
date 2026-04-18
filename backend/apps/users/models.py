@@ -26,7 +26,6 @@ class User(AbstractUser):
     
     # Profile information
     full_name = models.CharField(max_length=255, blank=True)
-    phone_number = models.CharField(max_length=15, blank=True)
     
     # Address fields (structured)
     province = models.CharField(max_length=100, blank=True)

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/config/api_config.dart';
+import '../../core/network/api_client.dart';
 import '../../features/admin/admin_mock_service.dart';
-import '../../features/hazards/hazard_service.dart';
-import '../../models/hazard_report.dart';
 
 /// Analytics Screen - Statistical analysis and charts for MDRRMO.
 /// When using real API, hazard distribution is derived from actual reports (empty when none).
@@ -15,7 +14,7 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final AdminMockService _adminService = AdminMockService();
-  final HazardService _hazardService = HazardService();
+  final ApiClient _apiClient = ApiClient();
   Map<String, dynamic>? _analytics;
   bool _isLoading = true;
 
@@ -36,21 +35,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         });
         return;
       }
-      // Real API: hazard type distribution from verified (approved) reports only
-      final verified = await _hazardService.getVerifiedHazards();
-      final Map<String, int> hazardTypeCounts = {};
-      for (final r in verified) {
-        hazardTypeCounts[r.hazardType] = (hazardTypeCounts[r.hazardType] ?? 0) + 1;
-      }
-      final hazardTypeDistribution = hazardTypeCounts.map((k, v) => MapEntry(k, v));
+      // Real API: call the dedicated analytics endpoint
+      final response = await _apiClient.get(ApiConfig.analyticsEndpoint);
+      final data = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : <String, dynamic>{};
+      final rawHazard = data['hazard_type_distribution'];
+      final Map<String, int> hazardTypeDistribution = rawHazard is Map
+          ? rawHazard.map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
+          : {};
+      final rawRoad = data['road_risk_distribution'];
+      final Map<String, int> roadRiskDistribution = rawRoad is Map
+          ? rawRoad.map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
+          : {'high_risk': 0, 'moderate_risk': 0, 'low_risk': 0};
       setState(() {
         _analytics = {
           'hazard_type_distribution': hazardTypeDistribution,
-          'road_risk_distribution': {
-            'high_risk': 0,
-            'moderate_risk': 0,
-            'low_risk': 0,
-          },
+          'road_risk_distribution': roadRiskDistribution,
         };
         _isLoading = false;
       });

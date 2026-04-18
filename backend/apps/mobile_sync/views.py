@@ -117,6 +117,14 @@ def report_hazard(request):
                     return Response({'error': out}, status=status.HTTP_400_BAD_REQUEST)
                 video_url = out
 
+        user_lat = validated.get('user_latitude')
+        user_lng = validated.get('user_longitude')
+        if user_lat is None or user_lng is None:
+            return Response(
+                {'error': 'Your current GPS location is required to submit a hazard report.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         report = process_new_report(
             user=request.user,
             hazard_type=validated['hazard_type'],
@@ -125,8 +133,8 @@ def report_hazard(request):
             description=validated.get('description', ''),
             photo_url=photo_url,
             video_url=video_url,
-            user_latitude=validated.get('user_latitude'),
-            user_longitude=validated.get('user_longitude'),
+            user_latitude=user_lat,
+            user_longitude=user_lng,
         )
         payload = HazardReportSerializer(report).data
         return Response(payload, status=status.HTTP_201_CREATED)
@@ -269,6 +277,48 @@ def mdrrmo_dashboard_stats(request):
         'non_operational_centers': non_operational_centers,
         'hazard_distribution': hazard_distribution,
         'recent_activity': recent_activity,
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def mdrrmo_analytics(request):
+    """
+    GET /api/mdrrmo/analytics/
+    Returns hazard_type_distribution and road_risk_distribution from live DB data.
+    Used by the analytics dashboard.  MDRRMO only.
+    """
+    from django.db.models import Count
+    from apps.routing.models import RoadSegment
+
+    # Road risk distribution from RoadSegment.predicted_risk_score thresholds
+    try:
+        all_segs = RoadSegment.objects.all()
+        high_risk = all_segs.filter(predicted_risk_score__gte=0.7).count()
+        moderate_risk = all_segs.filter(
+            predicted_risk_score__gte=0.3, predicted_risk_score__lt=0.7
+        ).count()
+        low_risk = all_segs.filter(predicted_risk_score__lt=0.3).count()
+    except Exception:
+        high_risk = moderate_risk = low_risk = 0
+
+    # Hazard type distribution from approved, non-deleted reports
+    hazard_type_distribution = dict(
+        HazardReport.objects.filter(
+            status=HazardReport.Status.APPROVED, is_deleted=False
+        )
+        .values('hazard_type')
+        .annotate(count=Count('id'))
+        .values_list('hazard_type', 'count')
+    )
+
+    return Response({
+        'road_risk_distribution': {
+            'high_risk': high_risk,
+            'moderate_risk': moderate_risk,
+            'low_risk': low_risk,
+        },
+        'hazard_type_distribution': hazard_type_distribution,
     })
 
 
