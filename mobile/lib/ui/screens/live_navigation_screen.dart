@@ -8,10 +8,12 @@ import '../../models/evacuation_center.dart';
 import '../../models/hazard_report.dart';
 import '../../models/navigation_route.dart';
 import '../../models/navigation_step.dart';
+import '../../models/route.dart' as app_route;
 import '../../models/route_segment.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../features/navigation/gps_tracking_service.dart';
 import '../../features/navigation/risk_aware_routing_service.dart';
+import '../../features/routing/routing_service.dart';
 import '../widgets/navigation/top_instruction_banner.dart';
 import '../widgets/report_media_preview.dart';
 import 'report_hazard_screen.dart';
@@ -21,11 +23,17 @@ import 'report_hazard_screen.dart';
 class LiveNavigationScreen extends StatefulWidget {
   final LatLng startLocation;
   final EvacuationCenter destination;
+  /// The backend (Modified Dijkstra + RF) route chosen by the user on the
+  /// selection screen.  When provided, this polyline is followed exactly and
+  /// OSRM is only used for turn instructions.  When null (e.g. launched
+  /// directly), the service falls back to a full OSRM route.
+  final app_route.Route? selectedRoute;
 
   const LiveNavigationScreen({
     super.key,
     required this.startLocation,
     required this.destination,
+    this.selectedRoute,
   });
 
   @override
@@ -150,7 +158,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Calculate route
+  /// Calculate route — uses backend Modified Dijkstra route when available.
   Future<void> _calculateRoute() async {
     try {
       final destinationLatLng = LatLng(
@@ -158,11 +166,25 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         widget.destination.longitude,
       );
 
-      final route = await _routingService.calculateSafestRoute(
-        start: widget.startLocation,
-        destination: destinationLatLng,
-        evacuationCenter: widget.destination,
-      );
+      final NavigationRoute route;
+
+      if (widget.selectedRoute != null) {
+        // PRIMARY: Use the exact polyline from Django Modified Dijkstra.
+        // OSRM is only used for turn-instruction hints (start → destination).
+        print('✅ Navigation using backend Modified Dijkstra route');
+        route = await _routingService.buildFromBackendRoute(
+          backendRoute: widget.selectedRoute!,
+          destination: destinationLatLng,
+        );
+      } else {
+        // FALLBACK: No backend route passed — use OSRM as last resort.
+        print('⚠️ No backend route provided — falling back to OSRM');
+        route = await _routingService.calculateSafestRoute(
+          start: widget.startLocation,
+          destination: destinationLatLng,
+          evacuationCenter: widget.destination,
+        );
+      }
 
       setState(() {
         _currentRoute = route;
@@ -173,10 +195,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _updateCurrentStep(_userLocation!);
       }
 
-      print('✅ Route calculated: ${route.steps.length} steps, ${route.getFormattedDistance()}');
+      print('✅ Route ready: ${route.steps.length} steps, ${route.getFormattedDistance()}');
     } catch (e) {
       print('❌ Route calculation failed: $e');
-      throw e;
+      rethrow;
     }
   }
 
@@ -314,7 +336,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Reroute to destination
+  /// Reroute to destination.
+  /// PRIMARY: backend Modified Dijkstra (preserves hazard-aware routing).
+  /// FALLBACK: OSRM if backend is unreachable.
   Future<void> _reroute() async {
     if (_isRerouting || _userLocation == null) return;
 
@@ -330,11 +354,37 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         widget.destination.longitude,
       );
 
-      final newRoute = await _routingService.calculateSafestRoute(
-        start: _userLocation!,
-        destination: destinationLatLng,
-        evacuationCenter: widget.destination,
-      );
+      NavigationRoute newRoute;
+
+      // PRIMARY: ask Django backend for the safest reroute from current position.
+      try {
+        final backendService = RoutingService();
+        final result = await backendService.calculateRoutes(
+          startLat: _userLocation!.latitude,
+          startLng: _userLocation!.longitude,
+          evacuationCenterId: widget.destination.id,
+          evacuationCenter: widget.destination,
+        );
+
+        if (result.routes.isNotEmpty) {
+          // routes are sorted by risk ascending — first is safest
+          newRoute = await _routingService.buildFromBackendRoute(
+            backendRoute: result.routes.first,
+            destination: destinationLatLng,
+          );
+          print('✅ Rerouted via backend Modified Dijkstra');
+        } else {
+          throw Exception('Backend returned no routes');
+        }
+      } catch (e) {
+        // FALLBACK: OSRM if backend is unavailable
+        print('⚠️ Backend reroute failed — falling back to OSRM: $e');
+        newRoute = await _routingService.calculateSafestRoute(
+          start: _userLocation!,
+          destination: destinationLatLng,
+          evacuationCenter: widget.destination,
+        );
+      }
 
       setState(() {
         _currentRoute = newRoute;

@@ -116,13 +116,14 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
 
   void _onRouteSelected(app_route.Route route) {
     if (route.riskLevel == app_route.RiskLevel.green) {
-      // Safe route - launch live navigation
+      // Safe route - launch live navigation with the backend route
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => LiveNavigationScreen(
             startLocation: widget.userLocation,
             destination: widget.evacuationCenter,
+            selectedRoute: route,
           ),
         ),
       );
@@ -139,13 +140,14 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
         ),
       ).then((result) {
         if (result != null) {
-          // If user accepts the risky route, start navigation
+          // If user accepts the risky route, start navigation with that route
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => LiveNavigationScreen(
                 startLocation: widget.userLocation,
                 destination: widget.evacuationCenter,
+                selectedRoute: route,
               ),
             ),
           );

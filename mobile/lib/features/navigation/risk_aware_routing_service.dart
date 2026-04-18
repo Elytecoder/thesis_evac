@@ -1,144 +1,145 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
 import '../../models/navigation_route.dart';
+import '../../models/route.dart' as app_route;
 import '../../models/route_segment.dart';
 import '../../models/navigation_step.dart';
 import '../../models/evacuation_center.dart';
 import 'offline_routing_service.dart';
 import 'gps_tracking_service.dart';
-import '../../core/config/api_config.dart';
-import 'package:dio/dio.dart';
 
 /// Risk-Aware Routing Service
-/// Manages online and offline route calculation with safety prioritization
+///
+/// Architecture (after consistency fix):
+///   PRIMARY  — backend Modified Dijkstra polyline (via [buildFromBackendRoute])
+///   TURN OPS — OSRM turn-instruction extraction (start→end, snapped to roads)
+///   FALLBACK — polyline bearing analysis if OSRM is unavailable
+///   LAST RES — full OSRM route if no backend route is available at all
 class RiskAwareRoutingService {
   final OfflineRoutingService _offlineService = OfflineRoutingService();
   final GPSTrackingService _gpsService = GPSTrackingService();
-  final Dio _dio = Dio();
 
   // Rerouting debounce
   DateTime? _lastRerouteTime;
   static const Duration REROUTE_COOLDOWN = Duration(seconds: 5);
 
-  /// Calculate safest route with hybrid online/offline support
-  /// 
-  /// Priority:
-  /// 1. Try OSRM for real road-following routes
-  /// 2. Fallback to cached/offline routing
-  Future<NavigationRoute> calculateSafestRoute({
-    required LatLng start,
-    required LatLng destination,
-    required EvacuationCenter? evacuationCenter,
-  }) async {
-    print('🧠 Calculating safest route with risk awareness');
+  // ── PRIMARY: Build NavigationRoute from Django backend Route ──────────────
 
-    // Try OSRM first for real road-based routing
+  /// Convert a backend [app_route.Route] (Modified Dijkstra + RF result) into a
+  /// [NavigationRoute] suitable for live navigation.
+  ///
+  /// Polyline = backend path exactly (hazard-aware, risk-weighted).
+  /// Steps    = OSRM turn instructions (best-effort); falls back to bearing
+  ///            analysis of the polyline when OSRM is unavailable.
+  Future<NavigationRoute> buildFromBackendRoute({
+    required app_route.Route backendRoute,
+    required LatLng destination,
+  }) async {
+    final polyline = backendRoute.path
+        .map((p) => LatLng(p.latitude, p.longitude))
+        .toList();
+
+    // Try OSRM turn instructions (start → destination, road-snapped).
+    List<NavigationStep> steps;
     try {
-      final route = await _getOsrmNavigationRoute(start, destination);
-      print('✅ OSRM routing successful');
-      return route;
+      steps = await _getOsrmStepsOnly(polyline.first, destination);
+      print('✅ OSRM turn instructions obtained for backend route');
     } catch (e) {
-      print('❌ OSRM failed: $e');
-      
-      // Fallback to offline routing
-      print('⚠️ Using offline routing fallback');
-      return await _offlineService.calculateSafestRoute(
-        start: start,
-        destination: destination,
-      );
+      print('⚠️ OSRM steps unavailable — generating from polyline bearing: $e');
+      steps = _generateStepsFromPolyline(polyline);
     }
+
+    final segments = _buildSegmentsFromBackendRoute(backendRoute, polyline);
+    final overallRiskLevel = _riskLevelString(backendRoute.riskLevel);
+
+    // Conservative estimate: ~1.4 m/s walking pace (safe for evacuation).
+    final estimatedSeconds = backendRoute.totalDistance > 0
+        ? (backendRoute.totalDistance / 1.4).round()
+        : 0;
+
+    return NavigationRoute(
+      polyline: polyline,
+      segments: segments,
+      steps: steps,
+      totalDistance: backendRoute.totalDistance,
+      totalRiskScore: backendRoute.totalRisk.clamp(0.0, 1.0),
+      overallRiskLevel: overallRiskLevel,
+      estimatedTimeSeconds: estimatedSeconds,
+    );
   }
 
-  /// Get navigation route from OSRM with turn-by-turn instructions
-  Future<NavigationRoute> _getOsrmNavigationRoute(
+  // ── OSRM: turn instructions only (no route geometry used) ────────────────
+
+  /// Fetch turn-by-turn steps from OSRM for start → destination.
+  /// Only the instructions are used; the backend polyline is NOT replaced.
+  Future<List<NavigationStep>> _getOsrmStepsOnly(
     LatLng start,
     LatLng destination,
   ) async {
-    // Use actual start position (from map/navigation)
-
-    // OSRM API: Get route with steps and geometry
     final url = 'https://router.project-osrm.org/route/v1/driving/'
         '${start.longitude},${start.latitude};'
         '${destination.longitude},${destination.latitude}'
-        '?alternatives=false&geometries=geojson&overview=full&steps=true';
-
-    print('🌐 Calling OSRM: $url');
+        '?alternatives=false&geometries=geojson&overview=false&steps=true';
 
     final response = await http.get(Uri.parse(url)).timeout(
       const Duration(seconds: 15),
-      onTimeout: () {
-        throw Exception('OSRM request timed out');
-      },
+      onTimeout: () => throw Exception('OSRM request timed out'),
     );
 
     if (response.statusCode != 200) {
       throw Exception('OSRM API error: ${response.statusCode}');
     }
-
-    final data = json.decode(response.body);
-
+    final data = json.decode(response.body) as Map<String, dynamic>;
     if (data['code'] != 'Ok') {
       throw Exception('OSRM routing failed: ${data['code']}');
     }
 
-    final route = data['routes'][0];
-    final geometry = route['geometry']['coordinates'] as List;
+    final route = (data['routes'] as List)[0];
     final legs = route['legs'] as List;
+    return _parseOsrmLegsToSteps(legs);
+  }
 
-    // Convert geometry to polyline
-    final polyline = geometry
-        .map((coord) => LatLng(coord[1], coord[0]))
-        .toList();
-
-    // Extract turn-by-turn steps
+  /// Parse OSRM legs into [NavigationStep] list (shared by both code paths).
+  List<NavigationStep> _parseOsrmLegsToSteps(List<dynamic> legs) {
     final steps = <NavigationStep>[];
-    int stepIndex = 0;
+    int idx = 0;
 
     for (final leg in legs) {
       for (final step in leg['steps']) {
-        final maneuver = step['maneuver'];
+        final maneuver = step['maneuver'] as Map<String, dynamic>;
         final maneuverType = maneuver['type'] as String;
         final modifier = maneuver['modifier'] as String?;
-        
-        // Map OSRM maneuver to our format
-        String ourManeuver = 'straight';
-        String instruction = step['name'] ?? 'Continue';
-
-        // Normalise modifier: "slight left" → "slight-left", "sharp right" → "sharp-right", etc.
         final rawMod = (modifier ?? '').toLowerCase().trim().replaceAll(' ', '-');
+
+        String ourManeuver = 'straight';
+        String instruction = step['name'] as String? ?? 'Continue';
 
         if (maneuverType == 'turn' || maneuverType == 'end of road') {
           switch (rawMod) {
             case 'sharp-left':
               ourManeuver = 'sharp-left';
               instruction = 'Turn sharp left';
-              break;
             case 'left':
               ourManeuver = 'left';
               instruction = 'Turn left';
-              break;
             case 'slight-left':
               ourManeuver = 'slight-left';
               instruction = 'Keep left';
-              break;
             case 'slight-right':
               ourManeuver = 'slight-right';
               instruction = 'Keep right';
-              break;
             case 'right':
               ourManeuver = 'right';
               instruction = 'Turn right';
-              break;
             case 'sharp-right':
               ourManeuver = 'sharp-right';
               instruction = 'Turn sharp right';
-              break;
             case 'uturn':
               ourManeuver = 'u-turn';
               instruction = 'Make a U-turn';
-              break;
             default:
               ourManeuver = 'straight';
               instruction = 'Continue straight';
@@ -150,9 +151,6 @@ class RiskAwareRoutingService {
           } else if (rawMod.contains('right')) {
             ourManeuver = 'fork-right';
             instruction = 'Keep right at fork';
-          } else {
-            ourManeuver = 'straight';
-            instruction = 'Continue at fork';
           }
         } else if (maneuverType == 'merge') {
           if (rawMod.contains('left')) {
@@ -161,25 +159,15 @@ class RiskAwareRoutingService {
           } else if (rawMod.contains('right')) {
             ourManeuver = 'slight-right';
             instruction = 'Merge right';
-          } else {
-            ourManeuver = 'straight';
-            instruction = 'Merge onto road';
           }
         } else if (maneuverType == 'on ramp' || maneuverType == 'off ramp') {
-          if (rawMod.contains('left')) {
-            ourManeuver = 'slight-left';
-            instruction = 'Take the ramp on the left';
-          } else if (rawMod.contains('right')) {
-            ourManeuver = 'slight-right';
-            instruction = 'Take the ramp on the right';
-          } else {
-            ourManeuver = 'straight';
-            instruction = 'Take the ramp';
-          }
+          ourManeuver = rawMod.contains('left') ? 'slight-left' : 'slight-right';
+          instruction = 'Take the ramp';
         } else if (maneuverType == 'roundabout' || maneuverType == 'rotary') {
           ourManeuver = 'roundabout';
           instruction = 'Enter the roundabout';
-        } else if (maneuverType == 'exit roundabout' || maneuverType == 'exit rotary') {
+        } else if (maneuverType == 'exit roundabout' ||
+            maneuverType == 'exit rotary') {
           ourManeuver = 'roundabout-exit';
           instruction = 'Exit the roundabout';
         } else if (maneuverType == 'arrive') {
@@ -187,51 +175,244 @@ class RiskAwareRoutingService {
           instruction = 'Arrive at destination';
         } else if (maneuverType == 'depart') {
           ourManeuver = 'straight';
-          instruction = 'Head ${rawMod.isEmpty ? "forward" : rawMod.replaceAll('-', ' ')}';
-        } else if (maneuverType == 'new name' || maneuverType == 'continue' || maneuverType == 'use lane') {
+          instruction =
+              'Head ${rawMod.isEmpty ? "forward" : rawMod.replaceAll('-', ' ')}';
+        } else if (maneuverType == 'new name' ||
+            maneuverType == 'continue' ||
+            maneuverType == 'use lane' ||
+            maneuverType == 'notification') {
           ourManeuver = 'straight';
           instruction = 'Continue straight';
-        } else if (maneuverType == 'notification') {
-          ourManeuver = 'straight';
-          instruction = 'Continue';
         }
 
-        // Add street name if available
         final streetName = step['name'] as String?;
-        if (streetName != null && streetName.isNotEmpty && streetName != instruction) {
+        if (streetName != null &&
+            streetName.isNotEmpty &&
+            streetName != instruction) {
           instruction = '$instruction onto $streetName';
         }
 
-        final location = maneuver['location'] as List;
+        final loc = maneuver['location'] as List;
         final distance = (step['distance'] ?? 0).toDouble();
 
         steps.add(NavigationStep(
           instruction: instruction,
           maneuver: ourManeuver,
           distanceToNext: distance,
-          latitude: location[1],
-          longitude: location[0],
-          stepIndex: stepIndex++,
+          latitude: (loc[1] as num).toDouble(),
+          longitude: (loc[0] as num).toDouble(),
+          stepIndex: idx++,
         ));
       }
     }
+    return steps;
+  }
 
-    // Create segments from polyline with mock risk scores
+  // ── Polyline-based step generation (OSRM fallback) ────────────────────────
+
+  /// Generate simplified turn instructions by analysing bearing changes in
+  /// [polyline]. Used when OSRM is unavailable.
+  List<NavigationStep> _generateStepsFromPolyline(List<LatLng> polyline) {
+    if (polyline.length < 2) {
+      return [
+        NavigationStep(
+          instruction: 'Head towards evacuation center',
+          maneuver: 'straight',
+          distanceToNext: 0,
+          latitude: polyline.isEmpty ? 0 : polyline.first.latitude,
+          longitude: polyline.isEmpty ? 0 : polyline.first.longitude,
+          stepIndex: 0,
+        ),
+      ];
+    }
+
+    final steps = <NavigationStep>[];
+
+    steps.add(NavigationStep(
+      instruction: 'Head towards evacuation center',
+      maneuver: 'straight',
+      distanceToNext: 0,
+      latitude: polyline.first.latitude,
+      longitude: polyline.first.longitude,
+      stepIndex: 0,
+    ));
+
+    double prevBearing = _getBearing(polyline[0], polyline[1]);
+
+    for (int i = 1; i < polyline.length - 1; i++) {
+      final currBearing = _getBearing(polyline[i], polyline[i + 1]);
+      final diff = _bearingDiff(prevBearing, currBearing);
+
+      if (diff.abs() >= 25) {
+        final String maneuver;
+        final String instruction;
+
+        if (diff <= -120) {
+          maneuver = 'sharp-left';
+          instruction = 'Turn sharp left';
+        } else if (diff <= -25) {
+          maneuver = 'left';
+          instruction = 'Turn left';
+        } else if (diff >= 120) {
+          maneuver = 'sharp-right';
+          instruction = 'Turn sharp right';
+        } else {
+          maneuver = 'right';
+          instruction = 'Turn right';
+        }
+
+        steps.add(NavigationStep(
+          instruction: instruction,
+          maneuver: maneuver,
+          distanceToNext: 0,
+          latitude: polyline[i].latitude,
+          longitude: polyline[i].longitude,
+          stepIndex: steps.length,
+        ));
+
+        prevBearing = currBearing;
+      }
+    }
+
+    steps.add(NavigationStep(
+      instruction: 'Arrive at evacuation center',
+      maneuver: 'arrive',
+      distanceToNext: 0,
+      latitude: polyline.last.latitude,
+      longitude: polyline.last.longitude,
+      stepIndex: steps.length,
+    ));
+
+    return steps;
+  }
+
+  double _getBearing(LatLng from, LatLng to) {
+    final lat1 = from.latitude * math.pi / 180;
+    final lat2 = to.latitude * math.pi / 180;
+    final dLng = (to.longitude - from.longitude) * math.pi / 180;
+    final y = math.sin(dLng) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+    return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
+  }
+
+  double _bearingDiff(double a, double b) {
+    double diff = b - a;
+    while (diff > 180) {
+      diff -= 360;
+    }
+    while (diff < -180) {
+      diff += 360;
+    }
+    return diff;
+  }
+
+  // ── Segment / risk helpers ────────────────────────────────────────────────
+
+  /// Build [RouteSegment] list from a backend route's polyline using the
+  /// backend's overall risk score for all segments.
+  List<RouteSegment> _buildSegmentsFromBackendRoute(
+    app_route.Route backendRoute,
+    List<LatLng> polyline,
+  ) {
+    if (polyline.length < 2) return [];
+
     final segments = <RouteSegment>[];
-    final Distance distCalc = const Distance();
+    final distCalc = const Distance();
+    final riskScore = backendRoute.totalRisk.clamp(0.0, 1.0);
 
     for (int i = 0; i < polyline.length - 1; i++) {
-      final segStart = polyline[i];
-      final segEnd = polyline[i + 1];
-      final segDist = distCalc.as(LengthUnit.Meter, segStart, segEnd);
-      
-      // Mock low risk for all segments (in production, get from backend)
-      final riskScore = 0.1 + (i % 5) * 0.05; // 0.1 to 0.3 range
-      
+      final segDist =
+          distCalc.as(LengthUnit.Meter, polyline[i], polyline[i + 1]);
       segments.add(RouteSegment(
-        start: segStart,
-        end: segEnd,
+        start: polyline[i],
+        end: polyline[i + 1],
         distance: segDist,
+        riskScore: riskScore,
+        riskLevel: RouteSegment.getRiskLevel(riskScore),
+      ));
+    }
+    return segments;
+  }
+
+  String _riskLevelString(app_route.RiskLevel level) {
+    switch (level) {
+      case app_route.RiskLevel.green:
+        return 'safe';
+      case app_route.RiskLevel.yellow:
+        return 'moderate';
+      case app_route.RiskLevel.red:
+        return 'high';
+    }
+  }
+
+  // ── OSRM full-route fallback (used when NO backend route is available) ────
+
+  /// Full OSRM route (geometry + steps). Used only as last-resort fallback
+  /// when the backend Modified Dijkstra route is unavailable.
+  Future<NavigationRoute> calculateSafestRoute({
+    required LatLng start,
+    required LatLng destination,
+    required EvacuationCenter? evacuationCenter,
+  }) async {
+    print('⚠️ No backend route — falling back to OSRM full route');
+    try {
+      return await _getOsrmFullRoute(start, destination);
+    } catch (e) {
+      print('❌ OSRM failed: $e — using offline routing');
+      return await _offlineService.calculateSafestRoute(
+        start: start,
+        destination: destination,
+      );
+    }
+  }
+
+  Future<NavigationRoute> _getOsrmFullRoute(
+    LatLng start,
+    LatLng destination,
+  ) async {
+    final url = 'https://router.project-osrm.org/route/v1/driving/'
+        '${start.longitude},${start.latitude};'
+        '${destination.longitude},${destination.latitude}'
+        '?alternatives=false&geometries=geojson&overview=full&steps=true';
+
+    print('🌐 OSRM fallback route: $url');
+
+    final response = await http.get(Uri.parse(url)).timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => throw Exception('OSRM request timed out'),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('OSRM API error: ${response.statusCode}');
+    }
+    final data = json.decode(response.body) as Map<String, dynamic>;
+    if (data['code'] != 'Ok') {
+      throw Exception('OSRM routing failed: ${data['code']}');
+    }
+
+    final route = (data['routes'] as List)[0];
+    final geometry = route['geometry']['coordinates'] as List;
+    final legs = route['legs'] as List;
+
+    final polyline = geometry
+        .map((coord) => LatLng(
+              (coord[1] as num).toDouble(),
+              (coord[0] as num).toDouble(),
+            ))
+        .toList();
+
+    final steps = _parseOsrmLegsToSteps(legs);
+
+    final segments = <RouteSegment>[];
+    final distCalc = const Distance();
+    for (int i = 0; i < polyline.length - 1; i++) {
+      final d = distCalc.as(LengthUnit.Meter, polyline[i], polyline[i + 1]);
+      const riskScore = 0.15; // OSRM provides no risk data
+      segments.add(RouteSegment(
+        start: polyline[i],
+        end: polyline[i + 1],
+        distance: d,
         riskScore: riskScore,
         riskLevel: RouteSegment.getRiskLevel(riskScore),
       ));
@@ -245,28 +426,25 @@ class RiskAwareRoutingService {
       segments: segments,
       steps: steps,
       totalDistance: totalDistance,
-      totalRiskScore: 0.15, // Mock average risk
+      totalRiskScore: 0.15,
       overallRiskLevel: 'safe',
       estimatedTimeSeconds: totalDuration,
     );
   }
 
-  /// Check if rerouting is allowed (debounce)
+  // ── Navigation helpers ────────────────────────────────────────────────────
+
   bool canReroute() {
     if (_lastRerouteTime == null) return true;
-
-    final timeSinceLastReroute = DateTime.now().difference(_lastRerouteTime!);
-    return timeSinceLastReroute > REROUTE_COOLDOWN;
+    return DateTime.now().difference(_lastRerouteTime!) > REROUTE_COOLDOWN;
   }
 
-  /// Mark that a reroute occurred
   void markReroute() {
     _lastRerouteTime = DateTime.now();
   }
 
-  /// Check if user has deviated from route.
-  /// Measures the minimum distance from [userLocation] to any point on the
-  /// route polyline, not just segment starts (which produced false positives).
+  /// Returns true if [userLocation] is more than 50 m from the nearest
+  /// polyline point.
   bool hasDeviatedFromRoute({
     required LatLng userLocation,
     required NavigationRoute route,
@@ -279,92 +457,69 @@ class RiskAwareRoutingService {
       if (d < minDistance) minDistance = d;
     }
 
-    // Deviation threshold: 50 metres from the nearest polyline point.
     const deviationThresholdM = 50.0;
     final hasDeviated = minDistance > deviationThresholdM;
-
     if (hasDeviated) {
-      print('⚠️ User deviated from route: ${minDistance.toStringAsFixed(0)}m from path');
+      print(
+          '⚠️ User deviated from route: ${minDistance.toStringAsFixed(0)}m from path');
     }
-
     return hasDeviated;
   }
 
-  /// Check if user is on a high-risk segment
-  /// Returns the high-risk segment if found, null otherwise
   RouteSegment? getCurrentHighRiskSegment({
     required LatLng userLocation,
     required NavigationRoute route,
   }) {
-    // Find nearest segment
     final nearestSegment = _offlineService.findNearestSegment(
       userLocation: userLocation,
       segments: route.segments,
     );
-
     if (nearestSegment == null) return null;
-
-    // Check if segment is high risk
     if (nearestSegment.isHighRisk) {
-      print('🚨 User entering high-risk segment (risk: ${nearestSegment.riskScore.toStringAsFixed(2)})');
+      print(
+          '🚨 High-risk segment (risk: ${nearestSegment.riskScore.toStringAsFixed(2)})');
       return nearestSegment;
     }
-
     return null;
   }
 
-  /// Get current navigation step based on user location
   NavigationStep? getCurrentStep({
     required LatLng userLocation,
     required NavigationRoute route,
   }) {
     if (route.steps.isEmpty) return null;
 
-    // Find nearest step
     NavigationStep? nearest;
     double minDistance = double.infinity;
 
     for (final step in route.steps) {
       final stepLocation = LatLng(step.latitude, step.longitude);
       final distance = _gpsService.calculateDistance(userLocation, stepLocation);
-
       if (distance < minDistance) {
         minDistance = distance;
         nearest = step;
       }
     }
-
     return nearest;
   }
 
-  /// Calculate distance to next step
   double getDistanceToNextStep({
     required LatLng userLocation,
     required NavigationStep step,
   }) {
-    final stepLocation = LatLng(step.latitude, step.longitude);
-    return _gpsService.calculateDistance(userLocation, stepLocation);
+    return _gpsService.calculateDistance(
+        userLocation, LatLng(step.latitude, step.longitude));
   }
 
-  /// Check if user has reached destination
   bool hasReachedDestination({
     required LatLng userLocation,
     required LatLng destination,
   }) {
     final distance = _gpsService.calculateDistance(userLocation, destination);
-    
-    // Arrival threshold: 30 meters
     final hasArrived = distance < 30;
-
-    if (hasArrived) {
-      print('✅ User has arrived at destination');
-    }
-
+    if (hasArrived) print('✅ Arrived at destination');
     return hasArrived;
   }
 
-  /// Dispose resources
-  void dispose() {
-    // Cleanup if needed
-  }
+  void dispose() {}
 }
