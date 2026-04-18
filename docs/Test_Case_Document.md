@@ -1,8 +1,8 @@
 # Test Case Document
 ## AI-Powered Mobile Evacuation Routing Application
 
-**Version:** 2.0
-**Date:** April 13, 2026
+**Version:** 3.0
+**Date:** April 17, 2026
 **Project:** Thesis — Evacuation Routing System for Bulan, Sorsogon
 **Test Lead:** [Name]
 
@@ -12,9 +12,9 @@
 
 | Document ID | TEST-EVAC-001 |
 |-------------|---------------|
-| Version | 2.0 |
+| Version | 3.0 |
 | Status | Updated |
-| Last Updated | April 13, 2026 |
+| Last Updated | April 17, 2026 |
 | Classification | Internal |
 
 ### Revision History
@@ -25,6 +25,7 @@
 | 0.5 | 2026-02-07 | Team | Added UAT cases |
 | 1.0 | 2026-02-08 | Team | Final version |
 | 2.0 | 2026-04-13 | Team | Added navigation, confirmation, notification, media, and QA-patch test cases; updated affected existing cases; removed obsolete Risk Overlay cases; removed phone number from registration cases |
+| 3.0 | 2026-04-17 | Team | QA Patch 2: replaced voice navigation TCs (TC-NAV-004/005/006) with compass heading TC (TC-NAV-012); updated TC-NAV-001 for real-time compass rotation; updated TC-NAV-007 (visual only); removed voice UAT survey question; added TC-NOTIF-006 (deleted report graceful dialog); added TC-ADMIN-016 (soft delete integrity); updated QA Patch Coverage table; total updated to 118 |
 
 ---
 
@@ -1155,6 +1156,30 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ---
 
+### TC-ADMIN-017: Report Soft Delete — Data Integrity
+
+**Priority:** P0
+**Type:** Functional
+**Precondition:** MDRRMO logged in; an approved hazard report exists
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Navigate to Reports tab, find an approved report | Report visible in list |
+| 2 | Open report detail | Report detail screen loads |
+| 3 | Tap "Delete" and confirm deletion | Success response; report removed from list |
+| 4 | Verify report no longer shows in Reports list | Report absent from all list views |
+| 5 | Verify dashboard stats decreased | Total/Verified Hazards count updated |
+| 6 | Attempt GET /api/reports/{id}/ for deleted report (API call) | Returns 404 |
+| 7 | Check AI validation endpoint | Deleted report NOT included in Naive Bayes features |
+| 8 | Check route risk calculation | Deleted report NOT contributing to road risk scores |
+| 9 | Verify report is NOT in map markers | No marker on admin map for deleted report |
+
+**Expected:** Soft delete removes report from all operational queries; is_deleted=True in DB; report inaccessible via API
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
 ## 9. AI Algorithm Test Cases
 
 ### TC-AI-001: Naive Bayes — Valid Report (High Confidence)
@@ -1764,23 +1789,24 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ## 14. Live Navigation Test Cases
 
-### TC-NAV-001: Map Rotation Based on Bearing
+### TC-NAV-001: Arrow Rotation via Device Compass Heading
 
 **Priority:** P1
 **Type:** Functional
-**Precondition:** Active navigation started, GPS heading available
+**Precondition:** Active navigation started, device compass/heading sensor available
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
 | 1 | Start live navigation to evacuation center | Navigation screen active |
-| 2 | Begin moving/driving northward | GPS updates heading |
-| 3 | Observe map orientation | Map rotates so north aligns with direction of travel |
-| 4 | Change direction (e.g., turn east) | Map rotates smoothly to face east |
-| 5 | Verify user marker orientation | Arrow/icon faces direction of movement |
-| 6 | Verify rotation is smooth | No jitter or sudden jumps |
-| 7 | Stop moving | Map maintains last heading |
+| 2 | Hold device still pointing north | User arrow points north |
+| 3 | Rotate device to face east (90°) without moving | Arrow rotates to face east immediately |
+| 4 | Rotate device to face south (180°) | Arrow rotates to face south; no movement required |
+| 5 | Observe update frequency | Arrow responds within ≤ 500 ms of device rotation |
+| 6 | Verify threshold | Rotations < 2° do not cause jitter/redraw |
+| 7 | Move in a straight line | Arrow continues pointing in travel direction |
+| 8 | Stop moving | Arrow holds last valid heading |
 
-**Expected:** Map rotates based on travel direction; smooth animation
+**Expected:** Arrow rotates in real time using `Position.heading` (compass); updates on ≥ 2° change; smooth rotation with no jitter
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
@@ -1830,64 +1856,65 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ---
 
-### TC-NAV-004: Voice Navigation — Correct Turn Announcements
+### TC-NAV-004: Visual Turn Instructions — Correct Direction Labels
 
 **Priority:** P1
 **Type:** Functional
-**Precondition:** Voice guidance enabled in settings; internet available; approaching a turn
+**Precondition:** Active navigation, approaching a turn
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| 1 | Start navigation with voice enabled | Navigation screen active |
-| 2 | Approach a left turn (> 150 m away) | Voice announces: "Turn left in [X] meters" |
-| 3 | Continue approaching (< 30 m) | Voice announces: "Turn left" (imminent) |
-| 4 | Verify correct direction | Announcement says LEFT, turn is actually LEFT |
-| 5 | Approach a right turn | Voice announces: "Turn right in [X] meters" |
-| 6 | Verify correct direction | Announcement says RIGHT, turn is actually RIGHT |
-| 7 | Approach a slight left | Voice announces: "Keep left in [X] meters" |
-| 8 | Approach a roundabout | Voice announces: "Enter the roundabout in [X] meters" |
-| 9 | Approach a sharp turn | Voice announces: "Turn sharp left/right in [X] meters" |
-| 10 | Arrive at destination | Voice announces: "You have arrived at your destination" |
+| 1 | Start navigation to evacuation center | Navigation screen active |
+| 2 | Approach a left turn (> 100 m away) | Instruction panel shows "Turn left in [X] m" |
+| 3 | Continue approaching (< 30 m) | Instruction updates to "Turn left" (imminent) |
+| 4 | Verify correct direction | Label says LEFT, physical turn is LEFT |
+| 5 | Approach a right turn | Instruction shows "Turn right in [X] m" |
+| 6 | Verify correct direction | Label says RIGHT, physical turn is RIGHT |
+| 7 | Verify no audio fires | No TTS/voice announcements at any step |
 
-**Expected:** All turn types announced correctly; no wrong left/right; no duplicates within 6 sec
+**Expected:** All turn instructions shown visually; labels are directionally correct; no audio
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
-### TC-NAV-005: Voice Navigation — No Duplicate Prompts
+### TC-NAV-005: No Voice Audio During Navigation
 
-**Priority:** P1
+**Priority:** P0
 **Type:** Functional
+**Precondition:** Navigation active; device volume at 100%
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| 1 | Approach a turn, voice fires | "Turn left in 150 meters" spoken |
-| 2 | Within 5 seconds, same step triggered again | Second announcement suppressed (dedupe) |
-| 3 | After 6+ seconds, approach step fires | Announcement fires correctly |
-| 4 | Verify no overlap | Previous speech stops before new one starts |
+| 1 | Start navigation | Navigation screen active |
+| 2 | Approach a turn | No audio/TTS played |
+| 3 | Deviate from route | No audio/TTS played |
+| 4 | Arrive at destination | No audio/TTS played |
+| 5 | Listen throughout session | No voice announcements at any point |
+| 6 | Check for any audio settings toggle | No voice toggle button present in UI |
 
-**Expected:** Dedupe window of 6 sec prevents repeated identical announcements
+**Expected:** Navigation is entirely visual; no TTS/voice audio plays under any circumstance
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
-### TC-NAV-006: Voice Navigation — Offline (No Internet)
+### TC-NAV-006: Navigation — Offline Continuity (No Internet)
 
 **Priority:** P1
 **Type:** Functional
-**Precondition:** Device offline, navigation active
+**Precondition:** Device offline, navigation active with a cached route
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| 1 | Turn off internet | Device offline |
-| 2 | Start navigation | Navigation starts |
-| 3 | Approach a turn | No voice announcement (internet check fails silently) |
-| 4 | Verify app does not crash | Navigation continues visually |
-| 5 | Turn on internet | Next approach triggers voice correctly |
+| 1 | Start navigation with internet, then turn off internet | Device goes offline |
+| 2 | Continue navigating | Navigation continues using cached route; no crash |
+| 3 | Observe offline banner | "Offline" indicator appears in app bar |
+| 4 | Approach a turn | Visual instruction panel still updates correctly |
+| 5 | Attempt rerouting while offline | Rerouting fails gracefully with "No internet" message |
+| 6 | Turn on internet | Rerouting becomes available again |
 
-**Expected:** Voice silently disabled offline; no crash; resumes when online
+**Expected:** Navigation continues visually when offline; no crash; no voice ever fires; rerouting gracefully fails offline
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
@@ -1906,11 +1933,10 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 3 | Check UI banner | "You are off route. Recalculating safer path..." displayed |
 | 4 | Wait for reroute (internet required) | New route calculated to same destination |
 | 5 | Verify new route displayed | Updated polyline from current position to destination |
-| 6 | Verify voice announcement | "You have left the route. Recalculating." spoken |
-| 7 | Return to original route before recalculation | Rerouting cancelled or completes and shows same route |
-| 8 | Verify 5-second cooldown | Rerouting does not spam if user keeps deviating |
+| 6 | Return to original route before recalculation | Rerouting cancelled or completes and shows same route |
+| 7 | Verify 5-second cooldown | Rerouting does not spam if user keeps deviating |
 
-**Expected:** Off-route detected; new route calculated; banner shown; voice fired once
+**Expected:** Off-route detected; new route calculated; banner shown visually; no voice audio
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
@@ -1990,11 +2016,33 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 |------|--------|-----------------|
 | 1 | Navigate close to destination | Distance remaining < 30 m |
 | 2 | Arrive at destination | App detects arrival |
-| 3 | Check UI | "Arrived" or completion banner displayed |
-| 4 | Voice announcement | "You have arrived at your destination. Stay safe." spoken |
+| 3 | Check UI | "Arrived" or completion banner displayed visually |
+| 4 | Verify no voice plays | No TTS audio fires on arrival |
 | 5 | Navigation ends | Option to return to map or stay |
 
-**Expected:** Arrival detected; voice and UI confirm; navigation ends gracefully
+**Expected:** Arrival detected; visual UI confirms; navigation ends gracefully; no audio
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
+### TC-NAV-012: Compass Heading — Real-Time Arrow Without Movement
+
+**Priority:** P0
+**Type:** Functional
+**Precondition:** Navigation active; physical Android device with functioning compass sensor
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | Start navigation; stand still | User arrow visible on map |
+| 2 | Rotate phone 90° clockwise (north → east) while stationary | Arrow rotates to east within 500 ms |
+| 3 | Rotate phone back north | Arrow returns to north |
+| 4 | Rotate phone south (180°) | Arrow points south |
+| 5 | Make tiny rotation (< 2°) | No visible arrow movement (jitter suppressed) |
+| 6 | Rapidly spin phone | Arrow rotates smoothly, never freezes or jitters |
+| 7 | Cover GPS (go indoors) | Arrow holds last valid compass heading |
+
+**Expected:** Arrow uses `Position.heading` (compass); reacts to device orientation instantly; 2° threshold prevents jitter; works while stationary
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
@@ -2202,6 +2250,29 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Open notification list | All 3 notifications present |
 
 **Expected:** Unread notifications persist across app restarts
+**Actual:** _____
+**Status:** ☐ Pass ☐ Fail ☐ Blocked
+
+---
+
+### TC-NOTIF-006: Deleted Report — Graceful Notification Handling
+
+**Priority:** P0
+**Type:** Functional
+**Precondition:** Resident has a push notification for an "approved" report that MDRRMO subsequently soft-deleted
+
+| Step | Action | Expected Result |
+|------|--------|-----------------|
+| 1 | MDRRMO soft-deletes an approved hazard report | Report marked `is_deleted = True` |
+| 2 | Resident opens notification for that report | App attempts to fetch report details |
+| 3 | Backend returns 404 (report not found / deleted) | App receives null/empty result |
+| 4 | Observe app behavior | "Report Unavailable" dialog appears |
+| 5 | Read dialog title | "Report Unavailable" |
+| 6 | Read dialog body | "This hazard report is no longer available. It may have been removed by MDRRMO." |
+| 7 | Tap "OK" | Dialog dismissed; no navigation occurs |
+| 8 | Verify no crash | App remains on notifications screen |
+
+**Expected:** Graceful dialog shown; no crash; no broken navigation to deleted report
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
@@ -2538,7 +2609,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | How easy was it to learn the app? | 1=Very Difficult, 5=Very Easy | _____ |
 | How confident are you in the route safety? | 1=Not Confident, 5=Very Confident | _____ |
 | How useful is the hazard reporting feature? | 1=Not Useful, 5=Very Useful | _____ |
-| How clear were the voice navigation directions? | 1=Very Confusing, 5=Very Clear | _____ |
+| How clear were the visual navigation instructions? | 1=Very Confusing, 5=Very Clear | _____ |
 | How satisfied are you with the MDRRMO admin tools? | 1=Very Dissatisfied, 5=Very Satisfied | _____ |
 | Would you recommend this app to others? | 1=Never, 5=Definitely | _____ |
 | Overall satisfaction with the app | 1=Very Dissatisfied, 5=Very Satisfied | _____ |
@@ -2563,18 +2634,18 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | Evacuation Centers | 6 | | | | | |
 | Routing | 7 | | | | | |
 | Hazard Reporting | 7 | | | | | |
-| Admin Dashboard | 16 | | | | | |
+| Admin Dashboard | 17 | | | | | |
 | AI Algorithms | 6 | | | | | |
 | Offline Mode | 5 | | | | | |
 | Performance | 7 | | | | | |
 | Security | 6 | | | | | |
 | Integration | 6 | | | | | |
-| Live Navigation | 11 | | | | | |
+| Live Navigation | 12 | | | | | |
 | Hazard Confirmation | 5 | | | | | |
-| Notifications | 5 | | | | | |
+| Notifications | 6 | | | | | |
 | Media Handling | 6 | | | | | |
 | UAT | 7 | | | | | |
-| **TOTAL** | **117** | | | | | |
+| **TOTAL** | **118** | | | | | |
 
 ### 19.2 Defect Summary
 
@@ -2585,31 +2656,38 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | Medium (P2) | | Minor feature issue |
 | Low (P3) | | Cosmetic/enhancement |
 
-### 19.3 QA Patch Coverage (v2.0)
+### 19.3 QA Patch Coverage
 
-The following items were addressed in QA Patch v2.0 and must be regression tested:
+The following items were addressed in QA Patches (v2.0 + v3.0) and must be regression tested:
 
-| Patch Item | Test Case(s) |
-|------------|--------------|
-| Map rotation during navigation | TC-NAV-001 |
-| Real-time GPS updates | TC-NAV-002 |
-| Destination banner | TC-NAV-003 |
-| Voice navigation left/right fix | TC-NAV-004, TC-NAV-005 |
-| Off-route rerouting | TC-NAV-007 |
-| Back button confirmation | TC-NAV-008 |
-| Pending hazards during navigation | TC-NAV-009 |
-| Approved hazards during navigation | TC-NAV-010 |
-| Phone number removed from registration | TC-AUTH-001 |
-| Collapsible evacuation center panel | TC-CENTER-005 |
-| High Risk Roads real-time tile | TC-ADMIN-002 |
-| Delete evacuation center | TC-ADMIN-011 |
-| Restore report (no reason required) | TC-ADMIN-007 |
-| Technical details UI (no debug text) | TC-ADMIN-008 |
-| Map Monitor — Risk Overlay removed | TC-ADMIN-009 |
-| Sync Baseline Data removed | TC-ADMIN-014 |
-| Barangay filter removed (Reports, Centers, Users) | TC-ADMIN-003, TC-ADMIN-010, TC-ADMIN-013 |
-| Media click-to-enlarge | TC-MEDIA-001, TC-MEDIA-002 |
-| Media header overflow fix | TC-HAZARD-005, TC-MEDIA-006 |
+| Patch Item | Version | Test Case(s) |
+|------------|---------|--------------|
+| Map rotation during navigation | v2.0 | TC-NAV-001 |
+| Real-time GPS updates | v2.0 | TC-NAV-002 |
+| Destination banner | v2.0 | TC-NAV-003 |
+| Voice navigation left/right fix | v2.0 | *Superseded — voice removed in v3.0* |
+| Off-route rerouting | v2.0 | TC-NAV-007 |
+| Back button confirmation | v2.0 | TC-NAV-008 |
+| Pending hazards during navigation | v2.0 | TC-NAV-009 |
+| Approved hazards during navigation | v2.0 | TC-NAV-010 |
+| Phone number removed from registration | v2.0 | TC-AUTH-001 |
+| Collapsible evacuation center panel | v2.0 | TC-CENTER-005 |
+| High Risk Roads real-time tile | v2.0 | TC-ADMIN-002 |
+| Delete evacuation center | v2.0 | TC-ADMIN-011 |
+| Restore report (no reason required) | v2.0 | TC-ADMIN-007 |
+| Technical details UI (no debug text) | v2.0 | TC-ADMIN-008 |
+| Map Monitor — Risk Overlay removed | v2.0 | TC-ADMIN-009 |
+| Sync Baseline Data removed | v2.0 | TC-ADMIN-014 |
+| Barangay filter removed (Reports, Centers, Users) | v2.0 | TC-ADMIN-003, TC-ADMIN-010, TC-ADMIN-013 |
+| Media click-to-enlarge | v2.0 | TC-MEDIA-001, TC-MEDIA-002 |
+| Media header overflow fix | v2.0 | TC-HAZARD-005, TC-MEDIA-006 |
+| **Voice navigation removed (visual-only)** | **v3.0** | **TC-NAV-004, TC-NAV-005, TC-NAV-011** |
+| **Compass heading arrow rotation** | **v3.0** | **TC-NAV-012** |
+| **Navigation offline continuity (no voice)** | **v3.0** | **TC-NAV-006** |
+| **Soft delete report — data integrity** | **v3.0** | **TC-ADMIN-017** |
+| **Deleted report — graceful notification** | **v3.0** | **TC-NOTIF-006** |
+| **Asia/Manila timezone (date display)** | **v3.0** | **TC-ADMIN-003** |
+| **Phone number hidden from resident profile** | **v3.0** | **TC-AUTH-001** |
 
 ### 19.4 Test Environment Summary
 
@@ -2642,6 +2720,7 @@ The following items were addressed in QA Patch v2.0 and must be regression teste
 | 0.5 | 2026-02-07 | Team | Added UAT cases |
 | 1.0 | 2026-02-08 | Team | First final version |
 | 2.0 | 2026-04-13 | Team | Added Sections 14–17 (Navigation, Confirmation, Notifications, Media); updated Auth, Centers, Admin, Integration, Performance; removed phone number and Risk Overlay references; updated metrics from 71 to 117 test cases |
+| 3.0 | 2026-04-17 | Team | QA Patch 2: replaced voice TCs (TC-NAV-004/005/006) with visual-only TCs; added TC-NAV-012 (compass heading); added TC-NOTIF-006 (deleted report graceful dialog); added TC-ADMIN-017 (soft delete integrity); updated UAT survey; expanded QA Patch Coverage table; 117 → 118 test cases |
 
-**Total Test Cases:** 117
+**Total Test Cases:** 118
 **Total Sections:** 19

@@ -1,8 +1,8 @@
 # Software Requirements Specification (SRS)
 ## AI-Powered Mobile Evacuation Routing Application
 
-**Version:** 1.0  
-**Date:** February 8, 2026  
+**Version:** 2.0  
+**Date:** April 17, 2026  
 **Prepared for:** MDRRMO, Bulan, Sorsogon  
 **Prepared by:** Thesis Team  
 
@@ -12,9 +12,9 @@
 
 | Document ID | SRS-EVAC-001 |
 |-------------|--------------|
-| Version | 1.0 |
-| Status | Final |
-| Last Updated | February 8, 2026 |
+| Version | 2.0 |
+| Status | Updated |
+| Last Updated | April 17, 2026 |
 | Classification | Public |
 
 ---
@@ -277,11 +277,12 @@ The system SHALL allow users to create accounts and securely authenticate using 
 **Functional Requirements:**
 
 **REQ-001:** User Registration
-- **Description:** New users shall register with email, password, full name, and phone number
-- **Input:** Email, password (min 8 chars), full name, phone number
+- **Description:** New users shall register with email, password, and full name
+- **Input:** Email, password (min 8 chars), full name, address (province/municipality/barangay/street)
 - **Process:** Validate email format, check uniqueness, hash password, create user record
 - **Output:** Registration success/failure message
 - **Validation:** Email must be unique, password must meet complexity requirements
+- **Note:** Phone number is NOT collected at registration; the field was removed to simplify onboarding (v2.0).
 
 **REQ-002:** User Login
 - **Description:** Registered users shall login with email and password
@@ -381,11 +382,12 @@ The system SHALL calculate risk-aware evacuation routes using Modified Dijkstra 
 - **Cache Duration:** 3 days
 - **Fallback:** If OSRM fails and no cache, use geometric fallback
 
-**REQ-013:** Turn-by-Turn Navigation
+**REQ-013:** Turn-by-Turn Navigation (Visual Only)
 - **Description:** Provide step-by-step navigation instructions
-- **Display:** Current location, route path, next turn, distance to destination
-- **Audio:** Optional voice guidance
-- **Updates:** Real-time position tracking
+- **Display:** Current location, route path, next turn instruction, distance to destination
+- **Guidance:** Visual-only — voice/TTS navigation has been intentionally removed
+- **Updates:** Real-time position tracking; user arrow rotates using device compass heading (REQ-150)
+- **Note:** Voice/audio guidance (TTS) was present in v1.0 but removed in v2.0 QA Patch to improve reliability; all feedback is now visual.
 
 ---
 
@@ -439,9 +441,9 @@ Residents SHALL report hazards with location, type, description, and optional me
 - **Errors:** Display clear error messages for failed validation
 
 **REQ-018:** Proximity Handling (Integrated into Validation)
-- **Description:** Proximity is used for extreme-misuse protection and as a **feature** for the single validation algorithm (Naive Bayes); there is no separate hard distance cutoff below 1 km.
-- **Step 1 — Extreme distance:** If user's current GPS distance to reported hazard location **> 1 km**, the report SHALL be **auto-rejected** (extreme misuse protection). Client and server SHALL use Haversine distance; backend rejects before running Naive Bayes.
-- **Step 2 — Distance as feature (≤ 1 km):** For distance ≤ 1 km, convert distance to **distance_category** and feed into Naive Bayes: 0–50 m → "very_near", 50–100 m → "near", 100–200 m → "moderate", 200 m–1 km → "far". No hard 200 m cutoff; validation is fully handled by Naive Bayes.
+- **Description:** Proximity is used for extreme-misuse protection and as a **feature** for the single validation algorithm (Naive Bayes); there is no separate hard distance cutoff below 150 m.
+- **Step 1 — Extreme distance:** If user's current GPS distance to reported hazard location **> 150 m**, the report SHALL be **auto-rejected** (extreme misuse protection). Client and server SHALL use Haversine distance; backend rejects before running Naive Bayes.
+- **Step 2 — Distance as feature (≤ 150 m):** For distance ≤ 150 m, convert distance to **distance_category** and feed into Naive Bayes: 0–50 m → "very_near", 50–100 m → "near", 100–150 m → "moderate". No separate Naive Bayes bypass; validation is fully handled by Naive Bayes.
 - **Client-Side:** App SHALL send user_latitude, user_longitude (at submit time) when available so backend can compute distance and category.
 - **Override:** MDRRMO MAY accept or re-submit reports that were rejected for proximity per local policy.
 
@@ -580,11 +582,11 @@ MDRRMO SHALL review, approve, or reject hazard reports with filtering and search
 - **Columns:** ID, hazard type, location, date, status, AI scores
 - **Filters:**
   - Status (All / Pending / Approved / Rejected)
-  - Barangay (dropdown)
   - Date range
   - Hazard type
 - **Sort:** By date, AI score, status
 - **Search:** By description keywords
+- **Note:** Barangay dropdown filter was removed in v2.0 to simplify the interface; filtering by barangay can be achieved via the search bar.
 
 **REQ-031:** Report Detail View
 - **Description:** Show full report information
@@ -610,10 +612,10 @@ MDRRMO SHALL review, approve, or reject hazard reports with filtering and search
 - **Process:**
   1. Review report details
   2. Click "Reject" button
-  3. Required: Add rejection reason comment
+  3. Optional: Add rejection reason comment (not required)
   4. Confirm action
 - **Effect:** Status → Rejected, no impact on routing
-- **Notification:** Reporter notified with reason (future feature)
+- **Notification:** Reporter notified with reason if provided
 
 **REQ-034:** Batch Actions
 - **Description:** MDRRMO can perform actions on multiple reports
@@ -645,8 +647,8 @@ MDRRMO SHALL view full-screen map with all hazards and evacuation centers with l
   - Evacuation Centers (blue markers)
   - Verified Hazards (red markers)
   - Pending Hazards (orange markers)
-  - Risk Overlay (colored road segments)
 - **Controls:** Toggle switches in bottom sheet
+- **Note:** Risk Overlay (colored road segments) was removed in v2.0; road risk data is still calculated and used internally for routing but is no longer rendered as a visible map layer.
 
 **REQ-037:** Marker Interactions
 - **Description:** Tapping markers shows details
@@ -678,9 +680,10 @@ MDRRMO SHALL manage evacuation centers (add, edit, deactivate).
 **REQ-039:** List Centers
 - **Description:** Display all evacuation centers
 - **Display:** Name, barangay, address, contact, coordinates, status
-- **Filters:** Barangay, status (Active/Inactive)
+- **Filters:** Status (Active/Inactive)
 - **Search:** By name or address
-- **Sort:** By name, barangay, distance from MDRRMO office
+- **Sort:** By name, distance from MDRRMO office
+- **Note:** Barangay dropdown filter removed in v2.0; search bar covers name/address filtering.
 
 **REQ-040:** Add Center
 - **Description:** MDRRMO can add new evacuation centers
@@ -701,11 +704,12 @@ MDRRMO SHALL manage evacuation centers (add, edit, deactivate).
 - **Validation:** Same as add center
 - **Effect:** Updates reflected in real-time
 
-**REQ-042:** Deactivate Center
-- **Description:** MDRRMO can deactivate centers (e.g., under repair)
-- **Process:** Set status to "Inactive"
-- **Effect:** Hidden from resident app, still visible in admin
-- **Reactivate:** Can change status back to "Active"
+**REQ-042:** Deactivate / Delete Center
+- **Description:** MDRRMO can deactivate or permanently delete centers
+- **Deactivate:** Set status to "Inactive"; center hidden from resident app but preserved in admin
+- **Delete:** Permanently removes center after confirmation dialog; irreversible
+- **Reactivate:** Inactive centers can have status changed back to "Active"
+- **Confirmation:** Both actions require a confirmation dialog before proceeding
 
 **REQ-043:** View on Map
 - **Description:** Each center has "View on Map" button
@@ -794,11 +798,9 @@ MDRRMO SHALL access admin-specific settings and system controls.
 - **Duration:** 30-60 seconds
 - **Frequency Limit:** Once per day
 
-**REQ-052:** Sync Baseline Data
-- **Description:** Refresh baseline hazard data from MDRRMO database
-- **Process:** Import historical hazard data from CSV/Excel
-- **Effect:** Updates road risk calculations
-- **Confirmation:** Display sync status and record count
+**REQ-052:** Sync Baseline Data *(REMOVED in v2.0)*
+- **Status:** This feature was removed from the Admin Settings screen.
+- **Rationale:** Manual CSV/Excel baseline import is replaced by the live hazard data pipeline; MDRRMO manages data via the report approval workflow.
 
 **REQ-053:** Clear Cache
 - **Description:** Clear app cache to force data refresh
@@ -977,10 +979,11 @@ System SHALL accurately determine user location using GPS.
 - **Loading:** Progress indicator during authentication
 
 **REQ-071:** Register Screen
-- **Fields:** Full name, email, phone number, password, confirm password
+- **Fields:** Full name, email, password, confirm password, address (province/municipality/barangay/street)
 - **Actions:** Register button, Back to login link
 - **Validation:** Real-time with clear error messages
 - **Success:** Auto-login after registration
+- **Note:** Phone number field removed in v2.0 (see REQ-001).
 
 **REQ-072:** Map Screen (Main)
 - **Layout:** Full-screen map with overlays
@@ -1007,11 +1010,12 @@ System SHALL accurately determine user location using GPS.
 - **Safest Route:** Highlighted, marked as "Recommended"
 
 **REQ-075:** Navigation Screen
-- **Layout:** Map with route polyline, user location dot
+- **Layout:** Map with route polyline, user location arrow
 - **Top Bar:** Destination name, distance remaining, ETA
-- **Instructions:** Next turn, distance to turn
+- **Instructions:** Next turn instruction, distance to turn
+- **Arrow:** User marker arrow rotates in real time using device compass heading (see REQ-150)
 - **Actions:** Center on user, cancel navigation
-- **Audio:** Toggle voice guidance
+- **Guidance:** Visual-only; voice/TTS navigation has been removed (see REQ-013)
 
 **REQ-076:** Report Hazard Screen
 - **Form Layout:** Vertical scroll
@@ -1051,7 +1055,7 @@ System SHALL accurately determine user location using GPS.
 - **Section 3:** Recent Activity (list, last 10 events)
 
 **REQ-080:** Reports Tab
-- **Header:** Filter controls (status, barangay), search bar
+- **Header:** Filter controls (status), search bar
 - **Body:** Scrollable list of report cards
 - **Card Content:**
   - Hazard type icon and name
@@ -1061,6 +1065,7 @@ System SHALL accurately determine user location using GPS.
   - Status badge (color-coded)
   - "View Details" button
 - **Empty State:** "No reports found"
+- **Note:** Barangay dropdown filter removed in v2.0; use search to filter by location keyword.
 
 **REQ-081:** Report Detail Screen
 - **Sections (scrollable):**
@@ -1078,14 +1083,15 @@ System SHALL accurately determine user location using GPS.
 - **Legend:** Floating card, bottom-left, collapsible
 
 **REQ-083:** Centers Tab
-- **Header:** Search bar, filter (barangay), Add Center FAB
+- **Header:** Search bar, Add Center FAB
 - **Body:** List of center cards
 - **Card Content:**
   - Name (bold)
   - Barangay, address
   - Contact, coordinates
   - Status badge
-  - Action buttons (Map icon, Edit, Deactivate)
+  - Action buttons (Map icon, Edit, Deactivate, Delete)
+- **Note:** Barangay dropdown filter removed in v2.0; search bar provides text-based filtering.
 
 **REQ-084:** Add/Edit Center Screen
 - **Form:** Vertical layout
@@ -2068,6 +2074,45 @@ Multiple reports at the same location are treated as **corroboration** that the 
 
 ---
 
+## New Requirements Added in v2.0 (QA Patch 1 & 2)
+
+**REQ-150:** Compass-Heading Navigation Arrow
+- **Description:** The user-location arrow on the navigation screen SHALL rotate in real time using the device's hardware compass/heading sensor
+- **Source:** `Position.heading` from the `geolocator` package
+- **Threshold:** Only update rotation when heading changes by ≥ 2° to prevent jitter
+- **Fallback:** If sensor returns a negative heading (unavailable), use last valid heading
+- **Latency:** Rotation SHALL reflect device orientation with ≤ 500 ms delay
+
+**REQ-151:** Report Soft Delete
+- **Description:** MDRRMO deleting a hazard report SHALL perform a soft delete rather than a hard (permanent) delete
+- **Fields Added:** `is_deleted` (BooleanField, default False), `deleted_at` (DateTimeField, nullable)
+- **Operational Filter:** All API endpoints and AI/ML algorithm data sources SHALL filter `is_deleted = False` so deleted reports are excluded from dashboards, route risk scoring, Naive Bayes training data, and Random Forest features
+- **Admin Visibility:** Soft-deleted reports are not shown in the standard MDRRMO report list
+- **Restriction:** Only non-pending reports (Approved or Rejected) may be soft-deleted; pending reports must be actioned first
+
+**REQ-152:** Collapsible Evacuation Center Panel (Resident App)
+- **Description:** The resident map screen SHALL include a bottom sheet panel showing nearby evacuation centers that can be expanded and collapsed via tap
+- **Gesture Handling:** The panel SHALL absorb all pointer events (HitTestBehavior.opaque) to prevent conflicts with the underlying map gesture detector
+- **Animation:** Expansion/collapse SHALL use a smooth animated transition (AnimatedSize)
+- **Trigger:** Tapping the drag handle at the top of the panel toggles the expanded state
+
+**REQ-153:** Asia/Manila Timezone Consistency
+- **Description:** All timestamps (created_at, updated_at, action times) SHALL be stored and served using `Asia/Manila` timezone (UTC+8, Philippine Standard Time)
+- **Backend:** Django `TIME_ZONE = 'Asia/Manila'` and `USE_TZ = True`
+- **Display:** Mobile app SHALL call `.toLocal()` on parsed datetimes before displaying dates and times to users
+
+**REQ-154:** Graceful Handling of Notifications for Deleted Reports
+- **Description:** When a resident taps a push notification that links to a hazard report that has since been soft-deleted, the app SHALL display a graceful dialog instead of navigating to a broken or empty screen
+- **Dialog Content:** Title: "Report Unavailable"; Body: "This hazard report is no longer available. It may have been removed by MDRRMO."
+- **Action:** Single "OK" button to dismiss; no navigation occurs
+
+**REQ-155:** Media URL Normalization for Report Previews
+- **Description:** When displaying attached media (photos/videos) in report detail views, the app SHALL normalize the media URL host to match the currently active API base URL
+- **Rationale:** Stored URLs may reference a different host (e.g., `127.0.0.1` vs `10.0.2.2` or the deployed domain) leading to broken image loads
+- **Process:** Extract path from stored URL; prepend the current `ApiConfig.baseUrl`; display via `Image.network`
+
+---
+
 ## Document Approval
 
 | Role | Name | Signature | Date |
@@ -2091,6 +2136,7 @@ Multiple reports at the same location are treated as **corroboration** that the 
 | 0.1 | 2026-02-01 | Team | Initial draft |
 | 0.5 | 2026-02-05 | Team | Added AI requirements |
 | 1.0 | 2026-02-08 | Team | Final version for review |
+| 2.0 | 2026-04-17 | Team | QA Patch 1 & 2: removed phone number from registration; removed voice navigation (visual-only); updated proximity limit to 150 m; soft-delete reports; Asia/Manila timezone; barangay filters removed; Risk Overlay removed; Sync Baseline Data removed; compass heading for navigation arrow; collapsible evacuation center panel; delete evacuation center; graceful deleted-report notification handling |
 
 - **Distribution List:**
   - Thesis Committee
@@ -2100,6 +2146,6 @@ Multiple reports at the same location are treated as **corroboration** that the 
 
 ---
 
-**Total Requirements:** 149 requirements (REQ-001 to REQ-149)
-**Total Pages:** 80+
-**Total Words:** 15,000+
+**Total Requirements:** 155 requirements (REQ-001 to REQ-155)
+**Total Pages:** 85+
+**Total Words:** 16,000+
