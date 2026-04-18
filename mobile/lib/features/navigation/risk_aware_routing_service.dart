@@ -457,7 +457,7 @@ class RiskAwareRoutingService {
       if (d < minDistance) minDistance = d;
     }
 
-    const deviationThresholdM = 50.0;
+    const deviationThresholdM = 100.0;
     final hasDeviated = minDistance > deviationThresholdM;
     if (hasDeviated) {
       print(

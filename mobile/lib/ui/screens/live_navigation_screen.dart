@@ -76,6 +76,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   double _currentBearing = 0.0;
   Timer? _cameraUpdateTimer;
 
+  // Grace period: suppress deviation checks immediately after navigation starts.
+  // GPS accuracy at cold start can be ±50–100 m, causing false reroutes.
+  DateTime? _navigationStartTime;
+  int _locationUpdateCount = 0;
+  static const int _minUpdatesBeforeDeviationCheck = 5;
+  static const Duration _deviationGracePeriod = Duration(seconds: 20);
+
   @override
   void initState() {
     super.initState();
@@ -126,6 +133,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       setState(() {
         _isLoading = false;
       });
+
+      _navigationStartTime = DateTime.now();
 
       // Start smooth camera updates
       _startCameraUpdates();
@@ -202,9 +211,19 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
+  /// Returns false while GPS is still settling after navigation start.
+  /// Prevents false reroutes caused by GPS cold-start inaccuracy (±50–100 m).
+  bool _canCheckDeviation() {
+    if (_navigationStartTime == null) return false;
+    if (_locationUpdateCount < _minUpdatesBeforeDeviationCheck) return false;
+    return DateTime.now().difference(_navigationStartTime!) > _deviationGracePeriod;
+  }
+
   /// Handle GPS location updates
   void _onLocationUpdate(LatLng location) async {
     if (_hasArrived || _currentRoute == null) return;
+
+    _locationUpdateCount++;
 
     setState(() {
       _userLocation = location;
@@ -224,6 +243,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
 
     // Check for high-risk segment
+    if (_canCheckDeviation()) {
     final highRiskSegment = _routingService.getCurrentHighRiskSegment(
       userLocation: location,
       route: _currentRoute!,
@@ -243,6 +263,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     )) {
       await _onDeviationDetected();
       return;
+    }
     }
 
     // Update current step
@@ -677,7 +698,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
               ),
             ),
 
-            // High-risk warning banner (animated) - positioned at top
+            // High-risk warning banner
             if (_currentHighRiskSegment != null)
               Positioned(
                 top: 100,
@@ -686,14 +707,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                 child: _buildHighRiskBanner(),
               ),
 
-            // Rerouting indicator (animated) - positioned at top
-            if (_isRerouting)
-              Positioned(
-                top: 150,
-                left: 0,
-                right: 0,
-                child: _buildReroutingIndicator(),
-              ),
+            // Rerouting indicator — _buildReroutingIndicator() returns a
+            // Positioned directly, so it must be a direct Stack child.
+            if (_isRerouting) _buildReroutingIndicator(),
 
             // Destination info banner — always visible at bottom
             Positioned(
@@ -1278,7 +1294,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Build high-risk warning banner with smooth animation
   Widget _buildHighRiskBanner() {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 1.0, end: 0.0),
@@ -1293,65 +1308,60 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           ),
         );
       },
-      child: Positioned(
-        top: MediaQuery.of(context).padding.top + 140,
-        left: 0,
-        right: 0,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.red,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 12,
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.warning,
-                color: Colors.white,
-                size: 28,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'HIGH RISK AREA',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 12,
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.warning,
+              color: Colors.white,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'HIGH RISK AREA',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Rerouting to safer path...',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                      ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Rerouting to safer path...',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 14,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  /// Build rerouting indicator with animation
+  /// Build rerouting indicator — returns a Positioned (direct Stack child).
   Widget _buildReroutingIndicator() {
     return Positioned(
-      top: MediaQuery.of(context).padding.top + 140,
+      top: MediaQuery.of(context).padding.top + 150,
       left: 0,
       right: 0,
       child: TweenAnimationBuilder<double>(
