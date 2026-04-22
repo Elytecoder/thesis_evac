@@ -11,6 +11,9 @@ class StorageConfig {
 
   /// Cache of approved/verified hazards fetched from the server.
   static const String verifiedHazardsBox = 'verified_hazards';
+
+  /// Completed navigation trip records (offline-first, for analytics/thesis).
+  static const String tripHistoryBox = 'trip_history';
   
   // SharedPreferences keys
   /// Legacy plain-text token (migrated to secure storage on read).

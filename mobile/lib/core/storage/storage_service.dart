@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../config/storage_config.dart';
 
@@ -21,6 +22,7 @@ class StorageService {
     await Hive.openBox(StorageConfig.userBox);
     await Hive.openBox(StorageConfig.pendingReportsBox);
     await Hive.openBox(StorageConfig.verifiedHazardsBox);
+    await Hive.openBox(StorageConfig.tripHistoryBox);
   }
 
   /// Close all boxes (cleanup).
@@ -199,6 +201,48 @@ class StorageService {
     }
 
     return List<Map<String, dynamic>>.from(routes);
+  }
+
+  // --- Trip History (completed navigation sessions) ---
+
+  /// Save a completed navigation trip record (offline-first).
+  ///
+  /// [record] keys:
+  ///   user_id, destination_id, destination_name, start_time (ISO8601),
+  ///   arrival_time (ISO8601), duration_seconds, reroute_count.
+  static Future<void> saveTripHistory(Map<String, dynamic> record) async {
+    try {
+      final box = Hive.box(StorageConfig.tripHistoryBox);
+      final existing = List<Map<String, dynamic>>.from(
+        (box.get('records') as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)),
+      );
+      existing.insert(0, record); // most-recent first
+      // Keep latest 100 trips to bound storage size
+      if (existing.length > 100) existing.removeRange(100, existing.length);
+      await box.put('records', existing);
+    } catch (e) {
+      // Non-fatal: trip history loss is acceptable
+      debugPrint('[TripHistory] Failed to save: $e');
+    }
+  }
+
+  /// Retrieve all saved trip records (most-recent first).
+  static List<Map<String, dynamic>> getTripHistory() {
+    try {
+      final box = Hive.box(StorageConfig.tripHistoryBox);
+      final data = box.get('records') as List?;
+      if (data == null) return [];
+      return List<Map<String, dynamic>>.from(
+        data.map((e) => Map<String, dynamic>.from(e as Map)),
+      );
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Clear all trip history records.
+  static Future<void> clearTripHistory() async {
+    await Hive.box(StorageConfig.tripHistoryBox).clear();
   }
 
   /// Clear old route caches.

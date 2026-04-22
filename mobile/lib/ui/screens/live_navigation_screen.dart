@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/storage/storage_service.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/hazard_report.dart';
 import '../../models/navigation_route.dart';
@@ -48,7 +50,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   final HazardService _hazardService = HazardService();
   final MapController _mapController = MapController();
 
-  // State
+  // ── Navigation state ─────────────────────────────────────────────────────
   NavigationRoute? _currentRoute;
   LatLng? _userLocation;
   NavigationStep? _currentStep;
@@ -61,27 +63,50 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   /// When true, camera follows user; when false, user can pan/explore freely.
   bool _followUserLocation = true;
 
-  // Streams
+  // ── Streams ──────────────────────────────────────────────────────────────
   StreamSubscription<LatLng>? _locationSubscription;
   StreamSubscription<double>? _headingSubscription;
 
-  // Distance tracking
+  // ── Distance tracking ────────────────────────────────────────────────────
   double _distanceToNextStep = 0.0;
 
-  // Animation controllers
+  // ── Animation controllers ────────────────────────────────────────────────
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
-  
-  // Camera animation
+
+  // ── Camera ───────────────────────────────────────────────────────────────
   double _currentBearing = 0.0;
   Timer? _cameraUpdateTimer;
 
-  // Grace period: suppress deviation checks immediately after navigation starts.
+  // ── Grace period: suppress deviation checks right after navigation starts.
   // GPS accuracy at cold start can be ±50–100 m, causing false reroutes.
   DateTime? _navigationStartTime;
   int _locationUpdateCount = 0;
   static const int _minUpdatesBeforeDeviationCheck = 5;
   static const Duration _deviationGracePeriod = Duration(seconds: 20);
+
+  // ── Stable arrival detection ─────────────────────────────────────────────
+  /// Radius (m) within which user is considered to have arrived.
+  static const double _arrivalRadiusM = 30.0;
+  /// How long user must stay inside the radius before arrival is confirmed.
+  /// Prevents GPS jitter false-triggering the arrival modal.
+  static const Duration _arrivalConfirmDuration = Duration(seconds: 3);
+  /// Timestamp when user first entered the arrival radius (null if outside).
+  DateTime? _arrivalEnteredAt;
+
+  // ── Post-arrival state ───────────────────────────────────────────────────
+  /// Prevents the arrival modal from appearing more than once per session.
+  bool _hasShownArrivalModal = false;
+  /// Route polyline opacity — fades to 0.35 after arrival.
+  double _routeOpacity = 1.0;
+  /// Radius (m) beyond which "you have left the destination" prompt appears.
+  static const double _leftDestinationRadiusM = 150.0;
+  /// Prevents the "left destination" prompt from appearing repeatedly.
+  bool _hasShownLeftDestination = false;
+
+  // ── Trip analytics ───────────────────────────────────────────────────────
+  /// Number of reroutes triggered during this session.
+  int _rerouteCount = 0;
 
   @override
   void initState() {
@@ -219,55 +244,96 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     return DateTime.now().difference(_navigationStartTime!) > _deviationGracePeriod;
   }
 
-  /// Handle GPS location updates
+  /// Handle GPS location updates.
   void _onLocationUpdate(LatLng location) async {
-    if (_hasArrived || _currentRoute == null) return;
+    if (!mounted) return;
 
+    setState(() => _userLocation = location);
+
+    // ── Post-arrival mode: only GPS movement check for "left destination" ──
+    if (_hasArrived) {
+      _checkLeftDestination(location);
+      return;
+    }
+
+    if (_currentRoute == null) return;
     _locationUpdateCount++;
 
-    setState(() {
-      _userLocation = location;
-    });
-
-    // Check if arrived
     final destinationLatLng = LatLng(
       widget.destination.latitude,
       widget.destination.longitude,
     );
-    if (_routingService.hasReachedDestination(
-      userLocation: location,
-      destination: destinationLatLng,
-    )) {
-      _onArrival();
+
+    // ── Stable arrival detection (dwell-based, prevents jitter false-fires) ──
+    final distToDest = _gpsService.calculateDistance(location, destinationLatLng);
+    if (distToDest <= _arrivalRadiusM) {
+      _arrivalEnteredAt ??= DateTime.now();
+      if (DateTime.now().difference(_arrivalEnteredAt!) >= _arrivalConfirmDuration) {
+        if (!_hasShownArrivalModal) _onArrival();
+        return;
+      }
+      // Inside radius but not yet long enough — update step and wait
+      _updateCurrentStep(location);
       return;
+    } else {
+      // Drifted back outside radius — reset the dwell timer
+      _arrivalEnteredAt = null;
     }
 
-    // Check for high-risk segment
+    // ── Deviation / high-risk checks (gated by grace period) ─────────────
     if (_canCheckDeviation()) {
-    final highRiskSegment = _routingService.getCurrentHighRiskSegment(
-      userLocation: location,
-      route: _currentRoute!,
-    );
-    if (highRiskSegment != null && _currentHighRiskSegment != highRiskSegment) {
-      setState(() {
-        _currentHighRiskSegment = highRiskSegment;
-      });
-      await _onHighRiskDetected();
-      return;
+      final highRiskSegment = _routingService.getCurrentHighRiskSegment(
+        userLocation: location,
+        route: _currentRoute!,
+      );
+      if (highRiskSegment != null && _currentHighRiskSegment != highRiskSegment) {
+        setState(() => _currentHighRiskSegment = highRiskSegment);
+        await _onHighRiskDetected();
+        return;
+      }
+      if (_routingService.hasDeviatedFromRoute(
+        userLocation: location,
+        route: _currentRoute!,
+      )) {
+        await _onDeviationDetected();
+        return;
+      }
     }
 
-    // Check for deviation
-    if (_routingService.hasDeviatedFromRoute(
-      userLocation: location,
-      route: _currentRoute!,
-    )) {
-      await _onDeviationDetected();
-      return;
-    }
-    }
-
-    // Update current step
     _updateCurrentStep(location);
+  }
+
+  /// After arrival: if user moves beyond [_leftDestinationRadiusM], show
+  /// a once-per-session prompt asking if they want to navigate again.
+  void _checkLeftDestination(LatLng location) {
+    if (_hasShownLeftDestination) return;
+    final dest = LatLng(widget.destination.latitude, widget.destination.longitude);
+    final dist = _gpsService.calculateDistance(location, dest);
+    if (dist > _leftDestinationRadiusM) {
+      _hasShownLeftDestination = true;
+      _showLeftDestinationBanner();
+    }
+  }
+
+  /// Shows a persistent snackbar when the user moves away after arriving.
+  void _showLeftDestinationBanner() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('You have left the destination area.'),
+        duration: const Duration(seconds: 8),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.orange[800],
+        action: SnackBarAction(
+          label: 'Close',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            if (mounted) Navigator.pop(context);
+          },
+        ),
+      ),
+    );
   }
 
   /// Update current navigation step
@@ -321,17 +387,221 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Handle arrival at destination
+  /// Handle arrival at destination — stops active navigation and shows modal.
   void _onArrival() async {
+    if (_hasShownArrivalModal) return;
+
     setState(() {
       _hasArrived = true;
+      _hasShownArrivalModal = true;
+      _routeOpacity = 0.35; // fade route line after arrival
+      _followUserLocation = true;
     });
 
+    // ── Stop active navigation listeners ─────────────────────────────────
     _cameraUpdateTimer?.cancel();
-    
-    if (mounted) {
-      _showSuccessDialog();
+    // Stop compass / heading updates — no longer needed after arrival.
+    await _headingSubscription?.cancel();
+    _headingSubscription = null;
+    // Keep pulse animation running — repurposed to animate destination marker.
+
+    // ── Smooth camera pan to destination ──────────────────────────────────
+    try {
+      _mapController.move(
+        LatLng(widget.destination.latitude, widget.destination.longitude),
+        16.5,
+      );
+    } catch (_) {}
+
+    // ── Save trip history (offline-first) ──────────────────────────────────
+    await _saveTripHistory();
+
+    // ── Show arrival modal ─────────────────────────────────────────────────
+    if (mounted) _showArrivalModal();
+  }
+
+  /// Persist the completed trip to local Hive storage for analytics.
+  Future<void> _saveTripHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt('user_id') ?? 0;
+      final now = DateTime.now();
+      await StorageService.saveTripHistory({
+        'user_id': userId,
+        'destination_id': widget.destination.id,
+        'destination_name': widget.destination.name,
+        'start_time': _navigationStartTime?.toIso8601String() ?? now.toIso8601String(),
+        'arrival_time': now.toIso8601String(),
+        'duration_seconds': _navigationStartTime != null
+            ? now.difference(_navigationStartTime!).inSeconds
+            : 0,
+        'reroute_count': _rerouteCount,
+      });
+      print('✅ Trip history saved (reroutes: $_rerouteCount)');
+    } catch (e) {
+      print('⚠️ Could not save trip history: $e');
     }
+  }
+
+  /// Polished arrival bottom sheet — non-dismissible, one action per button.
+  void _showArrivalModal() {
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      backgroundColor: Colors.white,
+      builder: (modalCtx) => _ArrivalModalContent(
+        destination: widget.destination,
+        durationSeconds: _navigationStartTime != null
+            ? DateTime.now().difference(_navigationStartTime!).inSeconds
+            : 0,
+        rerouteCount: _rerouteCount,
+        onDone: () {
+          Navigator.pop(modalCtx);
+          if (mounted) Navigator.pop(context);
+        },
+        onViewDetails: () {
+          Navigator.pop(modalCtx);
+          if (mounted) _showCenterDetailsSheet();
+        },
+        onReportHazard: () {
+          Navigator.pop(modalCtx);
+          if (!mounted) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ReportHazardScreen(
+                location: LatLng(
+                  widget.destination.latitude,
+                  widget.destination.longitude,
+                ),
+                userLocation: _userLocation,
+              ),
+            ),
+          ).then((_) => _loadPendingHazards());
+        },
+      ),
+    );
+  }
+
+  /// Simple info sheet showing evacuation center details after arrival.
+  void _showCenterDetailsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        final ec = widget.destination;
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            bottom: MediaQuery.of(ctx).padding.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.location_city, color: Colors.green.shade700, size: 28),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ec.name,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        if (ec.barangay?.isNotEmpty == true)
+                          Text(
+                            ec.barangay!,
+                            style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (ec.description.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(
+                  ec.description,
+                  style: TextStyle(fontSize: 14, color: Colors.grey[800]),
+                ),
+              ],
+              const SizedBox(height: 20),
+              _detailRow(Icons.place, 'Coordinates',
+                  '${ec.latitude.toStringAsFixed(5)}, ${ec.longitude.toStringAsFixed(5)}'),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    if (mounted) Navigator.pop(context);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Done', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: Colors.grey[500]),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+              children: [
+                TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   /// Handle high-risk segment detection
@@ -361,7 +631,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   /// PRIMARY: backend Modified Dijkstra (preserves hazard-aware routing).
   /// FALLBACK: OSRM if backend is unreachable.
   Future<void> _reroute() async {
-    if (_isRerouting || _userLocation == null) return;
+    if (_isRerouting || _userLocation == null || _hasArrived) return;
+    _rerouteCount++;
 
     setState(() {
       _isRerouting = true;
@@ -573,28 +844,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   }
 
   /// Cancel navigation
-  void _cancelNavigation() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel Navigation'),
-        content: const Text('Are you sure you want to stop navigation?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('No'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Close navigation screen
-            },
-            child: const Text('Yes', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
 
   /// Show error message
   void _showError(String message) {
@@ -609,34 +858,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     );
   }
 
-  /// Show success dialog
-  void _showSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 32),
-            SizedBox(width: 12),
-            Text('Arrived!'),
-          ],
-        ),
-        content: Text(
-          'You have arrived at ${widget.destination.name}. Stay safe!',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Close navigation screen
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   void dispose() {
@@ -663,7 +884,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
               Text(
                 'Starting navigation...',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
+                  color: Colors.white.withValues(alpha: 0.9),
                   fontSize: 16,
                 ),
               ),
@@ -792,7 +1013,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         color: const Color(0xFF1E3A8A),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.4),
+            color: Colors.black.withValues(alpha: 0.4),
             blurRadius: 12,
             offset: const Offset(0, -4),
           ),
@@ -809,7 +1030,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
+              color: Colors.white.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(Icons.location_city, color: Colors.white, size: 28),
@@ -834,7 +1055,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                   Text(
                     barangay,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.75),
+                      color: Colors.white.withValues(alpha: 0.75),
                       fontSize: 12,
                     ),
                     maxLines: 1,
@@ -913,25 +1134,25 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           userAgentPackageName: 'com.evacroute.mobile',
         ),
 
-        // Route polyline (thick with white outline)
+        // Route polyline (thick with white outline).
+        // Fades to 35% opacity after arrival to keep the map readable.
         if (_currentRoute != null) ...[
-          // White outline (bottom layer)
           PolylineLayer(
             polylines: [
               Polyline(
                 points: _currentRoute!.polyline,
-                color: Colors.white,
+                color: Colors.white.withValues(alpha: _routeOpacity),
                 strokeWidth: 12.0,
                 borderStrokeWidth: 0,
               ),
             ],
           ),
-          // Colored route (top layer)
           PolylineLayer(
             polylines: [
               Polyline(
                 points: _currentRoute!.polyline,
-                color: _getRouteColor(_currentRoute!.overallRiskLevel),
+                color: _getRouteColor(_currentRoute!.overallRiskLevel)
+                    .withValues(alpha: _routeOpacity),
                 strokeWidth: 10.0,
                 borderStrokeWidth: 0,
               ),
@@ -976,7 +1197,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.blue.withOpacity(0.4),
+                                color: Colors.blue.withValues(alpha: 0.4),
                                 blurRadius: 20,
                                 spreadRadius: 5,
                               ),
@@ -990,7 +1211,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                                 width: 50,
                                 height: 50,
                                 decoration: BoxDecoration(
-                                  color: Colors.blue.withOpacity(0.3),
+                                  color: Colors.blue.withValues(alpha: 0.3),
                                   shape: BoxShape.circle,
                                 ),
                               ),
@@ -1026,7 +1247,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
             ],
           ),
 
-        // Destination marker
+        // Destination marker — pulses and enlarges on arrival.
         MarkerLayer(
           markers: [
             Marker(
@@ -1034,25 +1255,38 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                 widget.destination.latitude,
                 widget.destination.longitude,
               ),
-              width: 60,
-              height: 60,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 4),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 12,
-                      offset: Offset(0, 4),
+              width: _hasArrived ? 80 : 60,
+              height: _hasArrived ? 80 : 60,
+              child: AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _hasArrived ? _pulseAnimation.value : 1.0,
+                    child: child,
+                  );
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: _hasArrived ? Colors.green.shade400 : Colors.green,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white,
+                      width: _hasArrived ? 5 : 4,
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.location_on,
-                  color: Colors.white,
-                  size: 32,
+                    boxShadow: [
+                      BoxShadow(
+                        color: (_hasArrived ? Colors.green : Colors.black).withValues(alpha: 0.35),
+                        blurRadius: _hasArrived ? 24 : 12,
+                        spreadRadius: _hasArrived ? 4 : 0,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _hasArrived ? Icons.check_circle : Icons.location_on,
+                    color: Colors.white,
+                    size: _hasArrived ? 40 : 32,
+                  ),
                 ),
               ),
             ),
@@ -1190,7 +1424,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.25),
+                color: Colors.black.withValues(alpha: 0.25),
                 blurRadius: 4,
                 offset: const Offset(0, 2),
               ),
@@ -1219,7 +1453,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
@@ -1254,11 +1488,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                 scale: _pulseAnimation.value,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.8),
+                    color: Colors.red.withValues(alpha: 0.8),
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.red.withOpacity(0.4),
+                        color: Colors.red.withValues(alpha: 0.4),
                         blurRadius: 15 * _pulseAnimation.value,
                         spreadRadius: 3 * _pulseAnimation.value,
                       ),
@@ -1316,7 +1550,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               blurRadius: 12,
             ),
           ],
@@ -1345,7 +1579,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                   Text(
                     'Rerouting to safer path...',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
+                      color: Colors.white.withValues(alpha: 0.9),
                       fontSize: 14,
                     ),
                   ),
@@ -1384,7 +1618,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 blurRadius: 12,
               ),
             ],
@@ -1415,3 +1649,233 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arrival modal — separate StatefulWidget so the entry animation works cleanly
+// even though it is rendered inside a ModalBottomSheet.
+// ─────────────────────────────────────────────────────────────────────────────
+class _ArrivalModalContent extends StatefulWidget {
+  final EvacuationCenter destination;
+  final int durationSeconds;
+  final int rerouteCount;
+  final VoidCallback onDone;
+  final VoidCallback onViewDetails;
+  final VoidCallback onReportHazard;
+
+  const _ArrivalModalContent({
+    required this.destination,
+    required this.durationSeconds,
+    required this.rerouteCount,
+    required this.onDone,
+    required this.onViewDetails,
+    required this.onReportHazard,
+  });
+
+  @override
+  State<_ArrivalModalContent> createState() => _ArrivalModalContentState();
+}
+
+class _ArrivalModalContentState extends State<_ArrivalModalContent>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _checkController;
+  late final Animation<double> _checkScale;
+  late final Animation<double> _checkOpacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _checkScale = CurvedAnimation(parent: _checkController, curve: Curves.elasticOut);
+    _checkOpacity = CurvedAnimation(parent: _checkController, curve: Curves.easeIn);
+    // Trigger animation after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkController.forward());
+  }
+
+  @override
+  void dispose() {
+    _checkController.dispose();
+    super.dispose();
+  }
+
+  String _formatDuration(int seconds) {
+    if (seconds <= 0) return '—';
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    if (m == 0) return '${s}s';
+    return '${m}m ${s}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ec = widget.destination;
+    final barangay = ec.barangay?.isNotEmpty == true ? ec.barangay! : '';
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 12,
+        bottom: MediaQuery.of(context).padding.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle bar
+          Container(
+            width: 40, height: 4,
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+
+          // Animated checkmark
+          FadeTransition(
+            opacity: _checkOpacity,
+            child: ScaleTransition(
+              scale: _checkScale,
+              child: Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.green.shade300, width: 3),
+                ),
+                child: Icon(
+                  Icons.check_rounded,
+                  size: 52,
+                  color: Colors.green.shade600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Headline
+          const Text(
+            'You have arrived safely.',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+
+          // Destination label
+          Text(
+            'Destination:',
+            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            ec.name,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          if (barangay.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              barangay,
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          const SizedBox(height: 16),
+
+          // Trip summary chip row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _tripChip(Icons.timer_outlined, _formatDuration(widget.durationSeconds)),
+              const SizedBox(width: 12),
+              _tripChip(Icons.route, '${widget.rerouteCount} reroute${widget.rerouteCount == 1 ? '' : 's'}'),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Primary: Done button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: widget.onDone,
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text('Done', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Secondary buttons row
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: widget.onViewDetails,
+                  icon: const Icon(Icons.info_outline, size: 18),
+                  label: const Text('Center Details', style: TextStyle(fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.blue[700],
+                    side: BorderSide(color: Colors.blue.shade300),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: widget.onReportHazard,
+                  icon: const Icon(Icons.warning_amber_outlined, size: 18),
+                  label: const Text('Report Hazard', style: TextStyle(fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.orange[700],
+                    side: BorderSide(color: Colors.orange.shade300),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tripChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+        ],
+      ),
+    );
+  }
+}
+
