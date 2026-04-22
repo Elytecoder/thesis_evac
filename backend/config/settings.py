@@ -1,6 +1,7 @@
 """
 Django settings for Evacuation Route Recommendation backend.
 SQLite only. No production database configuration.
+Build: 2026-04-22-r2  (forces Render redeploy)
 """
 import os
 from pathlib import Path
