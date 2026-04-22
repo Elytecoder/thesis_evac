@@ -1178,6 +1178,31 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           userAgentPackageName: 'com.evacroute.mobile',
         ),
 
+        // Dashed connector: user GPS position → first point of the route.
+        // Shown when the user is off-road (e.g. inside a building). Disappears
+        // once the user is within 15 m of the route start.
+        if (_userLocation != null &&
+            _currentRoute != null &&
+            _currentRoute!.polyline.isNotEmpty)
+          () {
+            final routeStart = _currentRoute!.polyline.first;
+            final gapM = _gpsService.calculateDistance(_userLocation!, routeStart);
+            if (gapM > 15) {
+              return PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: [_userLocation!, routeStart],
+                    color: Colors.blue.withValues(alpha: 0.55),
+                    strokeWidth: 3.0,
+                    borderStrokeWidth: 0,
+                    pattern: StrokePattern.dashed(segments: const [8, 6]),
+                  ),
+                ],
+              );
+            }
+            return const SizedBox.shrink();
+          }(),
+
         // Route polyline — white border + colored fill.
         // Color encodes risk level: green (safe) / orange (moderate) / red (high).
         // Fades to 35 % opacity after arrival.
@@ -1518,53 +1543,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }).toList();
   }
 
-  /// Build hazard markers with pulsing animation (high-risk route segments)
-  List<Marker> _buildHazardMarkers() {
-    if (_currentRoute == null) return [];
-
-    final markers = <Marker>[];
-    final highRiskSegments = _currentRoute!.segments
-        .where((s) => s.riskLevel == 'high')
-        .toList();
-
-    for (final segment in highRiskSegments) {
-      markers.add(
-        Marker(
-          point: segment.start,
-          width: 40,
-          height: 40,
-          child: AnimatedBuilder(
-            animation: _pulseAnimation,
-            builder: (context, child) {
-              return Transform.scale(
-                scale: _pulseAnimation.value,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.8),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withValues(alpha: 0.4),
-                        blurRadius: 15 * _pulseAnimation.value,
-                        spreadRadius: 3 * _pulseAnimation.value,
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.warning,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      );
-    }
-
-    return markers;
-  }
 
   /// Get route color based on risk level
   Color _getRouteColor(String riskLevel) {
