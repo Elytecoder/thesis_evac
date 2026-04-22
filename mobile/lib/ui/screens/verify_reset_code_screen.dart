@@ -49,8 +49,8 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
     }
   }
 
-  void _onKeyDown(int index, RawKeyEvent event) {
-    if (event is RawKeyDownEvent &&
+  void _onKeyDown(int index, KeyEvent event) {
+    if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.backspace &&
         _controllers[index].text.isEmpty &&
         index > 0) {
@@ -128,9 +128,9 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
   Widget _buildDigitField(int index) {
     return SizedBox(
       width: 44,
-      child: RawKeyboardListener(
+      child: KeyboardListener(
         focusNode: FocusNode(),
-        onKey: (e) => _onKeyDown(index, e),
+        onKeyEvent: (e) => _onKeyDown(index, e),
         child: TextFormField(
           controller: _controllers[index],
           focusNode: _focusNodes[index],
@@ -198,13 +198,13 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                           width: 80,
                           height: 80,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Icon(
                             Icons.mark_email_read_outlined,
                             size: 40,
-                            color: Colors.white.withOpacity(0.9),
+                            color: Colors.white.withValues(alpha: 0.9),
                           ),
                         ),
                         const SizedBox(height: 24),
@@ -220,7 +220,7 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                         Text(
                           'A 6-digit code was sent to\n${widget.email}',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.85),
+                            color: Colors.white.withValues(alpha: 0.85),
                             fontSize: 14,
                           ),
                           textAlign: TextAlign.center,
@@ -339,7 +339,7 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                         Text(
                           'The code expires in 10 minutes.',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.65),
+                            color: Colors.white.withValues(alpha: 0.65),
                             fontSize: 13,
                           ),
                         ),

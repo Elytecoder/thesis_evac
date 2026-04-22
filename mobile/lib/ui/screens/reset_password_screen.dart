@@ -118,13 +118,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                           width: 80,
                           height: 80,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Icon(
                             Icons.lock_open_rounded,
                             size: 40,
-                            color: Colors.white.withOpacity(0.9),
+                            color: Colors.white.withValues(alpha: 0.9),
                           ),
                         ),
                         const SizedBox(height: 24),
@@ -140,7 +140,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                         Text(
                           'Create a strong password for\n${widget.email}',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.85),
+                            color: Colors.white.withValues(alpha: 0.85),
                             fontSize: 14,
                           ),
                           textAlign: TextAlign.center,
@@ -282,7 +282,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                         Text(
                           'After resetting, all existing sessions will be revoked.',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.65),
+                            color: Colors.white.withValues(alpha: 0.65),
                             fontSize: 12,
                           ),
                           textAlign: TextAlign.center,

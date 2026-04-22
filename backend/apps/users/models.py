@@ -127,11 +127,15 @@ class PasswordResetCode(models.Model):
 
     @classmethod
     def create_reset(cls, email):
-        """Create a fresh reset code; raises ValueError('rate_limited') when throttled."""
+        """Create a fresh reset code; raises ValueError('rate_limited') when throttled.
+
+        Uses UPDATE (mark used) instead of DELETE when invalidating the previous code
+        so that the row is preserved for rate-limit counting within the 15-minute window.
+        """
         if cls.is_rate_limited(email):
             raise ValueError('rate_limited')
-        # Invalidate any existing unused codes for this email
-        cls.objects.filter(email=email, is_used=False).delete()
+        # Mark any live codes for this email as used (invalidates them without losing history)
+        cls.objects.filter(email=email, is_used=False).update(is_used=True)
         code = cls.generate_code()
         expires_at = timezone.now() + timezone.timedelta(minutes=cls.EXPIRY_MINUTES)
         return cls.objects.create(email=email, code=code, expires_at=expires_at)
