@@ -84,6 +84,105 @@ class User(AbstractUser):
         self.save()
 
 
+class PasswordResetCode(models.Model):
+    """
+    One-time OTP for password reset.
+    Codes expire after 10 minutes. Max 3 requests per 15 minutes (rate-limited).
+    """
+    EXPIRY_MINUTES = 10
+    RATE_LIMIT_MAX = 3
+    RATE_LIMIT_WINDOW_MINUTES = 15
+    MAX_VERIFY_ATTEMPTS = 5
+
+    email = models.EmailField()
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    attempts_count = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = 'users_password_reset'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"PasswordReset({self.email})"
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def is_attempts_exceeded(self):
+        return self.attempts_count >= self.MAX_VERIFY_ATTEMPTS
+
+    @classmethod
+    def generate_code(cls):
+        return ''.join(random.choices(string.digits, k=6))
+
+    @classmethod
+    def is_rate_limited(cls, email):
+        """Return True if too many reset codes were created recently."""
+        window_start = timezone.now() - timezone.timedelta(minutes=cls.RATE_LIMIT_WINDOW_MINUTES)
+        recent_count = cls.objects.filter(email=email, created_at__gte=window_start).count()
+        return recent_count >= cls.RATE_LIMIT_MAX
+
+    @classmethod
+    def create_reset(cls, email):
+        """Create a fresh reset code; raises ValueError('rate_limited') when throttled."""
+        if cls.is_rate_limited(email):
+            raise ValueError('rate_limited')
+        # Invalidate any existing unused codes for this email
+        cls.objects.filter(email=email, is_used=False).delete()
+        code = cls.generate_code()
+        expires_at = timezone.now() + timezone.timedelta(minutes=cls.EXPIRY_MINUTES)
+        return cls.objects.create(email=email, code=code, expires_at=expires_at)
+
+    @classmethod
+    def check_code(cls, email, code):
+        """
+        Check a reset code WITHOUT consuming it (used by verify-reset-code step).
+        Returns: 'valid' | 'expired' | 'invalid' | 'attempts_exceeded'
+        Increments attempts_count on every call; invalidates after MAX_VERIFY_ATTEMPTS.
+        """
+        try:
+            reset = cls.objects.filter(
+                email=email, is_used=False,
+            ).latest('created_at')
+        except cls.DoesNotExist:
+            return 'invalid'
+
+        if reset.is_attempts_exceeded():
+            return 'attempts_exceeded'
+        if reset.is_expired():
+            return 'expired'
+
+        reset.attempts_count += 1
+        reset.save(update_fields=['attempts_count'])
+
+        if reset.code != code:
+            return 'invalid'
+        return 'valid'
+
+    @classmethod
+    def consume_code(cls, email, code):
+        """
+        Verify AND consume a reset code (used by reset-password step).
+        Returns: ('valid', reset_obj) | ('expired', None) | ('invalid', None)
+        """
+        try:
+            reset = cls.objects.filter(
+                email=email, code=code, is_used=False,
+            ).latest('created_at')
+        except cls.DoesNotExist:
+            return 'invalid', None
+
+        if reset.is_expired():
+            return 'expired', None
+
+        reset.is_used = True
+        reset.save(update_fields=['is_used'])
+        return 'valid', reset
+
+
 class EmailVerificationCode(models.Model):
     """
     Email verification codes for user registration.

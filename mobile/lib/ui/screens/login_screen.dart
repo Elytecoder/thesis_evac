@@ -4,6 +4,7 @@ import '../../models/user.dart';
 import 'register_screen.dart';
 import 'map_screen.dart';
 import '../admin/admin_home_screen.dart';
+import 'forgot_password_screen.dart';
 
 /// Login screen for residents and MDRRMO personnel.
 class LoginScreen extends StatefulWidget {
@@ -255,7 +256,39 @@ class _LoginScreenState extends State<LoginScreen> {
                                   onChanged: (_) => setState(() {}),
                                 ),
                                 
-                                const SizedBox(height: 8),
+                                // Forgot Password link
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton(
+                                    onPressed: _isLoading
+                                        ? null
+                                        : () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const ForgotPasswordScreen(),
+                                              ),
+                                            );
+                                          },
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: Text(
+                                      'Forgot Password?',
+                                      style: TextStyle(
+                                        color: Colors.blue[700],
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                
+                                const SizedBox(height: 4),
                                 
                                 CheckboxListTile(
                                   value: _keepLoggedIn,

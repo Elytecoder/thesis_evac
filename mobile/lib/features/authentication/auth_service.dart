@@ -339,6 +339,73 @@ class AuthService {
     }
   }
 
+  // ── Password Reset Flow ────────────────────────────────────────────────────
+
+  /// Step 1 — Request a password-reset OTP.
+  ///
+  /// POST /api/auth/forgot-password/
+  /// Always navigates to the verify screen regardless of whether the email exists
+  /// (the backend uses a generic response to prevent enumeration).
+  Future<void> forgotPassword(String email) async {
+    try {
+      await _apiClient.post(
+        ApiConfig.forgotPasswordEndpoint,
+        data: {'email': email.trim().toLowerCase()},
+      );
+    } on ApiException catch (e) {
+      throw Exception(e.message);
+    } catch (_) {
+      throw Exception('Failed to send reset code. Please check your connection and try again.');
+    }
+  }
+
+  /// Step 2 — Verify the 6-digit OTP (without consuming it).
+  ///
+  /// POST /api/auth/verify-reset-code/
+  /// Throws on invalid / expired code.
+  Future<void> verifyResetCode(String email, String code) async {
+    try {
+      await _apiClient.post(
+        ApiConfig.verifyResetCodeEndpoint,
+        data: {
+          'email': email.trim().toLowerCase(),
+          'code': code.trim(),
+        },
+      );
+    } on ApiException catch (e) {
+      throw Exception(e.message);
+    } catch (_) {
+      throw Exception('Failed to verify code. Please try again.');
+    }
+  }
+
+  /// Step 3 — Set a new password using a verified OTP.
+  ///
+  /// POST /api/auth/reset-password/
+  /// On success, all existing sessions are revoked on the server.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    try {
+      await _apiClient.post(
+        ApiConfig.resetPasswordEndpoint,
+        data: {
+          'email': email.trim().toLowerCase(),
+          'code': code.trim(),
+          'new_password': newPassword,
+          'confirm_password': confirmPassword,
+        },
+      );
+    } on ApiException catch (e) {
+      throw Exception(e.message);
+    } catch (_) {
+      throw Exception('Failed to reset password. Please try again.');
+    }
+  }
+
   /// Check if user is logged in.
   Future<bool> isLoggedIn() async {
     final token = await getAuthToken();

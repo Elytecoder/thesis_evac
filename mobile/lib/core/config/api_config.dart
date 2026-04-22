@@ -39,6 +39,9 @@ class ApiConfig {
   static const String updateProfileEndpoint = '/auth/profile/update/';
   static const String changePasswordEndpoint = '/auth/change-password/';
   static const String deleteAccountEndpoint = '/auth/delete-account/';
+  static const String forgotPasswordEndpoint = '/auth/forgot-password/';
+  static const String verifyResetCodeEndpoint = '/auth/verify-reset-code/';
+  static const String resetPasswordEndpoint = '/auth/reset-password/';
   
   /// Hazard report endpoints (Residents)
   static const String reportHazardEndpoint = '/report-hazard/';
@@ -48,6 +51,7 @@ class ApiConfig {
   static const String verifiedHazardsEndpoint = '/verified-hazards/';
   
   /// MDRRMO - Analytics
+  static const String dashboardStatsEndpoint = '/mdrrmo/dashboard-stats/';
   static const String analyticsEndpoint = '/mdrrmo/analytics/';
   static const String pendingReportsEndpoint = '/mdrrmo/pending-reports/';
   static const String rejectedReportsEndpoint = '/mdrrmo/rejected-reports/';
