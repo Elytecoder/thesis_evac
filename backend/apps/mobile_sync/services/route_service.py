@@ -77,7 +77,8 @@ PATH_HAZARD_RISK_CAP = 1.0
 # Weights for normalized effective risk formula: (base × BASE_WEIGHT) + (dynamic × DYNAMIC_WEIGHT)
 BASE_RISK_WEIGHT = 0.6
 DYNAMIC_RISK_WEIGHT = 0.4
-# Number of points to interpolate from start to end for geographic hazard check
+# Number of intervals to interpolate from start to end for geographic hazard check.
+# range(n+1) produces n+1 actual points (indices 0..n), so this yields 81 sample points.
 GEO_PATH_INTERPOLATION_POINTS = 80
 
 # ── Improvement 2: Hazard-type aware risk weights ──────────────────────────

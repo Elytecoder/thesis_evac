@@ -75,16 +75,16 @@ Any resident near an existing report can **confirm** it. Each confirmation:
 ```
 POST /api/calculate-route/  {start_lat, start_lng, evacuation_center_id}
 
-1. Load all road segments (3,247 edges covering Bulan)
-2. Update each segment's base risk via Random Forest
-   (9 features: nearby approved hazard counts, types, scores, distances)
-3. For each segment, calculate dynamic risk from live hazards:
-   - Perpendicular distance from hazard to road edge
+1. Load all road segments (covering Bulan road network)
+2. Apply pre-trained Random Forest model to assign base risk to each segment
+   (9 features per segment: per-type hazard counts within 200 m + avg_severity)
+3. For each segment, calculate dynamic risk from live approved hazards:
+   - True perpendicular distance from hazard to road centerline
    - Per-type influence radius + decay curve (sharp / moderate / gradual)
-   - road_blocked within radius → segment impassable (risk = 1.0)
+   - road_blocked / road_block within 25 m → segment impassable (risk = 1.0)
 4. effective_risk = 0.6 × RF_base  +  0.4 × dynamic
 5. edge_cost = base_distance_m  +  effective_risk × 500
-6. Modified Dijkstra (Yen's k=3) → 3 safest paths
+6. Modified Dijkstra (repeated with edge penalties, k=3) → up to 3 safest paths
 
 Risk labels:
   GREEN   total_risk < 0.3

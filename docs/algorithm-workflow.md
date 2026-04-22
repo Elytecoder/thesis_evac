@@ -55,10 +55,13 @@ Resident Report
 
 ## 4. Approved Hazard Reports in Routing
 
-- **Data source:** All approved hazard reports are loaded:
+- **Data source:** All approved, non-deleted hazard reports are loaded:
 
   ```python
-  approved_hazards = HazardReport.objects.filter(status=HazardReport.Status.APPROVED)
+  approved_hazards = HazardReport.objects.filter(
+      status=HazardReport.Status.APPROVED,
+      is_deleted=False,
+  )
   ```
 
 - These hazards are **real data** (resident-reported, MDRRMO-approved). The routing system **prioritizes** them over base RF scores when computing effective risk.

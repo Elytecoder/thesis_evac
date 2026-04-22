@@ -400,24 +400,30 @@ RoadSegment:
   last_updated      — auto-set on save
 ```
 
-### 10.2 Random Forest Base Risk (Static)
+### 10.2 Random Forest Base Risk (Pre-trained, static)
 
-Each segment's `predicted_risk_score` is trained/updated by the **Random Forest** model using 9 features computed from the **approved hazards** within **200 m** of the segment:
+Each segment's `predicted_risk_score` is produced by a **pre-trained Random Forest** model (`random_forest_model.pkl`).  The model is **loaded once at startup** and never retrained during a route request.  Scores are updated explicitly via `python manage.py update_segment_risks` or after model retraining.
+
+The model uses **9 features** computed from **approved, non-deleted hazards** within **200 m** of the segment midpoint (using recency × type-severity weighting, not raw integer counts):
 
 ```
-RF Features per segment:
-  1.  count of approved hazards within 200 m
-  2.  average validation score of those hazards
-  3.  max validation score of those hazards
-  4.  count of flood hazards nearby
-  5.  count of landslide hazards nearby
-  6.  count of road_blocked hazards nearby
-  7.  average confirmation count of nearby hazards
-  8.  segment base_distance
-  9.  average distance from nearby hazards to segment midpoint
+RF Features per segment  (source: _compute_segment_rf_features):
+  1.  flooded_road_count          (flood + flooded_road hazards within 200 m)
+  2.  landslide_count
+  3.  fallen_tree_count
+  4.  road_damage_count
+  5.  fallen_electric_post_count  (fallen_electric_post + fallen_electric_post_wires)
+  6.  road_blocked_count          (road_blocked + road_block)
+  7.  bridge_damage_count
+  8.  storm_surge_count
+  9.  avg_severity                (mean final_validation_score of all nearby hazards)
+
+Each type count is weighted by:
+  recency_factor   (1.0 < 6 h, 0.8 < 24 h, 0.6 < 3 days, 0.4 < 7 days, 0.2 otherwise)
+× type_severity    (normalised HAZARD_TYPE_RISK_WEIGHT — serious types count more)
 ```
 
-RF is retrained whenever `_ensure_segment_risk_scores()` is called (triggered by route calculation).
+Training data: 300-row **synthetic** dataset (temporary placeholder). Replace with real MDRRMO road incident data and retrain with `python manage.py train_ml_models --rf-only --force`.
 
 ### 10.3 Dynamic Hazard Risk (Graduated Influence)
 
@@ -434,8 +440,9 @@ At route calculation time, **approved, non-deleted hazards** are overlaid on the
 | landslide | 60 m | moderate |
 | bridge_damage | 30 m | moderate |
 | road_damage | 20 m | moderate |
-| fallen_electric_post | 10 m | sharp |
-| *other* | 30 m | moderate |
+| fallen_electric_post | 20 m | moderate |
+| fallen_electric_post_wires | 45 m | moderate |
+| *other* | 40 m | moderate |
 
 #### Decay Profiles
 
@@ -474,10 +481,12 @@ ELSE:
 #### Road-Blocked Override
 
 ```
-IF hazard_type ∈ {road_blocked, fallen_tree} AND distance ≤ influence_radius:
+IF hazard_type ∈ {road_blocked, road_block} AND perpendicular_distance ≤ influence_radius (25 m):
     segment effective_risk = 1.0  (impassable — route will avoid completely)
     skip all other hazards for this segment
 ```
+
+Note: `fallen_tree` does **not** force impassability; it uses the graduated `sharp` decay profile within its 15 m radius, contributing to dynamic risk but not an automatic full block.
 
 ### 10.4 Final Effective Risk per Segment
 
@@ -512,13 +521,20 @@ Body: { start_lat, start_lng, evacuation_center_id }
 
 The **500 multiplier** converts risk [0,1] into a distance-equivalent penalty (a risk-1.0 segment costs 500 m more than its physical length).
 
-### 11.3 K-Shortest Paths (Yen's Algorithm)
+### 11.3 K-Alternative Routes (Repeated Dijkstra with Edge Penalties)
+
+The system finds up to **3 distinct route alternatives** by running Modified Dijkstra multiple times — **not** Yen's algorithm:
 
 ```
-Run Modified Dijkstra (Yen's k-shortest) for k=3:
-  → Returns up to 3 distinct paths from start → destination
-  → Each path has a list of (lat, lng) polyline points and a total_risk score
+1. Run Dijkstra → best (safest) route found.
+2. Penalize all edges used by that route (add PENALTY_VALUE = 500 to each).
+3. Run Dijkstra again with penalized edges → second route prefers different paths.
+4. Repeat for a third route.
+5. Duplicate routes are discarded.
 ```
+
+The graph is **never mutated** — penalties live in a local dict for this call only.
+This produces up to 3 meaningfully different, hazard-aware route options ranked by total risk.
 
 ### 11.4 Post-Processing and Risk Labels
 
@@ -611,10 +627,12 @@ Each navigation step has:
   distance_to_step_m
 
 App continuously updates distance_to_step from GPS position
-  → Voice/visual proximity alert at 50 m
-  → Voice/visual imminent alert at 15 m
+  → Visual proximity banner at 50 m
+  → Visual imminent banner at 15 m
   → Advance to next step
 ```
+
+Note: Voice navigation is **not implemented** in the current version. Turn instructions are visual only (top banner).
 
 ### 12.5 Rerouting
 
@@ -965,7 +983,7 @@ RESIDENT
   │
   ├─► edge_cost = base_distance + effective_risk × 500
   │
-  ├─► Modified Dijkstra (Yen's k=3) → top 3 paths
+  ├─► Modified Dijkstra (repeated with edge penalties, k=3) → up to 3 paths
   │
   └─► Routes returned with polylines + risk labels (GREEN/YELLOW/RED)
            │

@@ -389,35 +389,71 @@ effective_risk = (base_risk × 0.6) + (dynamic_risk × 0.4)
 **Base risk** = `predicted_risk_score` from Random Forest (stored in DB per segment).  
 **Dynamic risk** = live computation at route time from approved hazards near the segment.
 
-### Dynamic risk (at route time)
+### Dynamic risk (at route time — graduated proximity model)
 
-For each approved hazard within **100 m** of the segment:
-- If `hazard_type == road_blocked` → `effective_risk = 1.0` immediately (fully impassable)
-- Otherwise: `dynamic += type_weight × validation_impact`
+For each approved, non-deleted hazard, the impact on a road segment is computed using **graduated proximity** — not a flat binary radius:
 
-Where `type_weight` is from `HAZARD_TYPE_RISK_WEIGHT`:
+```
+perpendicular_distance, on_segment = _perpendicular_distance_m(
+    hazard, segment_start, segment_end
+)
 
+radius  = HAZARD_INFLUENCE_RADIUS[hazard_type]   # per-type (meters)
+profile = HAZARD_DECAY_PROFILE[hazard_type]      # sharp / moderate / gradual
+
+decay = _decay_factor(perpendicular_distance, radius, profile)
+      # sharp:    1 − t²  (t = distance / radius)
+      # moderate: 1 − t
+      # gradual:  1 − √t
+
+if on_segment: decay *= 1.2   # on-road bonus
+
+impact = decay × type_weight × final_validation_score
+dynamic += impact
+```
+
+Per-type influence radii (`HAZARD_INFLUENCE_RADIUS`):
+
+| Hazard type | Radius | Decay profile |
+|---|---|---|
+| `road_blocked` / `road_block` | 25 m | sharp |
+| `fallen_tree` | 15 m | sharp |
+| `road_damage` | 20 m | moderate |
+| `bridge_damage` | 30 m | sharp |
+| `flood` / `flooded_road` | 80 m | gradual |
+| `storm_surge` | 150 m | gradual |
+| `landslide` | 60 m | moderate |
+| `fallen_electric_post` | 20 m | moderate |
+| `fallen_electric_post_wires` | 45 m | moderate |
+| `other` | 40 m | moderate |
+
+Type weights (`HAZARD_TYPE_RISK_WEIGHT`):
 ```python
-HAZARD_TYPE_RISK_WEIGHT = {
-    'road_blocked':      0.7,
-    'bridge_damage':     0.5,
-    'storm_surge':       0.5,
-    'landslide':         0.5,
-    'fallen_electric_post': 0.4,
-    'flooded_road':      0.3,
-    'road_damage':       0.3,
-    'fallen_tree':       0.2,
-    'other':             0.2,
+{
+    'road_blocked':               0.7,
+    'bridge_damage':              0.5,
+    'storm_surge':                0.5,
+    'landslide':                  0.5,
+    'fallen_electric_post':       0.4,
+    'fallen_electric_post_wires': 0.4,
+    'flooded_road':               0.3,
+    'road_damage':                0.3,
+    'fallen_tree':                0.2,
+    'other':                      0.2,
 }
 ```
+
+**Road-block override:** If `hazard_type ∈ {road_blocked, road_block}` and the perpendicular distance ≤ 25 m, `effective_risk = 1.0` immediately (segment is fully impassable). `fallen_tree` does **not** trigger this override; it uses its graduated sharp decay instead.
 
 ### When segment risks update
 
 | Event | Action |
 |---|---|
-| First boot / all scores = 0 | `_ensure_segment_risk_scores()` auto-runs |
-| After RF model retraining | `train_ml_models` auto-calls `update_segment_risks` |
+| First boot / all scores = 0 | `_ensure_segment_risk_scores()` applies the pre-trained RF model to fill segment scores (does **not** retrain the model) |
+| After RF model retraining | `train_ml_models` auto-calls `update_segment_risks` to refresh all scores |
 | Manually forced | `python manage.py update_segment_risks` |
+
+`_ensure_segment_risk_scores()` uses the **pre-trained** `.pkl` file — it never re-runs training. Retraining requires `python manage.py train_ml_models`.
 
 ---
 
