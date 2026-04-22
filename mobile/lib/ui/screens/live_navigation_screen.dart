@@ -998,6 +998,45 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     );
   }
 
+  /// Small risk level badge shown in the destination banner.
+  Widget _buildRiskBadge(String riskLevel) {
+    final Color color;
+    final String label;
+    final IconData icon;
+    switch (riskLevel) {
+      case 'high':
+        color = Colors.red.shade400;
+        label = 'High Risk Route';
+        icon = Icons.warning_amber_rounded;
+        break;
+      case 'moderate':
+        color = Colors.orange.shade400;
+        label = 'Moderate Risk Route';
+        icon = Icons.warning_amber_outlined;
+        break;
+      default:
+        color = Colors.green.shade400;
+        label = 'Safe Route';
+        icon = Icons.check_circle_outline;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.6)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(label, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
   /// Destination info panel pinned at the bottom of the screen
   Widget _buildDestinationBanner() {
     final distKm = _distanceRemainingKm;
@@ -1007,6 +1046,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     final barangay = widget.destination.barangay?.isNotEmpty == true
         ? widget.destination.barangay!
         : widget.destination.description;
+    final riskLevel = _currentRoute?.overallRiskLevel ?? 'safe';
 
     return Container(
       decoration: BoxDecoration(
@@ -1061,6 +1101,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                if (_currentRoute != null) ...[
+                  const SizedBox(height: 4),
+                  _buildRiskBadge(riskLevel),
+                ],
               ],
             ),
           ),
@@ -1134,26 +1178,40 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           userAgentPackageName: 'com.evacroute.mobile',
         ),
 
-        // Route polyline (thick with white outline).
-        // Fades to 35% opacity after arrival to keep the map readable.
+        // Route polyline — white border + colored fill.
+        // Color encodes risk level: green (safe) / orange (moderate) / red (high).
+        // Fades to 35 % opacity after arrival.
         if (_currentRoute != null) ...[
+          // Shadow layer (dark, slightly wider)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: _currentRoute!.polyline,
+                color: Colors.black.withValues(alpha: 0.18 * _routeOpacity),
+                strokeWidth: 16.0,
+                borderStrokeWidth: 0,
+              ),
+            ],
+          ),
+          // White border
           PolylineLayer(
             polylines: [
               Polyline(
                 points: _currentRoute!.polyline,
                 color: Colors.white.withValues(alpha: _routeOpacity),
-                strokeWidth: 12.0,
+                strokeWidth: 13.0,
                 borderStrokeWidth: 0,
               ),
             ],
           ),
+          // Colored route fill
           PolylineLayer(
             polylines: [
               Polyline(
                 points: _currentRoute!.polyline,
                 color: _getRouteColor(_currentRoute!.overallRiskLevel)
                     .withValues(alpha: _routeOpacity),
-                strokeWidth: 10.0,
+                strokeWidth: 9.0,
                 borderStrokeWidth: 0,
               ),
             ],
@@ -1169,12 +1227,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         MarkerLayer(
           markers: _buildPendingHazardMarkers(),
         ),
-
-        // High-risk segment markers with pulsing animation
-        if (_currentRoute != null)
-          MarkerLayer(
-            markers: _buildHazardMarkers(),
-          ),
 
         // User arrow marker (3D style, positioned in bottom third)
         if (_userLocation != null)
