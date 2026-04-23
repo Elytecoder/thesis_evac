@@ -14,6 +14,10 @@ class StorageConfig {
 
   /// Completed navigation trip records (offline-first, for analytics/thesis).
   static const String tripHistoryBox = 'trip_history';
+
+  /// Box for the last active route (polyline + destination) so navigation
+  /// can resume the cached route if the device goes offline mid-route.
+  static const String activeRouteBox = 'active_route';
   
   // SharedPreferences keys
   /// Legacy plain-text token (migrated to secure storage on read).

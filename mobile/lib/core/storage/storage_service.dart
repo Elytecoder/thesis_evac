@@ -23,6 +23,7 @@ class StorageService {
     await Hive.openBox(StorageConfig.pendingReportsBox);
     await Hive.openBox(StorageConfig.verifiedHazardsBox);
     await Hive.openBox(StorageConfig.tripHistoryBox);
+    await Hive.openBox(StorageConfig.activeRouteBox);
   }
 
   /// Close all boxes (cleanup).
@@ -201,6 +202,40 @@ class StorageService {
     }
 
     return List<Map<String, dynamic>>.from(routes);
+  }
+
+  // --- Active Route Cache (keeps last route visible during connectivity outage) ---
+
+  /// Save the currently active navigation route so it survives offline gaps.
+  ///
+  /// [routeData] should include:
+  ///   `polyline`    — List<Map> of {lat, lng} points
+  ///   `destination` — Map with center name, lat, lng
+  ///   `risk_level`  — String: 'green' | 'yellow' | 'red'
+  static Future<void> saveActiveRoute(Map<String, dynamic> routeData) async {
+    try {
+      await Hive.box(StorageConfig.activeRouteBox).put('current', routeData);
+    } catch (e) {
+      debugPrint('[ActiveRoute] Failed to save: $e');
+    }
+  }
+
+  /// Retrieve the last saved active route, or null if none.
+  static Map<String, dynamic>? getActiveRoute() {
+    try {
+      final data = Hive.box(StorageConfig.activeRouteBox).get('current');
+      if (data == null) return null;
+      return Map<String, dynamic>.from(data as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Clear the active route (called on arrival or navigation exit).
+  static Future<void> clearActiveRoute() async {
+    try {
+      await Hive.box(StorageConfig.activeRouteBox).delete('current');
+    } catch (_) {}
   }
 
   // --- Trip History (completed navigation sessions) ---

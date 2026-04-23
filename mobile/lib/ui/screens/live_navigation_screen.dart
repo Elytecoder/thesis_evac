@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/map/cached_tile_provider.dart';
+import '../../core/services/connectivity_service.dart';
 import '../../core/storage/storage_service.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/hazard_report.dart';
@@ -62,6 +64,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   bool _isRerouting = false;
   /// When true, camera follows user; when false, user can pan/explore freely.
   bool _followUserLocation = true;
+
+  // Tile provider — caches OSM tiles to disk so the map renders offline.
+  final CachedNetworkTileProvider _tileProvider = CachedNetworkTileProvider();
 
   // ── Streams ──────────────────────────────────────────────────────────────
   StreamSubscription<LatLng>? _locationSubscription;
@@ -630,8 +635,36 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   /// Reroute to destination.
   /// PRIMARY: backend Modified Dijkstra (preserves hazard-aware routing).
   /// FALLBACK: OSRM if backend is unreachable.
+  /// OFFLINE: shows a snackbar and keeps the current route visible.
   Future<void> _reroute() async {
     if (_isRerouting || _userLocation == null || _hasArrived) return;
+
+    // Check connectivity before attempting any network call.
+    final isOnline = await ConnectivityService().isOnline;
+    if (!isOnline) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(children: [
+              Icon(Icons.wifi_off, color: Colors.white, size: 16),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Offline mode — Rerouting unavailable until connection returns. '
+                  'Current route is still shown.',
+                  style: TextStyle(fontSize: 13),
+                ),
+              ),
+            ]),
+            backgroundColor: Color(0xFFB71C1C),
+            duration: Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return; // Keep existing route; do not increment reroute count.
+    }
+
     _rerouteCount++;
 
     setState(() {
@@ -659,18 +692,17 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         );
 
         if (result.routes.isNotEmpty) {
-          // routes are sorted by risk ascending — first is safest
           newRoute = await _routingService.buildFromBackendRoute(
             backendRoute: result.routes.first,
             destination: destinationLatLng,
           );
-          print('✅ Rerouted via backend Modified Dijkstra');
+          debugPrint('✅ Rerouted via backend Modified Dijkstra');
         } else {
           throw Exception('Backend returned no routes');
         }
       } catch (e) {
         // FALLBACK: OSRM if backend is unavailable
-        print('⚠️ Backend reroute failed — falling back to OSRM: $e');
+        debugPrint('⚠️ Backend reroute failed — falling back to OSRM: $e');
         newRoute = await _routingService.calculateSafestRoute(
           start: _userLocation!,
           destination: destinationLatLng,
@@ -684,12 +716,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _isRerouting = false;
       });
 
-      // Update current step
       _updateCurrentStep(_userLocation!);
-
       debugPrint('Rerouted successfully');
     } catch (e) {
-      print('❌ Reroute failed: $e');
+      debugPrint('❌ Reroute failed: $e');
       setState(() {
         _isRerouting = false;
       });
@@ -1172,10 +1202,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           ),
         ),
       children: [
-        // Map tiles
+        // Map tiles — uses disk cache so tiles render even when offline.
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.evacroute.mobile',
+          tileProvider: _tileProvider,
+          errorTileCallback: (tile, error, _) {
+            // Silently swallow tile errors — placeholder already shown by provider.
+          },
         ),
 
         // Dashed connector: user GPS position → first point of the route.

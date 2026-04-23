@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/config/api_config.dart';
+import '../../core/map/cached_tile_provider.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
@@ -32,6 +33,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
+  final CachedNetworkTileProvider _tileProvider = CachedNetworkTileProvider();
   final RoutingService _routingService = RoutingService();
   final ResidentHazardReportsService _hazardReportsService = ResidentHazardReportsService();
   final ResidentNotificationsService _notificationsService = ResidentNotificationsService();
@@ -758,6 +760,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                       userAgentPackageName: 'com.thesis.evacuation.mobile',
                       maxZoom: 19,
+                      tileProvider: _tileProvider,
+                      errorTileCallback: (tile, error, _) {
+                        // Silently swallow tile errors — placeholder already shown.
+                      },
                     ),
                     
                     // Draw active route if selected

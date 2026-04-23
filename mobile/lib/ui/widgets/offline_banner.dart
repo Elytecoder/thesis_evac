@@ -30,6 +30,7 @@ class _OfflineBannerState extends State<OfflineBanner>
   final SyncService _syncService = SyncService();
 
   bool _isOffline = false;
+  bool _isSyncing = false;
   late final AnimationController _animController;
   late final Animation<Offset> _slideAnimation;
 
@@ -67,6 +68,10 @@ class _OfflineBannerState extends State<OfflineBanner>
         _animController.reverse();
       }
     });
+    // Listen to sync state so the banner shows "Syncing..." when back online.
+    _syncService.syncingStream.listen((syncing) {
+      if (mounted) setState(() => _isSyncing = syncing);
+    });
   }
 
   @override
@@ -77,9 +82,14 @@ class _OfflineBannerState extends State<OfflineBanner>
 
   @override
   Widget build(BuildContext context) {
-    if (!_isOffline) return const SizedBox.shrink();
+    // Show banner when offline OR when sync is in progress after reconnect.
+    final showBanner = _isOffline || _isSyncing;
+    if (!showBanner) return const SizedBox.shrink();
 
     final pendingCount = _syncService.pendingReportCount;
+    final Color bannerColor = _isOffline
+        ? const Color(0xFFB71C1C) // dark red when offline
+        : const Color(0xFF1565C0); // dark blue when syncing
 
     return Positioned(
       top: 0,
@@ -92,26 +102,37 @@ class _OfflineBannerState extends State<OfflineBanner>
           child: Material(
             color: Colors.transparent,
             child: Container(
-              color: const Color(0xFFB71C1C),
+              color: bannerColor,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
-                  const Icon(Icons.wifi_off, color: Colors.white, size: 18),
+                  _isSyncing && !_isOffline
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.wifi_off, color: Colors.white, size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'Offline Mode: Data may not be up-to-date',
-                          style: TextStyle(
+                        Text(
+                          _isOffline
+                              ? 'Offline Mode — Using cached maps and saved data'
+                              : 'Back online — Syncing data…',
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        if (pendingCount > 0)
+                        if (_isOffline && pendingCount > 0)
                           Text(
                             '$pendingCount report${pendingCount == 1 ? '' : 's'} '
                             'queued — will sync when online',

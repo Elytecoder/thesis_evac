@@ -30,6 +30,11 @@ class SyncService {
   StreamSubscription<bool>? _subscription;
   bool _syncing = false;
 
+  // Stream that emits true while a sync cycle is running, false when idle.
+  final _syncingController = StreamController<bool>.broadcast();
+  Stream<bool> get syncingStream => _syncingController.stream;
+  bool get isSyncing => _syncing;
+
   /// Start listening for connectivity changes.
   /// Safe to call multiple times — subsequent calls are no-ops.
   void startListening() {
@@ -52,6 +57,7 @@ class SyncService {
   Future<void> syncAll() async {
     if (_syncing) return;
     _syncing = true;
+    _syncingController.add(true);
     try {
       await _flushPendingReports();
       await _refreshEvacuationCenters();
@@ -62,6 +68,7 @@ class SyncService {
       developer.log('Sync cycle error: $e', name: 'SyncService');
     } finally {
       _syncing = false;
+      _syncingController.add(false);
     }
   }
 
