@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -229,22 +230,23 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Future<void> _initializeMap() async {
     // ── STEP 1: Instant pre-position from cache ──────────────────────────────
-    // getLastKnownPosition() returns immediately from the OS location cache
-    // (typically < 50 ms). This gets the correct city/area on screen right
-    // away without waiting for a full GPS fix.
-    try {
-      final lastKnown = await Geolocator.getLastKnownPosition();
-      if (lastKnown != null && mounted) {
-        setState(() {
-          _userLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
-          _locationIsReal = true;
-        });
-        // Move camera on the next frame (map may not be laid out yet).
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _mapController.move(_userLocation, 16.0);
-        });
-      }
-    } catch (_) {}
+    // getLastKnownPosition() reads the OS location cache (< 50 ms on Android).
+    // Not supported on web — skip it there to avoid errors.
+    if (!kIsWeb) {
+      try {
+        final lastKnown = await Geolocator.getLastKnownPosition();
+        if (lastKnown != null && mounted) {
+          setState(() {
+            _userLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
+            _locationIsReal = true;
+          });
+          // Move camera on the next frame (map may not be laid out yet).
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _mapController.move(_userLocation, 16.0);
+          });
+        }
+      } catch (_) {}
+    }
 
     // ── STEP 2: Check permission via Geolocator (no permission_handler overhead)
     LocationPermission permission = await Geolocator.checkPermission();

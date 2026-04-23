@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart'; // re-exports Uint8List from dart:typed_data
+import 'package:flutter/foundation.dart'; // kIsWeb + Uint8List
 import 'package:flutter/painting.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:path_provider/path_provider.dart';
@@ -51,6 +51,8 @@ class CachedNetworkTileProvider extends TileProvider {
   CachedNetworkTileProvider._();
 
   void _warmUpCache() {
+    // No disk cache on web — nothing to pre-warm.
+    if (kIsWeb) return;
     // Fire-and-forget: resolve the directory once so subsequent tile
     // requests hit the in-memory _cacheDir cache immediately.
     _getCacheDir().ignore();
@@ -106,6 +108,12 @@ class _DiskCachedTileImage extends ImageProvider<_DiskCachedTileImage> {
   }
 
   Future<ui.Codec> _load(ImageDecoderCallback decode) async {
+    // ── Web: dart:io not available — fetch directly from network, no disk cache
+    if (kIsWeb) {
+      return _fetchFromNetwork(decode, saveToFile: null);
+    }
+
+    // ── Native: try disk cache first, fall back to network ─────────────────
     try {
       final dir = await getCacheDir();
       final file = File('${dir.path}/$tileId.png');
@@ -120,21 +128,37 @@ class _DiskCachedTileImage extends ImageProvider<_DiskCachedTileImage> {
       }
 
       // 2. Fetch from OSM, persist to disk.
+      return _fetchFromNetwork(decode, saveToFile: file);
+    } catch (_) {
+      // Offline or file-system error — fall through to placeholder.
+    }
+
+    // 3. Return a grey grid placeholder tile so the map still opens offline.
+    return _greyPlaceholderCodec(decode);
+  }
+
+  /// Fetch tile bytes from OSM. If [saveToFile] is non-null (native only),
+  /// persist bytes to disk after a successful response.
+  Future<ui.Codec> _fetchFromNetwork(
+    ImageDecoderCallback decode, {
+    required File? saveToFile,
+  }) async {
+    try {
       final resp = await dio.get<List<int>>(
         url,
         options: Options(responseType: ResponseType.bytes),
       );
       if (resp.statusCode == 200 && resp.data != null) {
         final bytes = Uint8List.fromList(resp.data!);
-        await file.writeAsBytes(bytes, flush: true);
+        if (saveToFile != null) {
+          await saveToFile.writeAsBytes(bytes, flush: true);
+        }
         final buf = await ui.ImmutableBuffer.fromUint8List(bytes);
         return decode(buf);
       }
     } catch (_) {
-      // Offline or server error — fall through to placeholder.
+      // Network unavailable or server error.
     }
-
-    // 3. Return a grey grid placeholder tile so the map still opens.
     return _greyPlaceholderCodec(decode);
   }
 
