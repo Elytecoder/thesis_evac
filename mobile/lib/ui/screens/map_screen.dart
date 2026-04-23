@@ -94,6 +94,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.6).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeOut),
     );
+    // Pulse the searching marker until a real GPS fix arrives.
+    _pulseController.repeat(reverse: true);
     // Kick off GPS and all data loads concurrently.
     // Map renders immediately with the Bulan default centre; each piece of
     // data calls setState independently so content appears progressively
@@ -236,6 +238,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       try {
         final lastKnown = await Geolocator.getLastKnownPosition();
         if (lastKnown != null && mounted) {
+          _pulseController.stop();
           setState(() {
             _userLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
             _locationIsReal = true;
@@ -267,6 +270,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       ).timeout(const Duration(seconds: 8));
 
       if (mounted) {
+        _pulseController.stop();
         setState(() {
           _userLocation = LatLng(position.latitude, position.longitude);
           _locationIsReal = true;
@@ -801,26 +805,54 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     // Markers
                     MarkerLayer(
                       markers: [
-                        // User location marker — only shown once a real GPS or
-                        // last-known position is available (never fakes Bulan default).
-                        if (_locationIsReal)
-                          Marker(
-                            point: _userLocation,
-                            width: 50,
-                            height: 50,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.blue,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 3),
-                              ),
-                              child: const Icon(
-                                Icons.my_location,
-                                color: Colors.white,
-                                size: 24,
-                              ),
-                            ),
-                          ),
+                        // User location marker.
+                        // While GPS is still resolving (_gpsLocating=true /
+                        // _locationIsReal=false) we show a grey "searching"
+                        // pulse so the user always sees their approximate
+                        // position rather than an empty map.
+                        // Once we have a real fix it flips to solid blue.
+                        Marker(
+                          point: _userLocation,
+                          width: 50,
+                          height: 50,
+                          child: _locationIsReal
+                              ? Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue,
+                                    shape: BoxShape.circle,
+                                    border:
+                                        Border.all(color: Colors.white, width: 3),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.blue.withOpacity(0.4),
+                                        blurRadius: 8,
+                                        spreadRadius: 2,
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.my_location,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                )
+                              : ScaleTransition(
+                                  scale: _pulseAnimation,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade400,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: Colors.white, width: 2),
+                                    ),
+                                    child: const Icon(
+                                      Icons.location_searching,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                        ),
 
                         // Evacuation centers
                         ..._evacuationCenters.map(
