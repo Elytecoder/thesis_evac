@@ -145,7 +145,10 @@ class PasswordResetCode(models.Model):
         """
         Check a reset code WITHOUT consuming it (used by verify-reset-code step).
         Returns: 'valid' | 'expired' | 'invalid' | 'attempts_exceeded'
-        Increments attempts_count on every call; invalidates after MAX_VERIFY_ATTEMPTS.
+
+        Attempts_count is incremented ONLY on failed (wrong code) attempts.
+        A correct code resets the counter so subsequent calls on a valid
+        code never accidentally lock the user out.
         """
         try:
             reset = cls.objects.filter(
@@ -159,11 +162,17 @@ class PasswordResetCode(models.Model):
         if reset.is_expired():
             return 'expired'
 
-        reset.attempts_count += 1
-        reset.save(update_fields=['attempts_count'])
-
         if reset.code != code:
+            # Only penalise wrong guesses.
+            reset.attempts_count += 1
+            reset.save(update_fields=['attempts_count'])
             return 'invalid'
+
+        # Correct code — reset the counter so repeated legitimate calls never
+        # lock the user out mid-flow (e.g. "Back" then "Verify" again).
+        if reset.attempts_count > 0:
+            reset.attempts_count = 0
+            reset.save(update_fields=['attempts_count'])
         return 'valid'
 
     @classmethod

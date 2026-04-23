@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:dio/dio.dart';
 import '../../core/auth/session_storage.dart';
@@ -193,6 +195,8 @@ class HazardService {
         userLongitude: userLongitude,
         photoUrl: resolvedPhotoUrl,
         videoUrl: videoUrl,
+        videoBytes: videoBytes,
+        videoFilename: videoFilename,
       );
     }
   }
@@ -274,6 +278,11 @@ class HazardService {
   }
 
   /// Queue a hazard report for later submission (offline mode).
+  ///
+  /// If [videoBytes] are provided they are written to a local file in the app
+  /// cache directory. The file path is stored in the queue JSON under
+  /// `video_local_path` so [syncQueuedReports] can read and upload it later.
+  ///
   /// Saved to the dedicated [StorageConfig.pendingReportsBox] — does NOT
   /// touch the verified-hazards or evacuation-centers caches.
   Future<HazardReport> _queueHazardReport({
@@ -285,9 +294,26 @@ class HazardService {
     double? userLongitude,
     String? photoUrl,
     String? videoUrl,
+    Uint8List? videoBytes,
+    String? videoFilename,
   }) async {
     final clientId = const Uuid().v4();
     final now = DateTime.now();
+
+    // Save video bytes to a local file so they survive app restarts.
+    String? videoLocalPath;
+    if (videoBytes != null && videoBytes.isNotEmpty) {
+      try {
+        final cacheDir = await getTemporaryDirectory();
+        final ext = (videoFilename ?? 'video.mp4').split('.').last;
+        final file = File('${cacheDir.path}/pending_video_$clientId.$ext');
+        await file.writeAsBytes(videoBytes);
+        videoLocalPath = file.path;
+        print('Offline video saved to: $videoLocalPath');
+      } catch (e) {
+        print('Warning: failed to save offline video bytes: $e');
+      }
+    }
 
     final report = HazardReport(
       id: now.millisecondsSinceEpoch,
@@ -308,7 +334,12 @@ class HazardService {
     );
 
     final queue = await _storageService.getPendingReports();
-    queue.add(report.toJson());
+    final queueItem = report.toJson();
+    if (videoLocalPath != null) {
+      queueItem['video_local_path'] = videoLocalPath;
+      queueItem['video_filename'] = videoFilename ?? 'hazard_video.mp4';
+    }
+    queue.add(queueItem);
     await _storageService.savePendingReports(queue);
 
     print('Report queued offline (id=$clientId): ${queue.length} report(s) pending sync');
@@ -321,10 +352,20 @@ class HazardService {
   }
 
   /// Sync queued reports when back online.
-  /// Only clears the pending queue — never touches other caches.
-  /// Reports without GPS are skipped (they would 400 on the server) and kept
-  /// in the queue so the user can correct and resubmit from the Reports screen.
-  Future<void> syncQueuedReports() async {
+  ///
+  /// Handles three upload strategies in priority order:
+  ///   1. Video local file present → multipart FormData with file bytes
+  ///   2. Photo URL (base64 data URL) present → JSON body with photo_url
+  ///   3. Text-only → plain JSON body
+  ///
+  /// Progress callback receives (completed, total) counts so the UI can show
+  /// "Uploading 1/3…" messages.
+  ///
+  /// Reports without GPS are skipped but kept in the queue; a local file that
+  /// no longer exists (e.g. temp cleared by OS) is treated as media-less.
+  Future<void> syncQueuedReports({
+    void Function(int completed, int total)? onProgress,
+  }) async {
     final queuedReports = await _getQueuedReports();
 
     if (queuedReports.isEmpty) {
@@ -332,16 +373,17 @@ class HazardService {
       return;
     }
 
-    print('Syncing ${queuedReports.length} queued report(s)...');
+    final total = queuedReports.length;
+    print('Syncing $total queued report(s)...');
     await _ensureAuthToken();
 
     final List<Map<String, dynamic>> failed = [];
+    int completed = 0;
 
     for (final reportJson in queuedReports) {
       final clientId = reportJson['client_submission_id'] as String?;
 
-      // Guard: GPS is mandatory. Skip without consuming the item so the user
-      // can see it still pending and decide to re-submit manually.
+      // Guard: GPS is mandatory; skip rather than consume so user can re-submit.
       final hasGps = reportJson['user_latitude'] != null &&
           reportJson['user_longitude'] != null;
       if (!hasGps) {
@@ -350,23 +392,49 @@ class HazardService {
         continue;
       }
 
-      // Build the minimal payload the backend expects.
-      final payload = <String, dynamic>{
-        'hazard_type': reportJson['hazard_type'],
-        'latitude': reportJson['latitude'],
-        'longitude': reportJson['longitude'],
-        'description': reportJson['description'] ?? '',
-        'user_latitude': reportJson['user_latitude'],
-        'user_longitude': reportJson['user_longitude'],
-        if (reportJson['photo_url'] != null && (reportJson['photo_url'] as String).isNotEmpty)
-          'photo_url': reportJson['photo_url'],
-        if (clientId != null && clientId.isNotEmpty)
-          'client_submission_id': clientId,
-      };
-
       try {
-        await _apiClient.post(ApiConfig.reportHazardEndpoint, data: payload);
-        print('Synced queued report client_id=$clientId');
+        final videoLocalPath = reportJson['video_local_path'] as String?;
+        final videoFilename =
+            reportJson['video_filename'] as String? ?? 'hazard_video.mp4';
+        final photoUrl = reportJson['photo_url'] as String?;
+
+        // Prefer multipart if we have a local video file.
+        if (videoLocalPath != null && videoLocalPath.isNotEmpty) {
+          final videoFile = File(videoLocalPath);
+          if (await videoFile.exists()) {
+            final videoBytes = await videoFile.readAsBytes();
+            final form = FormData.fromMap({
+              'hazard_type': reportJson['hazard_type'],
+              'latitude': reportJson['latitude'].toString(),
+              'longitude': reportJson['longitude'].toString(),
+              'description': reportJson['description'] ?? '',
+              'user_latitude': reportJson['user_latitude'].toString(),
+              'user_longitude': reportJson['user_longitude'].toString(),
+              if (clientId != null && clientId.isNotEmpty)
+                'client_submission_id': clientId,
+              if (photoUrl != null && photoUrl.isNotEmpty)
+                'photo_url': photoUrl,
+              'video': MultipartFile.fromBytes(
+                videoBytes,
+                filename: videoFilename,
+              ),
+            });
+            await _apiClient.postFormData(ApiConfig.reportHazardEndpoint, form);
+
+            // Clean up the local video file after confirmed upload.
+            try { await videoFile.delete(); } catch (_) {}
+            print('Synced queued report with video: client_id=$clientId');
+          } else {
+            // File was cleared by the OS — upload without video.
+            print('Offline video file missing ($videoLocalPath), uploading without video');
+            await _syncJsonReport(reportJson, clientId, photoUrl);
+          }
+        } else {
+          await _syncJsonReport(reportJson, clientId, photoUrl);
+        }
+
+        completed++;
+        onProgress?.call(completed, total);
       } catch (e) {
         print('Failed to sync report client_id=$clientId: $e');
         failed.add(reportJson);
@@ -381,6 +449,26 @@ class HazardService {
       await _storageService.savePendingReports(failed);
       print('${failed.length} report(s) remain in queue after partial sync');
     }
+  }
+
+  /// Upload a single queued report as a plain JSON payload (no binary media).
+  Future<void> _syncJsonReport(
+    Map<String, dynamic> reportJson,
+    String? clientId,
+    String? photoUrl,
+  ) async {
+    final payload = <String, dynamic>{
+      'hazard_type': reportJson['hazard_type'],
+      'latitude': reportJson['latitude'],
+      'longitude': reportJson['longitude'],
+      'description': reportJson['description'] ?? '',
+      'user_latitude': reportJson['user_latitude'],
+      'user_longitude': reportJson['user_longitude'],
+      if (photoUrl != null && photoUrl.isNotEmpty) 'photo_url': photoUrl,
+      if (clientId != null && clientId.isNotEmpty) 'client_submission_id': clientId,
+    };
+    await _apiClient.post(ApiConfig.reportHazardEndpoint, data: payload);
+    print('Synced queued report (json): client_id=$clientId');
   }
 
   /// Get baseline hazards (MDRRMO data) for caching.

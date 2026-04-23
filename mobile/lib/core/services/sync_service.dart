@@ -35,6 +35,10 @@ class SyncService {
   Stream<bool> get syncingStream => _syncingController.stream;
   bool get isSyncing => _syncing;
 
+  // Stream that emits upload progress (completed, total) while reports are uploading.
+  final _progressController = StreamController<(int, int)>.broadcast();
+  Stream<(int, int)> get uploadProgressStream => _progressController.stream;
+
   /// Start listening for connectivity changes.
   /// Safe to call multiple times — subsequent calls are no-ops.
   void startListening() {
@@ -82,7 +86,12 @@ class SyncService {
     if (count == 0) return;
     developer.log('Flushing $count queued report(s)', name: 'SyncService');
     try {
-      await _hazardService.syncQueuedReports();
+      await _hazardService.syncQueuedReports(
+        onProgress: (completed, total) {
+          _progressController.add((completed, total));
+          developer.log('Upload progress: $completed/$total', name: 'SyncService');
+        },
+      );
     } catch (e) {
       developer.log('Queue flush error: $e', name: 'SyncService');
     }

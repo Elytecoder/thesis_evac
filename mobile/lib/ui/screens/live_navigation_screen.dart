@@ -79,6 +79,12 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
+  /// Smoothly interpolates the marker between GPS fixes so it glides rather
+  /// than jumping.  Updated via [_animateToLocation].
+  late AnimationController _positionController;
+  LatLng? _displayLocation; // rendered position (interpolated)
+  LatLng? _animFromLocation; // position at animation start
+
   // ── Camera ───────────────────────────────────────────────────────────────
   double _currentBearing = 0.0;
   Timer? _cameraUpdateTimer;
@@ -133,6 +139,30 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         curve: Curves.easeInOut,
       ),
     );
+
+    // Position interpolation controller: 250 ms linear glide between GPS fixes.
+    _positionController = AnimationController(
+      duration: const Duration(milliseconds: 250),
+      vsync: this,
+    )..addListener(() {
+        if (!mounted) return;
+        final from = _animFromLocation;
+        final to = _userLocation;
+        if (from == null || to == null) return;
+        final t = _positionController.value;
+        setState(() {
+          _displayLocation = LatLng(
+            from.latitude + (to.latitude - from.latitude) * t,
+            from.longitude + (to.longitude - from.longitude) * t,
+          );
+        });
+      });
+  }
+
+  /// Smoothly animate the map marker from [_displayLocation] to [target].
+  void _animateToLocation(LatLng target) {
+    _animFromLocation = _displayLocation ?? target;
+    _positionController.forward(from: 0);
   }
 
   /// Initialize navigation system
@@ -253,7 +283,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _onLocationUpdate(LatLng location) async {
     if (!mounted) return;
 
-    setState(() => _userLocation = location);
+    // Update the true GPS fix (used for navigation logic) then animate the
+    // rendered marker smoothly to the new position so it glides, not jumps.
+    _userLocation = location;
+    _animateToLocation(location);
 
     // ── Post-arrival mode: only GPS movement check for "left destination" ──
     if (_hasArrived) {
@@ -915,6 +948,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     _headingSubscription?.cancel();
     _cameraUpdateTimer?.cancel();
     _pulseController.dispose();
+    _positionController.dispose();
     _gpsService.stopTracking();
     _routingService.dispose();
     super.dispose();
@@ -1239,13 +1273,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
             _currentRoute != null &&
             _currentRoute!.polyline.isNotEmpty)
           () {
+            final renderLoc = _displayLocation ?? _userLocation!;
             final routeStart = _currentRoute!.polyline.first;
             final gapM = _gpsService.calculateDistance(_userLocation!, routeStart);
             if (gapM > 15) {
               return PolylineLayer(
                 polylines: [
                   Polyline(
-                    points: [_userLocation!, routeStart],
+                    points: [renderLoc, routeStart],
                     color: Colors.blue.withValues(alpha: 0.55),
                     strokeWidth: 3.0,
                     borderStrokeWidth: 0,
@@ -1307,12 +1342,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           markers: _buildPendingHazardMarkers(),
         ),
 
-        // User arrow marker (3D style, positioned in bottom third)
+        // User arrow marker (3D style, positioned in bottom third).
+        // Uses _displayLocation (interpolated) for smooth gliding between GPS fixes.
         if (_userLocation != null)
           MarkerLayer(
             markers: [
               Marker(
-                point: _userLocation!,
+                point: _displayLocation ?? _userLocation!,
                 width: 60,
                 height: 60,
                 alignment: Alignment.center,

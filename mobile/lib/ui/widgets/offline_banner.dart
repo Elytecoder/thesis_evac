@@ -33,10 +33,12 @@ class _OfflineBannerState extends State<OfflineBanner>
 
   bool _isOffline = false;
   bool _isSyncing = false;
+  (int, int)? _uploadProgress; // (completed, total) while uploading reports
   late final AnimationController _animController;
   late final Animation<Offset> _slideAnimation;
   StreamSubscription<bool>? _connectivitySub;
   StreamSubscription<bool>? _syncingSub;
+  StreamSubscription<(int, int)>? _progressSub;
 
   @override
   void initState() {
@@ -76,14 +78,21 @@ class _OfflineBannerState extends State<OfflineBanner>
     // Listen to sync state so the banner shows "Syncing..." when back online.
     _syncingSub = _syncService.syncingStream.listen((syncing) {
       if (!mounted) return;
-      setState(() => _isSyncing = syncing);
+      setState(() {
+        _isSyncing = syncing;
+        if (!syncing) _uploadProgress = null; // clear progress when done
+      });
       if (syncing && !_isOffline) {
-        // Connection restored and sync started — slide banner in.
         _animController.forward();
       } else if (!syncing && !_isOffline) {
-        // Sync finished and we're online — slide banner away.
         _animController.reverse();
       }
+    });
+
+    // Listen to upload progress for detailed "Uploading 1/3…" messages.
+    _progressSub = _syncService.uploadProgressStream.listen((progress) {
+      if (!mounted) return;
+      setState(() => _uploadProgress = progress);
     });
   }
 
@@ -91,8 +100,26 @@ class _OfflineBannerState extends State<OfflineBanner>
   void dispose() {
     _connectivitySub?.cancel();
     _syncingSub?.cancel();
+    _progressSub?.cancel();
     _animController.dispose();
     super.dispose();
+  }
+
+  String _buildBannerTitle() {
+    if (_isOffline) return 'Offline Mode — Using cached maps and saved data';
+    if (_uploadProgress != null) {
+      final (done, total) = _uploadProgress!;
+      return 'Back online — Uploading report $done/$total…';
+    }
+    return 'Back online — Syncing data…';
+  }
+
+  String? _buildBannerSubtitle() {
+    final pendingCount = _syncService.pendingReportCount;
+    if (_isOffline && pendingCount > 0) {
+      return '$pendingCount report${pendingCount == 1 ? '' : 's'} queued — will sync when online';
+    }
+    return null;
   }
 
   @override
@@ -101,7 +128,6 @@ class _OfflineBannerState extends State<OfflineBanner>
     final showBanner = _isOffline || _isSyncing;
     if (!showBanner) return const SizedBox.shrink();
 
-    final pendingCount = _syncService.pendingReportCount;
     final Color bannerColor = _isOffline
         ? const Color(0xFFB71C1C) // dark red when offline
         : const Color(0xFF1565C0); // dark blue when syncing
@@ -138,19 +164,16 @@ class _OfflineBannerState extends State<OfflineBanner>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          _isOffline
-                              ? 'Offline Mode — Using cached maps and saved data'
-                              : 'Back online — Syncing data…',
+                          _buildBannerTitle(),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        if (_isOffline && pendingCount > 0)
+                        if (_buildBannerSubtitle() != null)
                           Text(
-                            '$pendingCount report${pendingCount == 1 ? '' : 's'} '
-                            'queued — will sync when online',
+                            _buildBannerSubtitle()!,
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 11,

@@ -50,6 +50,9 @@ class GPSTrackingService {
   /// Smoothed heading value currently emitted to the UI.
   double? _smoothedHeading;
 
+  /// Last emitted heading — used to enforce the [_emitThresholdDeg] gate.
+  double? _lastEmittedHeading;
+
   /// Speed threshold above which GPS course bearing is blended in.
   /// 1.0 m/s ≈ comfortable walking pace.
   static const double _gpsBlendThresholdMs = 1.0;
@@ -207,9 +210,16 @@ class GPSTrackingService {
       _smoothedHeading = _lowPassFilter(_smoothedHeading!, raw);
     }
 
-    // Emit on every compass update — setState coalescing in Flutter keeps this
-    // cheap; the UI only redraws when _currentBearing actually changes enough
-    // to produce a visible angle difference.
+    // Only emit when the smoothed heading has changed by more than the threshold
+    // (_emitThresholdDeg = 2°).  This eliminates jitter-setState calls while
+    // keeping visual responsiveness for genuine direction changes.
+    final prev = _lastEmittedHeading;
+    if (prev != null) {
+      final delta = (_smoothedHeading! - prev).abs() % 360;
+      final delta2 = delta > 180 ? 360 - delta : delta;
+      if (delta2 < _emitThresholdDeg) return;
+    }
+    _lastEmittedHeading = _smoothedHeading;
     _headingController.add(_smoothedHeading!);
   }
 

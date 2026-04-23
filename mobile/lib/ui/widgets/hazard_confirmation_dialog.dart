@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../models/hazard_report.dart';
 
 /// Modal dialog shown when similar hazard reports are found.
 /// 

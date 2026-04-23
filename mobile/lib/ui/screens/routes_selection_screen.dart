@@ -167,13 +167,35 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
         elevation: 0,
       ),
       body: _isLoading
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Calculating safest routes...'),
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: Colors.red[50],
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: CircularProgressIndicator(
+                        color: Colors.red,
+                        strokeWidth: 3,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Calculating safest routes…',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Analysing hazards and road conditions',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  ),
                 ],
               ),
             )
@@ -271,8 +293,36 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
                 // Routes list – show all returned routes (2–3 when backend provides alternatives)
                 Expanded(
                   child: _routes == null || _routes!.isEmpty
-                      ? const Center(
-                          child: Text('No routes available'),
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.route_outlined, size: 64, color: Colors.grey[300]),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'No routes available',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 40),
+                                child: Text(
+                                  'All roads to this center may be blocked or unreachable. Try another evacuation center.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              OutlinedButton.icon(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(Icons.arrow_back),
+                                label: const Text('Choose Another Center'),
+                              ),
+                            ],
+                          ),
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.symmetric(horizontal: 20),
