@@ -583,8 +583,10 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
                   VerticalDivider(width: 1, color: Colors.grey[200]),
                   _statCell(
                     Icons.shield_rounded,
-                    'Road Risk',
-                    '${(riskForDisplay * 100).toStringAsFixed(0)}%',
+                    'Risk Level',
+                    isGreen
+                        ? 'Safe Route'
+                        : (isYellow ? 'Moderate Risk' : 'High Risk'),
                     iconColor,
                   ),
                 ],
