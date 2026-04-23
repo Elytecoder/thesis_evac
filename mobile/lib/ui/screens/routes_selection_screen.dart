@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -22,17 +24,53 @@ class RoutesSelectionScreen extends StatefulWidget {
   State<RoutesSelectionScreen> createState() => _RoutesSelectionScreenState();
 }
 
-class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
+class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
+    with SingleTickerProviderStateMixin {
   final RoutingService _routingService = RoutingService();
   List<app_route.Route>? _routes;
   bool _isLoading = true;
-  app_route.RouteCalculationResult? _routeResult;
   bool _noSafeRouteModalDismissed = false;
+
+  // Prevents double-tap: tracks which route card is currently being opened.
+  int? _openingRouteIndex;
+
+  // Animated loading text — cycles through steps while calculating routes.
+  late AnimationController _loadingTextController;
+  int _loadingStep = 0;
+  Timer? _loadingTimer;
+  static const _loadingSteps = [
+    'Fetching road network…',
+    'Analysing verified hazards…',
+    'Calculating risk scores…',
+    'Finding safest routes…',
+    'Almost ready…',
+  ];
 
   @override
   void initState() {
     super.initState();
+    _loadingTextController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _startLoadingTextCycle();
     _loadRoutes();
+  }
+
+  void _startLoadingTextCycle() {
+    _loadingTimer = Timer.periodic(const Duration(milliseconds: 1800), (_) {
+      if (!mounted || !_isLoading) return;
+      setState(() {
+        _loadingStep = (_loadingStep + 1) % _loadingSteps.length;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _loadingTimer?.cancel();
+    _loadingTextController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadRoutes() async {
@@ -46,7 +84,6 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
 
       if (mounted) {
         setState(() {
-          _routeResult = result;
           _routes = result.routes;
           _isLoading = false;
         });
@@ -114,37 +151,39 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
     );
   }
 
-  void _onRouteSelected(app_route.Route route) {
-    if (route.riskLevel == app_route.RiskLevel.green) {
-      // Safe route - launch live navigation with the backend route
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => LiveNavigationScreen(
-            startLocation: widget.userLocation,
-            destination: widget.evacuationCenter,
-            selectedRoute: route,
+  void _onRouteSelected(app_route.Route route, int index) {
+    // Prevent double-tap: if already opening a card, ignore.
+    if (_openingRouteIndex != null) return;
+    setState(() => _openingRouteIndex = index);
+
+    Future<void> doNavigate() async {
+      if (route.riskLevel == app_route.RiskLevel.green) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LiveNavigationScreen(
+              startLocation: widget.userLocation,
+              destination: widget.evacuationCenter,
+              selectedRoute: route,
+            ),
           ),
-        ),
-      );
-    } else {
-      // Dangerous route - show warning
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => RouteDangerDetailsScreen(
-            route: route,
-            evacuationCenter: widget.evacuationCenter,
-            safeAlternative: _routes?.first,
+        );
+      } else {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RouteDangerDetailsScreen(
+              route: route,
+              evacuationCenter: widget.evacuationCenter,
+              safeAlternative: _routes?.first,
+            ),
           ),
-        ),
-      ).then((result) {
-        if (result != null) {
-          // If user accepts the risky route, start navigation with that route
-          Navigator.push(
+        );
+        if (result != null && mounted) {
+          await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => LiveNavigationScreen(
+              builder: (_) => LiveNavigationScreen(
                 startLocation: widget.userLocation,
                 destination: widget.evacuationCenter,
                 selectedRoute: route,
@@ -152,8 +191,21 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
             ),
           );
         }
-      });
+      }
+      if (mounted) setState(() => _openingRouteIndex = null);
     }
+
+    doNavigate();
+  }
+
+  /// Estimated walking/evacuation time at 4 km/h.
+  String _etaLabel(double distanceKm) {
+    if (distanceKm <= 0) return '—';
+    final minutes = (distanceKm / 4.0 * 60).round();
+    if (minutes < 60) return '~$minutes min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '~${h}h' : '~${h}h ${m}m';
   }
 
   @override
@@ -172,29 +224,47 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Container(
-                    width: 72,
-                    height: 72,
+                    width: 80,
+                    height: 80,
                     decoration: BoxDecoration(
                       color: Colors.red[50],
                       shape: BoxShape.circle,
                     ),
                     child: const Padding(
-                      padding: EdgeInsets.all(16),
+                      padding: EdgeInsets.all(18),
                       child: CircularProgressIndicator(
-                        color: Colors.red,
+                        color: Color(0xFFD32F2F),
                         strokeWidth: 3,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   const Text(
-                    'Calculating safest routes…',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    'Finding Safest Route',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.2,
+                    ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Analysing hazards and road conditions',
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                  const SizedBox(height: 8),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 350),
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0, 0.2),
+                          end: Offset.zero,
+                        ).animate(anim),
+                        child: child,
+                      ),
+                    ),
+                    child: Text(
+                      _loadingSteps[_loadingStep],
+                      key: ValueKey(_loadingStep),
+                      style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                    ),
                   ),
                 ],
               ),
@@ -365,212 +435,252 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
     final isGreen = route.riskLevel == app_route.RiskLevel.green;
     final isYellow = route.riskLevel == app_route.RiskLevel.yellow;
     final isRed = route.riskLevel == app_route.RiskLevel.red;
-    final isHighRisk = isRed; // Use riskLevel enum, not the free-text riskLabel string
+    final isHighRisk = isRed;
     final possiblyBlocked = route.possiblyBlocked;
+    final isRecommended = index == 0 && !isHighRisk;
+    final isCurrentlyOpening = _openingRouteIndex == index;
 
     final distanceKm = _displayDistanceKm(route);
     final riskForDisplay = _displayRisk(route);
+    final etaText = _etaLabel(distanceKm);
 
     Color bgColor = isGreen
         ? Colors.green[50]!
         : (isYellow ? Colors.yellow[50]! : Colors.red[50]!);
     Color borderColor = isGreen
-        ? Colors.green[200]!
-        : (isYellow ? Colors.yellow[200]! : Colors.red[200]!);
+        ? Colors.green[400]!
+        : (isYellow ? Colors.orange[300]! : Colors.red[300]!);
     Color iconColor = isGreen
         ? Colors.green[700]!
         : (isYellow ? Colors.orange[700]! : Colors.red[700]!);
 
-    String routeName = 'Route ${index + 1}';
-    if (index == 0 && !isHighRisk) routeName += ' (Safest)';
-    else if (isHighRisk) routeName += ' (High Risk)';
-    else routeName += ' (${route.riskLabel})';
+    final String routeName = 'Route ${index + 1}';
     String routeDesc = isGreen
-        ? 'Lowest risk – recommended'
+        ? 'Lowest risk — recommended evacuation path'
         : (isYellow
-            ? 'Moderate risk – proceed with caution'
-            : 'Higher risk – avoid if possible');
+            ? 'Moderate risk — proceed with caution'
+            : 'Higher risk — avoid if possible');
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: isRecommended ? Colors.white : bgColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 2),
+        border: Border.all(
+          color: isRecommended ? Colors.green[500]! : borderColor,
+          width: isRecommended ? 2.5 : 1.5,
+        ),
+        boxShadow: isRecommended
+            ? [
+                BoxShadow(
+                  color: Colors.green.withValues(alpha: 0.15),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                isGreen
-                    ? Icons.check_circle
-                    : (isYellow ? Icons.warning_amber : Icons.error),
-                color: iconColor,
-                size: 28,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            routeName,
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: iconColor,
-                            ),
-                          ),
-                        ),
-                        if (possiblyBlocked) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.red[100],
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row: icon + route name + badges
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isGreen
+                        ? Icons.check_circle_rounded
+                        : (isYellow ? Icons.warning_amber_rounded : Icons.cancel_rounded),
+                    color: iconColor,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Route name + recommended badge
+                      Row(
+                        children: [
+                          Flexible(
                             child: Text(
-                              'Possibly Blocked',
+                              routeName,
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.red[800],
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[900],
                               ),
                             ),
                           ),
+                          if (isRecommended) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.green[600],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                'RECOMMENDED',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (possiblyBlocked) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.red[100],
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'MAY BE BLOCKED',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red[800],
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
-                    Text(
-                      routeDesc,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey[700],
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.straighten, size: 16, color: Colors.grey[600]),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Distance',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${distanceKm.toStringAsFixed(1)} km',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(height: 3),
+                      Text(
+                        routeDesc,
+                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.shield, size: 16, color: Colors.grey[600]),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Risk',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${(riskForDisplay * 100).toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: iconColor,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Verified hazards & road risk',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // Progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: riskForDisplay,
-              backgroundColor: Colors.grey[200],
-              color: iconColor,
-              minHeight: 8,
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => _onRouteSelected(route),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isGreen ? Colors.green[600] : (isYellow ? Colors.orange[600] : Colors.red[600]),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(isGreen ? Icons.navigation : Icons.info_outline),
-                  const SizedBox(width: 8),
-                  Text(
-                    isGreen ? 'Start Navigation' : 'View Details',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    ],
                   ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+            // Divider
+            Divider(height: 1, color: Colors.grey[200]),
+            const SizedBox(height: 14),
+
+            // Stats row: Distance | ETA | Risk
+            IntrinsicHeight(
+              child: Row(
+                children: [
+                  _statCell(Icons.straighten_rounded, 'Distance',
+                      '${distanceKm.toStringAsFixed(1)} km', Colors.blue[700]!),
+                  VerticalDivider(width: 1, color: Colors.grey[200]),
+                  _statCell(Icons.access_time_rounded, 'Est. Time',
+                      etaText, Colors.indigo[600]!),
+                  VerticalDivider(width: 1, color: Colors.grey[200]),
+                  _statCell(Icons.shield_outlined, 'Risk Level',
+                      '${(riskForDisplay * 100).toStringAsFixed(0)}%', iconColor),
                 ],
               ),
             ),
-          ),
-        ],
+
+            const SizedBox(height: 12),
+            // Risk progress bar
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: riskForDisplay,
+                backgroundColor: Colors.grey[200],
+                color: iconColor,
+                minHeight: 6,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // CTA button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _openingRouteIndex != null
+                    ? null
+                    : () => _onRouteSelected(route, index),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isCurrentlyOpening
+                      ? Colors.grey[400]
+                      : (isGreen
+                          ? Colors.green[600]
+                          : (isYellow ? Colors.orange[600] : Colors.red[600])),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: isRecommended ? 3 : 1,
+                ),
+                child: isCurrentlyOpening
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(isGreen ? Icons.navigation_rounded : Icons.info_outline),
+                          const SizedBox(width: 8),
+                          Text(
+                            isGreen ? 'Start Navigation' : 'View Details',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _statCell(IconData icon, String label, String value, Color valueColor) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Column(
+          children: [
+            Icon(icon, size: 16, color: Colors.grey[500]),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: valueColor,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

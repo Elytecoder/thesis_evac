@@ -50,6 +50,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   EvacuationCenter? _selectedCenter;
   List<app_route.Route>? _calculatedRoutes;
   app_route.Route? _activeRoute;
+
+  // Double-tap prevention for "Routes" button on each center card.
+  bool _isOpeningRoutes = false;
   
   // Show bottom sheet
   bool _showBottomSheet = true;
@@ -300,9 +303,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   /// Handle evacuation center selection - Show routes
   Future<void> _onSelectCenter(EvacuationCenter center) async {
-    if (_userLocation == null) return;
-
+    if (_userLocation == null || _isOpeningRoutes) return;
     setState(() {
+      _isOpeningRoutes = true;
       _selectedCenter = center;
       _showBottomSheet = false;
     });
@@ -323,12 +326,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       setState(() {
         _activeRoute = result;
         _showBottomSheet = false;
+        _isOpeningRoutes = false;
       });
     } else {
       // User canceled, show bottom sheet again
       setState(() {
         _selectedCenter = null;
         _showBottomSheet = true;
+        _isOpeningRoutes = false;
       });
     }
   }
@@ -1215,7 +1220,38 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                             ),
                             // Scrollable list fills remaining height
                             Expanded(
-                              child: ListView.builder(
+                              child: _evacuationCenters.isEmpty
+                                  ? Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(24),
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(Icons.location_off_outlined,
+                                                size: 48, color: Colors.grey[300]),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              'No Evacuation Centers Found',
+                                              style: TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.grey[700],
+                                              ),
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              'Centers will appear here once the server is reachable.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[500],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    )
+                                  : ListView.builder(
                                 padding: const EdgeInsets.symmetric(horizontal: 16),
                                 itemCount: _evacuationCenters.length,
                                 itemBuilder: (context, index) {
@@ -1267,11 +1303,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                           ),
                                         ),
                                         TextButton(
-                                          onPressed: () => _onSelectCenter(center),
+                                          onPressed: _isOpeningRoutes
+                                              ? null
+                                              : () => _onSelectCenter(center),
                                           style: TextButton.styleFrom(
                                             foregroundColor: Colors.blue[700],
                                           ),
-                                          child: const Row(
+                                          child: _isOpeningRoutes &&
+                                                  _selectedCenter?.id == center.id
+                                              ? const SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                  ),
+                                                )
+                                              : const Row(
                                             children: [
                                               Text('Routes'),
                                               SizedBox(width: 4),
@@ -1284,7 +1331,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                   );
                                 },
                               ),
-                            ),
+                            ), // ListView.builder
                             const SizedBox(height: 8),
                           ],
                         ),
