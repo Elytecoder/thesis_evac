@@ -1846,14 +1846,6 @@ class _ArrivalModalContentState extends State<_ArrivalModalContent>
     super.dispose();
   }
 
-  String _formatDuration(int seconds) {
-    if (seconds <= 0) return '—';
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    if (m == 0) return '${s}s';
-    return '${m}m ${s}s';
-  }
-
   @override
   Widget build(BuildContext context) {
     final ec = widget.destination;
@@ -1939,22 +1931,21 @@ class _ArrivalModalContentState extends State<_ArrivalModalContent>
           ],
           const SizedBox(height: 16),
 
-          // Trip summary chip row
+          // Trip summary chip row — distance + reroutes only (no duration/ETA)
           Wrap(
             alignment: WrapAlignment.center,
             spacing: 10,
             runSpacing: 8,
             children: [
-              _tripChip(Icons.timer_outlined, _formatDuration(widget.durationSeconds)),
               if (widget.totalDistanceM > 0)
                 _tripChip(
-                  Icons.straighten,
+                  Icons.straighten_rounded,
                   widget.totalDistanceM >= 1000
-                      ? '${(widget.totalDistanceM / 1000).toStringAsFixed(1)} km'
-                      : '${widget.totalDistanceM.toStringAsFixed(0)} m',
+                      ? '${(widget.totalDistanceM / 1000).toStringAsFixed(2)} km travelled'
+                      : '${widget.totalDistanceM.toStringAsFixed(0)} m travelled',
                 ),
               _tripChip(
-                Icons.route,
+                Icons.route_rounded,
                 widget.rerouteCount == 0
                     ? 'No reroutes'
                     : '${widget.rerouteCount} reroute${widget.rerouteCount == 1 ? '' : 's'}',

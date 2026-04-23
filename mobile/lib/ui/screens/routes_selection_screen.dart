@@ -198,15 +198,6 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
     doNavigate();
   }
 
-  /// Estimated walking/evacuation time at 4 km/h.
-  String _etaLabel(double distanceKm) {
-    if (distanceKm <= 0) return '—';
-    final minutes = (distanceKm / 4.0 * 60).round();
-    if (minutes < 60) return '~$minutes min';
-    final h = minutes ~/ 60;
-    final m = minutes % 60;
-    return m == 0 ? '~${h}h' : '~${h}h ${m}m';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -442,7 +433,6 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
 
     final distanceKm = _displayDistanceKm(route);
     final riskForDisplay = _displayRisk(route);
-    final etaText = _etaLabel(distanceKm);
 
     Color bgColor = isGreen
         ? Colors.green[50]!
@@ -578,18 +568,25 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
             Divider(height: 1, color: Colors.grey[200]),
             const SizedBox(height: 14),
 
-            // Stats row: Distance | ETA | Risk
+            // Stats row: Distance | Risk Level
             IntrinsicHeight(
               child: Row(
                 children: [
-                  _statCell(Icons.straighten_rounded, 'Distance',
-                      '${distanceKm.toStringAsFixed(1)} km', Colors.blue[700]!),
+                  _statCell(
+                    Icons.straighten_rounded,
+                    'Distance',
+                    distanceKm >= 1
+                        ? '${distanceKm.toStringAsFixed(2)} km'
+                        : '${(distanceKm * 1000).toStringAsFixed(0)} m',
+                    Colors.blue[700]!,
+                  ),
                   VerticalDivider(width: 1, color: Colors.grey[200]),
-                  _statCell(Icons.access_time_rounded, 'Est. Time',
-                      etaText, Colors.indigo[600]!),
-                  VerticalDivider(width: 1, color: Colors.grey[200]),
-                  _statCell(Icons.shield_outlined, 'Risk Level',
-                      '${(riskForDisplay * 100).toStringAsFixed(0)}%', iconColor),
+                  _statCell(
+                    Icons.shield_rounded,
+                    'Road Risk',
+                    '${(riskForDisplay * 100).toStringAsFixed(0)}%',
+                    iconColor,
+                  ),
                 ],
               ),
             ),

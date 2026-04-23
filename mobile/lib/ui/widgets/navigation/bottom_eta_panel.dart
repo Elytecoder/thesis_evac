@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../models/navigation_route.dart';
 
-/// Bottom ETA panel with slide-up animation
-/// Shows arrival time, duration, distance, and controls
+/// Bottom navigation info panel with slide-up animation.
+/// Shows remaining distance and route risk level — no ETA displayed.
 class BottomETAPanel extends StatelessWidget {
   final NavigationRoute? route;
   final bool voiceEnabled;
@@ -26,10 +26,7 @@ class BottomETAPanel extends StatelessWidget {
       builder: (context, value, child) {
         return Transform.translate(
           offset: Offset(0, value * 150),
-          child: Opacity(
-            opacity: 1 - value,
-            child: child,
-          ),
+          child: Opacity(opacity: 1 - value, child: child),
         );
       },
       child: Container(
@@ -37,15 +34,10 @@ class BottomETAPanel extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-            bottomLeft: Radius.circular(24),
-            bottomRight: Radius.circular(24),
-          ),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.2),
+              color: Colors.black.withOpacity(0.18),
               blurRadius: 20,
               offset: const Offset(0, -5),
             ),
@@ -53,112 +45,41 @@ class BottomETAPanel extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Main info section with clear labels
+            // Distance remaining (prominent)
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
+              child: Row(
                 children: [
-                  // ETA
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.access_time,
-                        size: 16,
-                        color: Colors.grey[600],
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'ETA',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _getArrivalTime(),
-                        style: TextStyle(
-                          color: Colors.green[700],
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                    ],
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.blue[50],
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.straighten_rounded,
+                        size: 20, color: Colors.blue[700]),
                   ),
-                  const SizedBox(height: 12),
-                  // Time left and Distance left in a row
-                  Row(
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Time left
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.timer_outlined,
-                              size: 16,
-                              color: Colors.grey[600],
-                            ),
-                            const SizedBox(width: 6),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Time left',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  route?.getFormattedETA() ?? '--',
-                                  style: TextStyle(
-                                    color: Colors.grey[800],
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                      Text(
+                        'Distance remaining',
+                        style: TextStyle(
+                          color: Colors.grey[500],
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      // Distance left
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.straighten,
-                              size: 16,
-                              color: Colors.grey[600],
-                            ),
-                            const SizedBox(width: 6),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Distance left',
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  route?.getFormattedDistance() ?? '--',
-                                  style: TextStyle(
-                                    color: Colors.grey[800],
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                      const SizedBox(height: 2),
+                      Text(
+                        route?.getFormattedDistance() ?? '—',
+                        style: TextStyle(
+                          color: Colors.grey[900],
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.3,
                         ),
                       ),
                     ],
@@ -166,34 +87,12 @@ class BottomETAPanel extends StatelessWidget {
                 ],
               ),
             ),
-            
+
             const SizedBox(width: 12),
-            
-            // Voice toggle button
-            Material(
-              color: voiceEnabled ? Colors.blue : Colors.grey[300],
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                onTap: onVoiceToggle,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  alignment: Alignment.center,
-                  child: Icon(
-                    voiceEnabled ? Icons.volume_up : Icons.volume_off,
-                    color: voiceEnabled ? Colors.white : Colors.grey[600],
-                    size: 24,
-                  ),
-                ),
-              ),
-            ),
-            
-            const SizedBox(width: 8),
-            
+
             // Cancel button
             Material(
-              color: Colors.red,
+              color: Colors.red[600],
               borderRadius: BorderRadius.circular(12),
               child: InkWell(
                 onTap: onCancel,
@@ -202,11 +101,7 @@ class BottomETAPanel extends StatelessWidget {
                   width: 50,
                   height: 50,
                   alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.close,
-                    color: Colors.white,
-                    size: 24,
-                  ),
+                  child: const Icon(Icons.close, color: Colors.white, size: 24),
                 ),
               ),
             ),
@@ -214,17 +109,5 @@ class BottomETAPanel extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _getArrivalTime() {
-    if (route == null) return '--:--';
-    
-    final now = DateTime.now();
-    final arrivalTime = now.add(Duration(seconds: route!.estimatedTimeSeconds));
-    
-    final hour = arrivalTime.hour;
-    final minute = arrivalTime.minute.toString().padLeft(2, '0');
-    
-    return '$hour:$minute';
   }
 }
