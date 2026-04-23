@@ -760,13 +760,13 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
     approved_hazards = _get_approved_hazards()
     for seg in segments:
         seg.effective_risk = calculate_segment_risk(seg, approved_hazards)
-    # 1–4) Up to 3 routes by reusing Dijkstra: run once → penalize used edges → run again (no new algorithm).
+    # 1–4) Up to k routes by reusing Dijkstra: run once → penalize used edges → run again.
     dijkstra_safe = ModifiedDijkstraService(risk_multiplier=500.0)
     safest_routes = dijkstra_safe.get_safest_routes(
         segments,
         float(start_lat), float(start_lng),
         float(ec.latitude), float(ec.longitude),
-        k=3,
+        k=k,
     )
     # Optional: add shortest (distance-only) if it is a different path.
     dijkstra_short = ModifiedDijkstraService(risk_multiplier=0.0)
@@ -832,9 +832,18 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         r['explanation'] = _build_route_explanation(hazards_on_route, tr)
 
     high_risk_routes = [r for r in routes if _float(r.get('total_risk')) >= HIGH_RISK_THRESHOLD]
-    no_safe_route = len(routes) > 0 and len(high_risk_routes) == len(routes)
-    message = 'All routes are high risk' if no_safe_route else None
-    recommended_action = 'Try another evacuation center or wait' if no_safe_route else None
+    if not routes:
+        no_safe_route = True
+        message = 'No navigable route found. Roads between your location and this center may be unreachable or disconnected.'
+        recommended_action = 'Please try a different evacuation center.'
+    elif len(high_risk_routes) == len(routes):
+        no_safe_route = True
+        message = 'All available roads are currently high risk due to nearby hazards.'
+        recommended_action = 'Try another evacuation center or wait for conditions to improve.'
+    else:
+        no_safe_route = False
+        message = None
+        recommended_action = None
     alternative_centers = []
     if no_safe_route and include_alternative_centers:
         alternative_centers = _get_alternative_centers(

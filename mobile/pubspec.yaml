@@ -31,6 +31,7 @@ dependencies:
   
   # State management & utilities
   shared_preferences: ^2.2.0
+  uuid: ^4.4.0
   
   # Media picker
   image_picker: ^1.0.7

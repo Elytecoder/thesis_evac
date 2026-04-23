@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -38,7 +40,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final ResidentHazardReportsService _hazardReportsService = ResidentHazardReportsService();
   final ResidentNotificationsService _notificationsService = ResidentNotificationsService();
   final ConnectivityService _connectivity = ConnectivityService();
-  
+  StreamSubscription<bool>? _reconnectSub;
+
   LatLng? _userLocation;
   bool _isLoading = true;
   List<EvacuationCenter> _evacuationCenters = [];
@@ -84,7 +87,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   /// Reload live data when connectivity is restored so the map stays current.
   void _listenForReconnect() {
-    _connectivity.onConnectionChange.listen((isOnline) {
+    _reconnectSub = _connectivity.onConnectionChange.listen((isOnline) {
       if (isOnline && mounted) {
         _loadEvacuationCenters();
         _loadHazardReports();
@@ -131,6 +134,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _reconnectSub?.cancel();
     _pulseController.dispose();
     super.dispose();
   }

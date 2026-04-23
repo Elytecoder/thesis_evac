@@ -9,8 +9,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
+import threading
+
 from apps.hazards import hazard_media
 from core.permissions.mdrrmo import IsMDRRMO
+from core.utils.geo import haversine_meters as _haversine_meters
 from apps.evacuation.models import EvacuationCenter
 from apps.evacuation.serializers import (
     EvacuationCenterSerializer,
@@ -44,6 +47,20 @@ def _optional_form_float(data, key):
     if v is None or v == '':
         return None
     return v
+
+
+def _bg_recompute_segment_risks():
+    """
+    Force-refresh all road segment risk scores in a background thread.
+    Called after any MDRRMO action that changes the approved-hazard set
+    (approve, reject, delete, restore) so routes update immediately.
+    """
+    try:
+        from apps.mobile_sync.services.route_service import recompute_all_segment_risks
+        recompute_all_segment_risks(force=True)
+    except Exception as exc:  # pragma: no cover
+        import logging
+        logging.getLogger(__name__).warning('Background segment recompute failed: %s', exc)
 
 
 @api_view(['POST'])
@@ -125,6 +142,18 @@ def report_hazard(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Idempotency: if the client resends an offline-queued report that the
+        # server already accepted, return the existing report instead of duplicating.
+        client_submission_id = request.data.get('client_submission_id') or None
+        if client_submission_id:
+            existing = HazardReport.objects.filter(
+                client_submission_id=client_submission_id,
+                user=request.user,
+            ).first()
+            if existing:
+                from apps.hazards.serializers import HazardReportSerializer
+                return Response(HazardReportSerializer(existing).data, status=status.HTTP_200_OK)
+
         report = process_new_report(
             user=request.user,
             hazard_type=validated['hazard_type'],
@@ -135,6 +164,7 @@ def report_hazard(request):
             video_url=video_url,
             user_latitude=user_lat,
             user_longitude=user_lng,
+            client_submission_id=client_submission_id,
         )
         payload = HazardReportSerializer(report).data
         return Response(payload, status=status.HTTP_201_CREATED)
@@ -398,6 +428,13 @@ def mdrrmo_approve_report(request):
         report.admin_comment = admin_comment
     
     report.save()
+
+    # Immediately refresh road segment risk scores in background so routes
+    # and the High-Risk Roads dashboard tile reflect this approval/rejection.
+    threading.Thread(
+        target=_bg_recompute_segment_risks, daemon=True
+    ).start()
+
     return Response(PendingReportSerializer(report).data)
 
 
@@ -468,8 +505,6 @@ def check_similar_reports(request):
     Body: {hazard_type, latitude, longitude, radius_meters}
     Returns: List of similar pending reports
     """
-    from math import radians, cos, sin, asin, sqrt
-    
     hazard_type = request.data.get('hazard_type')
     latitude = request.data.get('latitude')
     longitude = request.data.get('longitude')
@@ -491,17 +526,6 @@ def check_similar_reports(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Haversine formula to calculate distance
-    def haversine_distance(lat1, lon1, lat2, lon2):
-        """Calculate distance between two coordinates in meters."""
-        R = 6371000  # Earth radius in meters
-        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-        dlat = lat2 - lat1
-        dlon = lon2 - lon1
-        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-        c = 2 * asin(sqrt(a))
-        return R * c
-    
     # Find similar pending reports
     similar_reports = []
     pending_reports = HazardReport.objects.filter(
@@ -512,7 +536,7 @@ def check_similar_reports(request):
     ).select_related('user')
     
     for report in pending_reports:
-        distance = haversine_distance(
+        distance = _haversine_meters(
             latitude, longitude,
             float(report.latitude), float(report.longitude)
         )
@@ -673,6 +697,7 @@ def restore_report(request):
         )
     
     report.restore(restoration_reason)
+    threading.Thread(target=_bg_recompute_segment_risks, daemon=True).start()
     return Response(PendingReportSerializer(report).data)
 
 
@@ -697,6 +722,7 @@ def mdrrmo_delete_report(request, report_id: int):
     report.is_deleted = True
     report.deleted_at = tz.now()
     report.save(update_fields=['is_deleted', 'deleted_at'])
+    threading.Thread(target=_bg_recompute_segment_risks, daemon=True).start()
     return Response({'message': 'Report deleted successfully'}, status=status.HTTP_200_OK)
 
 

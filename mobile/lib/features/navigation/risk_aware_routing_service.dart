@@ -97,7 +97,11 @@ class RiskAwareRoutingService {
       throw Exception('OSRM routing failed: ${data['code']}');
     }
 
-    final route = (data['routes'] as List)[0];
+    final routesList = data['routes'] as List?;
+    if (routesList == null || routesList.isEmpty) {
+      throw Exception('OSRM returned no routes');
+    }
+    final route = routesList[0];
     final legs = route['legs'] as List;
     return _parseOsrmLegsToSteps(legs);
   }
@@ -443,21 +447,29 @@ class RiskAwareRoutingService {
     _lastRerouteTime = DateTime.now();
   }
 
-  /// Returns true if [userLocation] is more than 50 m from the nearest
-  /// polyline point.
+  /// Returns true if [userLocation] is more than [deviationThresholdM] metres
+  /// from the nearest route **segment** (perpendicular distance, not point distance).
+  ///
+  /// Using perpendicular-to-segment distance prevents false deviation triggers
+  /// at corners and sparse polylines.
   bool hasDeviatedFromRoute({
     required LatLng userLocation,
     required NavigationRoute route,
   }) {
     if (route.polyline.isEmpty) return false;
 
+    const deviationThresholdM = 40.0; // tighter than point-based 100 m
     double minDistance = double.infinity;
-    for (final point in route.polyline) {
-      final d = _gpsService.calculateDistance(userLocation, point);
+
+    final pts = route.polyline;
+    for (int i = 0; i < pts.length - 1; i++) {
+      final d = _perpendicularDistanceToSegmentM(userLocation, pts[i], pts[i + 1]);
       if (d < minDistance) minDistance = d;
     }
+    // Also check the last vertex itself (handles single-point polylines gracefully)
+    final lastD = _gpsService.calculateDistance(userLocation, pts.last);
+    if (lastD < minDistance) minDistance = lastD;
 
-    const deviationThresholdM = 100.0;
     final hasDeviated = minDistance > deviationThresholdM;
     if (hasDeviated) {
       print(
@@ -519,6 +531,35 @@ class RiskAwareRoutingService {
     final hasArrived = distance < 30;
     if (hasArrived) print('✅ Arrived at destination');
     return hasArrived;
+  }
+
+  /// Perpendicular distance (metres) from [point] to the line segment
+  /// [segStart]→[segEnd].  Uses a flat-Earth approximation in degrees scaled
+  /// to metres — accurate to ≪1 % for segments shorter than a few kilometres.
+  double _perpendicularDistanceToSegmentM(
+      LatLng point, LatLng segStart, LatLng segEnd) {
+    // Scale factor: 1° lat ≈ 111_320 m; 1° lng ≈ 111_320 × cos(lat) m
+    const metersPerDeg = 111320.0;
+    final cosLat = math.cos(point.latitude * math.pi / 180.0);
+
+    final px = (point.longitude - segStart.longitude) * metersPerDeg * cosLat;
+    final py = (point.latitude - segStart.latitude) * metersPerDeg;
+
+    final dx = (segEnd.longitude - segStart.longitude) * metersPerDeg * cosLat;
+    final dy = (segEnd.latitude - segStart.latitude) * metersPerDeg;
+
+    final lenSq = dx * dx + dy * dy;
+    if (lenSq == 0) {
+      // Degenerate segment (start == end) — return point-to-point distance
+      return _gpsService.calculateDistance(point, segStart);
+    }
+
+    // Parameter t ∈ [0, 1] of the nearest point on the segment
+    final t = ((px * dx + py * dy) / lenSq).clamp(0.0, 1.0);
+
+    final nearestX = t * dx - px;
+    final nearestY = t * dy - py;
+    return math.sqrt(nearestX * nearestX + nearestY * nearestY);
   }
 
   void dispose() {}

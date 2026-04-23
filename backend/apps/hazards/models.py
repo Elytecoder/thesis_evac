@@ -100,6 +100,12 @@ class HazardReport(models.Model):
     # Non-sequential public reference for MDRRMO display (6 digits, unique). DB pk unchanged.
     public_reference = models.PositiveIntegerField(unique=True)
 
+    # Offline deduplication: mobile client sets this UUID before queuing.
+    # Backend rejects duplicate IDs so re-sync never creates double reports.
+    client_submission_id = models.CharField(
+        max_length=64, blank=True, null=True, db_index=True
+    )
+
     class Meta:
         db_table = 'hazards_hazardreport'
         ordering = ['-created_at']  # Newest first

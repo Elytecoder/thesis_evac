@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:uuid/uuid.dart';
+
 import 'package:dio/dio.dart';
 import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
@@ -187,6 +189,8 @@ class HazardService {
         latitude: latitude,
         longitude: longitude,
         description: description,
+        userLatitude: userLatitude,
+        userLongitude: userLongitude,
         photoUrl: resolvedPhotoUrl,
         videoUrl: videoUrl,
       );
@@ -277,29 +281,37 @@ class HazardService {
     required double latitude,
     required double longitude,
     required String description,
+    double? userLatitude,
+    double? userLongitude,
     String? photoUrl,
     String? videoUrl,
   }) async {
+    final clientId = const Uuid().v4();
+    final now = DateTime.now();
+
     final report = HazardReport(
-      id: DateTime.now().millisecondsSinceEpoch,
-      userId: 1,
+      id: now.millisecondsSinceEpoch,
+      userId: null,
       hazardType: hazardType,
       latitude: latitude,
       longitude: longitude,
+      userLatitude: userLatitude,
+      userLongitude: userLongitude,
       description: description,
       photoUrl: photoUrl,
       videoUrl: videoUrl,
       status: HazardStatus.pending,
       naiveBayesScore: 0.0,
       consensusScore: 0.0,
-      createdAt: DateTime.now(),
+      createdAt: now,
+      clientSubmissionId: clientId,
     );
 
     final queue = await _storageService.getPendingReports();
     queue.add(report.toJson());
     await _storageService.savePendingReports(queue);
 
-    print('Report queued offline: ${queue.length} report(s) pending sync');
+    print('Report queued offline (id=$clientId): ${queue.length} report(s) pending sync');
     return report;
   }
 
@@ -310,6 +322,8 @@ class HazardService {
 
   /// Sync queued reports when back online.
   /// Only clears the pending queue — never touches other caches.
+  /// Reports without GPS are skipped (they would 400 on the server) and kept
+  /// in the queue so the user can correct and resubmit from the Reports screen.
   Future<void> syncQueuedReports() async {
     final queuedReports = await _getQueuedReports();
 
@@ -324,14 +338,37 @@ class HazardService {
     final List<Map<String, dynamic>> failed = [];
 
     for (final reportJson in queuedReports) {
+      final clientId = reportJson['client_submission_id'] as String?;
+
+      // Guard: GPS is mandatory. Skip without consuming the item so the user
+      // can see it still pending and decide to re-submit manually.
+      final hasGps = reportJson['user_latitude'] != null &&
+          reportJson['user_longitude'] != null;
+      if (!hasGps) {
+        print('Skipping queued report (no GPS): id=${reportJson['id']}');
+        failed.add(reportJson);
+        continue;
+      }
+
+      // Build the minimal payload the backend expects.
+      final payload = <String, dynamic>{
+        'hazard_type': reportJson['hazard_type'],
+        'latitude': reportJson['latitude'],
+        'longitude': reportJson['longitude'],
+        'description': reportJson['description'] ?? '',
+        'user_latitude': reportJson['user_latitude'],
+        'user_longitude': reportJson['user_longitude'],
+        if (reportJson['photo_url'] != null && (reportJson['photo_url'] as String).isNotEmpty)
+          'photo_url': reportJson['photo_url'],
+        if (clientId != null && clientId.isNotEmpty)
+          'client_submission_id': clientId,
+      };
+
       try {
-        await _apiClient.post(
-          ApiConfig.reportHazardEndpoint,
-          data: reportJson,
-        );
-        print('Synced queued report id=${reportJson['id']}');
+        await _apiClient.post(ApiConfig.reportHazardEndpoint, data: payload);
+        print('Synced queued report client_id=$clientId');
       } catch (e) {
-        print('Failed to sync report id=${reportJson['id']}: $e');
+        print('Failed to sync report client_id=$clientId: $e');
         failed.add(reportJson);
       }
     }

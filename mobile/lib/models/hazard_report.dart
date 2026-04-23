@@ -49,6 +49,10 @@ class HazardReport {
   final DateTime? rejectedAt;
   final DateTime? deletionScheduledAt;
 
+  /// UUID set by the mobile client before queueing an offline report.
+  /// Sent to the backend for idempotency; prevents duplicate uploads on re-sync.
+  final String? clientSubmissionId;
+
   HazardReport({
     this.id,
     this.userId,
@@ -76,6 +80,7 @@ class HazardReport {
     this.createdAt,
     this.rejectedAt,
     this.deletionScheduledAt,
+    this.clientSubmissionId,
   });
 
   factory HazardReport.fromJson(Map<String, dynamic> json) {
@@ -115,6 +120,7 @@ class HazardReport {
       deletionScheduledAt: json['deletion_scheduled_at'] != null
           ? DateTime.tryParse(json['deletion_scheduled_at'].toString())
           : null,
+      clientSubmissionId: json['client_submission_id'] as String?,
     );
   }
 
@@ -146,6 +152,7 @@ class HazardReport {
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
       if (rejectedAt != null) 'rejected_at': rejectedAt!.toIso8601String(),
       if (deletionScheduledAt != null) 'deletion_scheduled_at': deletionScheduledAt!.toIso8601String(),
+      if (clientSubmissionId != null) 'client_submission_id': clientSubmissionId,
     };
   }
   

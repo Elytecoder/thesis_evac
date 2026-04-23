@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/utils/date_time_utils.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 import '../widgets/report_media_preview.dart';
@@ -871,8 +872,8 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   }
 
   String _formatDateTime(DateTime dateTime) {
-    final local = dateTime.toLocal();
-    final now = DateTime.now();
+    final local = toManilaTime(dateTime);
+    final now = toManilaTime(DateTime.now().toUtc());
     final difference = now.difference(local);
 
     if (difference.inMinutes < 60) {

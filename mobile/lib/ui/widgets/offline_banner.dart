@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/services/connectivity_service.dart';
@@ -33,6 +35,8 @@ class _OfflineBannerState extends State<OfflineBanner>
   bool _isSyncing = false;
   late final AnimationController _animController;
   late final Animation<Offset> _slideAnimation;
+  StreamSubscription<bool>? _connectivitySub;
+  StreamSubscription<bool>? _syncingSub;
 
   @override
   void initState() {
@@ -59,23 +63,34 @@ class _OfflineBannerState extends State<OfflineBanner>
   }
 
   void _listenToChanges() {
-    _connectivity.onConnectionChange.listen((isOnline) {
+    _connectivitySub = _connectivity.onConnectionChange.listen((isOnline) {
       if (!mounted) return;
       setState(() => _isOffline = !isOnline);
       if (_isOffline) {
         _animController.forward();
-      } else {
+      } else if (!_isSyncing) {
+        // Only hide the banner when back online AND not currently syncing.
         _animController.reverse();
       }
     });
     // Listen to sync state so the banner shows "Syncing..." when back online.
-    _syncService.syncingStream.listen((syncing) {
-      if (mounted) setState(() => _isSyncing = syncing);
+    _syncingSub = _syncService.syncingStream.listen((syncing) {
+      if (!mounted) return;
+      setState(() => _isSyncing = syncing);
+      if (syncing && !_isOffline) {
+        // Connection restored and sync started — slide banner in.
+        _animController.forward();
+      } else if (!syncing && !_isOffline) {
+        // Sync finished and we're online — slide banner away.
+        _animController.reverse();
+      }
     });
   }
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
+    _syncingSub?.cancel();
     _animController.dispose();
     super.dispose();
   }

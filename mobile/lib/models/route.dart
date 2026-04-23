@@ -147,9 +147,9 @@ class Route {
                 longitude: (point[1] as num).toDouble(),
               ))
           .toList(),
-      totalDistance: (json['total_distance'] as num).toDouble(),
-      totalRisk: (json['total_risk'] as num).toDouble(),
-      weight: (json['weight'] != null ? (json['weight'] as num).toDouble() : (json['total_distance'] as num).toDouble()),
+      totalDistance: (json['total_distance'] as num? ?? 0).toDouble(),
+      totalRisk: (json['total_risk'] as num? ?? 0).toDouble(),
+      weight: (json['weight'] as num? ?? json['total_distance'] as num? ?? 0).toDouble(),
       riskLevel: RiskLevel.fromString(json['risk_level'] as String? ?? 'Yellow'),
       hazardsAlongRoute: hazards,
       riskLabel: (json['risk_label'] as String?) ?? 'Safer Route',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../../core/utils/date_time_utils.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 import '../widgets/report_media_preview.dart';
@@ -153,7 +154,18 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
   }
 
   Future<void> _handleReject() async {
-    // Show confirmation modal (no reason required)
+    // Require a rejection comment before proceeding.
+    if (_commentController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a rejection reason before rejecting.'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
     final confirm = await _showConfirmDialog(
       'Reject Report',
       'Are you sure you want to reject this hazard report?',
@@ -1220,9 +1232,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
   }
 
   String _formatFullDateTime(DateTime dateTime) {
-    final local = dateTime.toLocal();
-    final hour = local.hour.toString().padLeft(2, '0');
-    final minute = local.minute.toString().padLeft(2, '0');
-    return '${local.month}/${local.day}/${local.year} at $hour:$minute';
+    return formatManila(dateTime);
   }
 }

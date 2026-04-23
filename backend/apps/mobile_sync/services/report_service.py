@@ -91,6 +91,7 @@ def process_new_report(
     video_url: str = '',
     user_latitude=None,
     user_longitude=None,
+    client_submission_id: str | None = None,
 ) -> HazardReport:
     """
     Create report, run NB (type + description only) and separate rule scores,
@@ -107,6 +108,7 @@ def process_new_report(
         status=HazardReport.Status.PENDING,
         user_latitude=user_latitude,
         user_longitude=user_longitude,
+        client_submission_id=client_submission_id or None,
     )
 
     # Step 1: Proximity check — auto-reject if user is > 150 m from hazard.

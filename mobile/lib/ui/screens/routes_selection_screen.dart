@@ -315,7 +315,7 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
     final isGreen = route.riskLevel == app_route.RiskLevel.green;
     final isYellow = route.riskLevel == app_route.RiskLevel.yellow;
     final isRed = route.riskLevel == app_route.RiskLevel.red;
-    final isHighRisk = route.riskLabel == 'High Risk';
+    final isHighRisk = isRed; // Use riskLevel enum, not the free-text riskLabel string
     final possiblyBlocked = route.possiblyBlocked;
 
     final distanceKm = _displayDistanceKm(route);
@@ -333,7 +333,7 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen> {
 
     String routeName = 'Route ${index + 1}';
     if (index == 0 && !isHighRisk) routeName += ' (Safest)';
-    else if (isHighRisk) routeName += ' (${route.riskLabel})';
+    else if (isHighRisk) routeName += ' (High Risk)';
     else routeName += ' (${route.riskLabel})';
     String routeDesc = isGreen
         ? 'Lowest risk – recommended'

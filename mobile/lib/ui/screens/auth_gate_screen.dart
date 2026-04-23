@@ -80,13 +80,27 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
         _loading = false;
         _home = isMdrrmo ? const AdminHomeScreen() : const MapScreen();
       });
-    } catch (_) {
-      await _authService.clearLocalSessionOnly();
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _home = const WelcomeScreen();
-      });
+    } catch (e) {
+      // Only clear the session on auth failures (401/403). A network error while
+      // offline should NOT log the user out — default to the resident map screen
+      // so they can still use the app with cached data.
+      final isAuthError = e.toString().contains('401') || e.toString().contains('403');
+      if (isAuthError) {
+        await _authService.clearLocalSessionOnly();
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _home = const WelcomeScreen();
+        });
+      } else {
+        // Network / server error — keep the session, restore token, and show map.
+        _authService.restoreTokenOnClient(token);
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _home = const MapScreen();
+        });
+      }
     }
   }
 

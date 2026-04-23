@@ -422,7 +422,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     await _saveTripHistory();
 
     // ── Show arrival modal ─────────────────────────────────────────────────
-    if (mounted) _showArrivalModal();
+    if (mounted) _showArrivalModal(_currentRoute?.totalDistance ?? 0.0);
   }
 
   /// Persist the completed trip to local Hive storage for analytics.
@@ -440,6 +440,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         'duration_seconds': _navigationStartTime != null
             ? now.difference(_navigationStartTime!).inSeconds
             : 0,
+        'total_distance_m': _currentRoute?.totalDistance ?? 0.0,
         'reroute_count': _rerouteCount,
       });
       print('✅ Trip history saved (reroutes: $_rerouteCount)');
@@ -449,7 +450,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   }
 
   /// Polished arrival bottom sheet — non-dismissible, one action per button.
-  void _showArrivalModal() {
+  void _showArrivalModal(double totalDistanceM) {
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
@@ -465,6 +466,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         durationSeconds: _navigationStartTime != null
             ? DateTime.now().difference(_navigationStartTime!).inSeconds
             : 0,
+        totalDistanceM: totalDistanceM,
         rerouteCount: _rerouteCount,
         onDone: () {
           Navigator.pop(modalCtx);
@@ -726,14 +728,32 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Distance from current location to destination (straight-line, in km)
+  /// Remaining road distance in km.
+  /// Sums: distance to the current step waypoint + distanceToNext for all
+  /// subsequent steps.  Falls back to straight-line when no route is active.
   double get _distanceRemainingKm {
     if (_userLocation == null) return 0;
-    final dist = _gpsService.calculateDistance(
-      _userLocation!,
-      LatLng(widget.destination.latitude, widget.destination.longitude),
-    );
-    return dist / 1000;
+
+    final route = _currentRoute;
+    final step = _currentStep;
+    if (route == null || route.steps.isEmpty || step == null) {
+      // No route data — use straight-line as fallback
+      return _gpsService.calculateDistance(
+            _userLocation!,
+            LatLng(widget.destination.latitude, widget.destination.longitude),
+          ) /
+          1000;
+    }
+
+    // Distance from current GPS position to the next step waypoint
+    double totalM = _distanceToNextStep;
+
+    // Add distanceToNext for every step after the current one
+    for (int i = step.stepIndex + 1; i < route.steps.length; i++) {
+      totalM += route.steps[i].distanceToNext;
+    }
+
+    return totalM / 1000;
   }
 
   /// Maximum distance (m) from user to hazard location to allow reporting. Matches backend 1 km rule.
@@ -1721,6 +1741,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
 class _ArrivalModalContent extends StatefulWidget {
   final EvacuationCenter destination;
   final int durationSeconds;
+  final double totalDistanceM;
   final int rerouteCount;
   final VoidCallback onDone;
   final VoidCallback onViewDetails;
@@ -1729,6 +1750,7 @@ class _ArrivalModalContent extends StatefulWidget {
   const _ArrivalModalContent({
     required this.destination,
     required this.durationSeconds,
+    required this.totalDistanceM,
     required this.rerouteCount,
     required this.onDone,
     required this.onViewDetails,
@@ -1858,12 +1880,25 @@ class _ArrivalModalContentState extends State<_ArrivalModalContent>
           const SizedBox(height: 16),
 
           // Trip summary chip row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 10,
+            runSpacing: 8,
             children: [
               _tripChip(Icons.timer_outlined, _formatDuration(widget.durationSeconds)),
-              const SizedBox(width: 12),
-              _tripChip(Icons.route, '${widget.rerouteCount} reroute${widget.rerouteCount == 1 ? '' : 's'}'),
+              if (widget.totalDistanceM > 0)
+                _tripChip(
+                  Icons.straighten,
+                  widget.totalDistanceM >= 1000
+                      ? '${(widget.totalDistanceM / 1000).toStringAsFixed(1)} km'
+                      : '${widget.totalDistanceM.toStringAsFixed(0)} m',
+                ),
+              _tripChip(
+                Icons.route,
+                widget.rerouteCount == 0
+                    ? 'No reroutes'
+                    : '${widget.rerouteCount} reroute${widget.rerouteCount == 1 ? '' : 's'}',
+              ),
             ],
           ),
           const SizedBox(height: 24),

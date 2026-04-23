@@ -1,4 +1,5 @@
 import '../../core/config/api_config.dart';
+import '../../core/utils/date_time_utils.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
 
@@ -27,14 +28,7 @@ class ResidentHazardReportsService {
       'status': r.status == HazardStatus.approved ? 'verified' : r.status.value,
       'reported_by': isCurrentUser ? currentUserId : (r.userId?.toString() ?? ''),
       'description': r.description,
-      'date_submitted': r.createdAt != null
-          ? () {
-              final local = r.createdAt!.toLocal();
-              final h = local.hour.toString().padLeft(2, '0');
-              final m = local.minute.toString().padLeft(2, '0');
-              return '${local.month}/${local.day}/${local.year} at $h:$m';
-            }()
-          : '',
+      'date_submitted': r.createdAt != null ? formatManila(r.createdAt!) : '',
       'media': media,
     };
   }
