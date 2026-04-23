@@ -70,8 +70,12 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
     }
 
     // Cache miss — fetch from API and cache the result.
+    // Hard 6-second timeout: if the backend is cold-starting on Render, treat
+    // it as a network error and show the map with cached data rather than
+    // leaving the user staring at a spinner for 30-90 s.
     try {
-      final profile = await _authService.getCurrentUser();
+      final profile = await _authService.getCurrentUser()
+          .timeout(const Duration(seconds: 6));
       final roleStr = (profile['role'] as String?)?.toLowerCase() ?? 'resident';
       final isMdrrmo = roleStr == UserRole.mdrrmo.value;
 

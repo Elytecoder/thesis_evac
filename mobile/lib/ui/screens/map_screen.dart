@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/config/api_config.dart';
@@ -48,6 +47,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   // Default to Bulan, Sorsogon so the map renders instantly.
   // Updated to the real GPS fix as soon as it arrives.
   LatLng _userLocation = const LatLng(12.6699, 123.8758);
+  // True once we have a real GPS or last-known position (not the Bulan default).
+  // The user location marker is hidden until this is true so we never show a
+  // marker at the wrong place.
+  bool _locationIsReal = false;
   // True only while the initial GPS fix is still pending (shows a small
   // location-locating indicator instead of blocking the whole map).
   bool _gpsLocating = true;
@@ -225,57 +228,56 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _initializeMap() async {
-    // Map is already visible with the Bulan default centre.
-    // This method only locates the device and pans the camera — it never
-    // blocks the UI.
+    // ── STEP 1: Instant pre-position from cache ──────────────────────────────
+    // getLastKnownPosition() returns immediately from the OS location cache
+    // (typically < 50 ms). This gets the correct city/area on screen right
+    // away without waiting for a full GPS fix.
     try {
-      final permissionStatus = await Permission.location.request();
-
-      if (permissionStatus.isGranted) {
-        try {
-          // Use medium accuracy (cell/WiFi) so the fix arrives in <1 s.
-          // Give it a hard 5-second wall-clock limit; if GPS is still warming
-          // up we will get a last-known or coarser fix instead of waiting.
-          final position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.medium,
-          ).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => Geolocator.getLastKnownPosition().then(
-              (last) => last ??
-                  Position(
-                    latitude: 12.6699,
-                    longitude: 123.8758,
-                    timestamp: DateTime.now(),
-                    accuracy: 999,
-                    altitude: 0,
-                    altitudeAccuracy: 0,
-                    heading: 0,
-                    headingAccuracy: 0,
-                    speed: 0,
-                    speedAccuracy: 0,
-                  ),
-            ),
-          );
-
-          if (mounted) {
-            setState(() {
-              _userLocation = LatLng(position.latitude, position.longitude);
-              _gpsLocating = false;
-            });
-            _mapController.move(_userLocation, 16.0);
-          }
-        } catch (e) {
-          if (mounted) setState(() => _gpsLocating = false);
-        }
-      } else {
-        if (mounted) setState(() => _gpsLocating = false);
-        _showPermissionDeniedDialog();
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null && mounted) {
+        setState(() {
+          _userLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
+          _locationIsReal = true;
+        });
+        // Move camera on the next frame (map may not be laid out yet).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _mapController.move(_userLocation, 16.0);
+        });
       }
-    } catch (e) {
+    } catch (_) {}
+
+    // ── STEP 2: Check permission via Geolocator (no permission_handler overhead)
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.deniedForever ||
+        permission == LocationPermission.denied) {
+      if (mounted) setState(() => _gpsLocating = false);
+      _showPermissionDeniedDialog();
+      return;
+    }
+
+    // ── STEP 3: Accurate fix (medium = cell/WiFi, fast; 8-second hard cap) ──
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      ).timeout(const Duration(seconds: 8));
+
+      if (mounted) {
+        setState(() {
+          _userLocation = LatLng(position.latitude, position.longitude);
+          _locationIsReal = true;
+          _gpsLocating = false;
+        });
+        _mapController.move(_userLocation, 16.0);
+      }
+    } catch (_) {
+      // getCurrentPosition timed out or failed — keep last-known / Bulan default.
       if (mounted) setState(() => _gpsLocating = false);
     }
 
-    // After GPS resolves, check if a notification requested a specific map focus.
+    // ── STEP 4: Honour notification deep-link focus ──────────────────────────
     if (mounted) {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool('map_should_focus') == true) {
@@ -300,7 +302,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              openAppSettings();
+              Geolocator.openAppSettings();
             },
             child: const Text('Open Settings'),
           ),
@@ -773,6 +775,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                       userAgentPackageName: 'com.thesis.evacuation.mobile',
                       maxZoom: 19,
+                      // Pre-loads 1 tile outside the visible viewport so panning
+                      // feels instant rather than waiting for new tiles to fetch.
+                      panBuffer: 1,
                       tileProvider: _tileProvider,
                       errorTileCallback: (tile, error, _) {
                         // Silently swallow tile errors — placeholder already shown.
@@ -794,9 +799,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     // Markers
                     MarkerLayer(
                       markers: [
-                        // User location marker (always shown — starts at Bulan default,
-                        // updates to real GPS fix when it arrives)
-                        Marker(
+                        // User location marker — only shown once a real GPS or
+                        // last-known position is available (never fakes Bulan default).
+                        if (_locationIsReal)
+                          Marker(
                             point: _userLocation,
                             width: 50,
                             height: 50,

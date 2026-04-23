@@ -1287,6 +1287,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'com.evacroute.mobile',
+          panBuffer: 1,
           tileProvider: _tileProvider,
           errorTileCallback: (tile, error, _) {
             // Silently swallow tile errors — placeholder already shown by provider.

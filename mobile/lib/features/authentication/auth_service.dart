@@ -68,6 +68,9 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await Future.wait([
         prefs.setString('current_email', email.trim().toLowerCase()),
+        // Cache the full profile so AuthGateScreen can restore the role on the
+        // next cold-start without hitting the backend API.
+        prefs.setString('user_profile', json.encode(response.data)),
         if (user.authToken != null)
           SessionStorage.writeSession(
             token: user.authToken!,
@@ -179,6 +182,10 @@ class AuthService {
         );
         _apiClient.setAuthToken(user.authToken!);
       }
+
+      // Cache profile so AuthGateScreen can skip the API call on next startup.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_profile', json.encode(response.data));
 
       return user;
     } on ApiException catch (e) {
