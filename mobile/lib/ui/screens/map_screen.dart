@@ -52,6 +52,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   // The user location marker is hidden until this is true so we never show a
   // marker at the wrong place.
   bool _locationIsReal = false;
+  // True when GPS resolved but failed after timeout — shows "retry" UI.
+  bool _gpsFailed = false;
   // True only while the initial GPS fix is still pending (shows a small
   // location-locating indicator instead of blocking the whole map).
   bool _gpsLocating = true;
@@ -275,12 +277,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _userLocation = LatLng(position.latitude, position.longitude);
           _locationIsReal = true;
           _gpsLocating = false;
+          _gpsFailed = false;
         });
         _mapController.move(_userLocation, 16.0);
       }
     } catch (_) {
-      // getCurrentPosition timed out or failed — keep last-known / Bulan default.
-      if (mounted) setState(() => _gpsLocating = false);
+      // getCurrentPosition timed out or failed.
+      if (mounted) setState(() { _gpsLocating = false; _gpsFailed = true; });
     }
 
     // ── STEP 4: Honour notification deep-link focus ──────────────────────────
@@ -290,6 +293,19 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         await _checkAndFocusTargetLocation();
       }
     }
+  }
+
+  /// Re-run the GPS acquisition (called from the orange retry pill / FAB).
+  Future<void> _retryLocate() async {
+    if (_gpsLocating) return; // already in progress
+    if (mounted) {
+      setState(() {
+        _gpsLocating = true;
+        _gpsFailed = false;
+      });
+      _pulseController.repeat(reverse: true);
+    }
+    await _initializeMap();
   }
 
   void _showPermissionDeniedDialog() {
@@ -805,54 +821,35 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     // Markers
                     MarkerLayer(
                       markers: [
-                        // User location marker.
-                        // While GPS is still resolving (_gpsLocating=true /
-                        // _locationIsReal=false) we show a grey "searching"
-                        // pulse so the user always sees their approximate
-                        // position rather than an empty map.
-                        // Once we have a real fix it flips to solid blue.
-                        Marker(
-                          point: _userLocation,
-                          width: 50,
-                          height: 50,
-                          child: _locationIsReal
-                              ? Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue,
-                                    shape: BoxShape.circle,
-                                    border:
-                                        Border.all(color: Colors.white, width: 3),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.blue.withOpacity(0.4),
-                                        blurRadius: 8,
-                                        spreadRadius: 2,
-                                      ),
-                                    ],
+                        // User location marker — only rendered once a real
+                        // GPS or last-known position is confirmed.
+                        // Never shown at the Bulan hardcoded default.
+                        if (_locationIsReal)
+                          Marker(
+                            point: _userLocation,
+                            width: 50,
+                            height: 50,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.blue,
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: Colors.white, width: 3),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.blue.withOpacity(0.4),
+                                    blurRadius: 8,
+                                    spreadRadius: 2,
                                   ),
-                                  child: const Icon(
-                                    Icons.my_location,
-                                    color: Colors.white,
-                                    size: 24,
-                                  ),
-                                )
-                              : ScaleTransition(
-                                  scale: _pulseAnimation,
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.shade400,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: Colors.white, width: 2),
-                                    ),
-                                    child: const Icon(
-                                      Icons.location_searching,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                  ),
-                                ),
-                        ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.my_location,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                          ),
 
                         // Evacuation centers
                         ..._evacuationCenters.map(
@@ -1464,7 +1461,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                   ),
 
-                // Compass/recenter button — repositions with panel height
+                // Compass/recenter button — repositions with panel height.
+                // If GPS has not resolved yet, tapping retries the location
+                // request instead of centering on the Bulan placeholder.
                 Positioned(
                   bottom: _showBottomSheet
                       ? _panelHeight + 16
@@ -1472,47 +1471,75 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   right: 16,
                   child: FloatingActionButton(
                     heroTag: 'recenter',
-                    onPressed: () => _mapController.move(_userLocation, 16.0),
+                    onPressed: _locationIsReal
+                        ? () => _mapController.move(_userLocation, 16.0)
+                        : _retryLocate,
                     backgroundColor: Colors.white,
-                    child: Icon(Icons.my_location, color: Colors.blue[700]),
+                    child: Icon(
+                      _locationIsReal
+                          ? Icons.my_location
+                          : Icons.location_searching,
+                      color: _locationIsReal ? Colors.blue[700] : Colors.orange,
+                    ),
                   ),
                 ),
 
-                // GPS-locating pill — shown while the initial GPS fix is pending.
-                if (_gpsLocating)
+                // GPS status pill — three states:
+                //   searching  → spinner + "Getting your location…"
+                //   failed     → warning icon + "Location unavailable – Tap to retry"
+                //   resolved   → hidden
+                if (_gpsLocating || _gpsFailed)
                   Positioned(
                     top: MediaQuery.of(context).padding.top + 56,
                     left: 0,
                     right: 0,
                     child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.65),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
+                      child: GestureDetector(
+                        onTap: _gpsFailed ? _retryLocate : null,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: _gpsFailed
+                                ? Colors.orange.shade800
+                                : Colors.black.withValues(alpha: 0.70),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.25),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
                               ),
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Locating…',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_gpsLocating)
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              else
+                                const Icon(Icons.location_off,
+                                    color: Colors.white, size: 14),
+                              const SizedBox(width: 8),
+                              Text(
+                                _gpsFailed
+                                    ? 'Location unavailable — Tap to retry'
+                                    : 'Getting your location…',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
