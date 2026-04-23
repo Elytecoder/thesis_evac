@@ -24,13 +24,37 @@ class CachedNetworkTileProvider extends TileProvider {
 
   final Dio _dio = Dio(
     BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 15),
+      // Shorter timeouts so a slow OSM tile server doesn't stall the map.
+      connectTimeout: const Duration(seconds: 6),
+      receiveTimeout: const Duration(seconds: 10),
       headers: {'User-Agent': _userAgent},
     ),
   );
 
   Directory? _cacheDir;
+
+  // Pre-warm the cache directory so the first tile requests don't pay the
+  // async file-system cost.  Call this once at app startup.
+  static CachedNetworkTileProvider? _sharedInstance;
+
+  /// Returns the singleton instance (creates + pre-warms on first call).
+  factory CachedNetworkTileProvider.shared() {
+    _sharedInstance ??= CachedNetworkTileProvider._();
+    _sharedInstance!._warmUpCache();
+    return _sharedInstance!;
+  }
+
+  CachedNetworkTileProvider() {
+    _warmUpCache();
+  }
+
+  CachedNetworkTileProvider._();
+
+  void _warmUpCache() {
+    // Fire-and-forget: resolve the directory once so subsequent tile
+    // requests hit the in-memory _cacheDir cache immediately.
+    _getCacheDir().ignore();
+  }
 
   Future<Directory> _getCacheDir() async {
     if (_cacheDir != null) return _cacheDir!;

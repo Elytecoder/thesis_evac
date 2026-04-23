@@ -66,7 +66,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   bool _followUserLocation = true;
 
   // Tile provider — caches OSM tiles to disk so the map renders offline.
-  final CachedNetworkTileProvider _tileProvider = CachedNetworkTileProvider();
+  // Reuse the shared, pre-warmed instance so live navigation tiles load
+  // from the same disk cache as the main map screen.
+  final CachedNetworkTileProvider _tileProvider =
+      CachedNetworkTileProvider.shared();
 
   // ── Streams ──────────────────────────────────────────────────────────────
   StreamSubscription<LatLng>? _locationSubscription;

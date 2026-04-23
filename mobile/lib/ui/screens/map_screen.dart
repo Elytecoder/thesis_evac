@@ -35,15 +35,22 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
-  final CachedNetworkTileProvider _tileProvider = CachedNetworkTileProvider();
+  // Shared singleton — cache dir is pre-warmed so the first tile requests
+  // don't stall on an async file-system call.
+  final CachedNetworkTileProvider _tileProvider =
+      CachedNetworkTileProvider.shared();
   final RoutingService _routingService = RoutingService();
   final ResidentHazardReportsService _hazardReportsService = ResidentHazardReportsService();
   final ResidentNotificationsService _notificationsService = ResidentNotificationsService();
   final ConnectivityService _connectivity = ConnectivityService();
   StreamSubscription<bool>? _reconnectSub;
 
-  LatLng? _userLocation;
-  bool _isLoading = true;
+  // Default to Bulan, Sorsogon so the map renders instantly.
+  // Updated to the real GPS fix as soon as it arrives.
+  LatLng _userLocation = const LatLng(12.6699, 123.8758);
+  // True only while the initial GPS fix is still pending (shows a small
+  // location-locating indicator instead of blocking the whole map).
+  bool _gpsLocating = true;
   List<EvacuationCenter> _evacuationCenters = [];
   
   // Selected center and routes
@@ -68,6 +75,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   // Notification highlight: which report is currently highlighted on the map
   String? _highlightedReportId;
+  // Guards _checkAndFocusTargetLocation so it only runs once per resume.
+  bool _pendingFocusCheck = false;
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
 
@@ -81,11 +90,23 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.6).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeOut),
     );
-    _loadEvacuationCenters();
+    // Kick off GPS and all data loads concurrently.
+    // Map renders immediately with the Bulan default centre; each piece of
+    // data calls setState independently so content appears progressively
+    // rather than all-at-once after a long wait.
     _initializeMap();
-    _loadHazardReports();
-    _loadNotificationCount();
+    _loadDataInBackground();
     _listenForReconnect();
+  }
+
+  /// Runs all non-GPS data loads in parallel so each one updates the UI
+  /// as soon as it finishes, without any blocking serial sequence.
+  Future<void> _loadDataInBackground() async {
+    await Future.wait([
+      _loadEvacuationCenters(),
+      _loadHazardReports(),
+      _loadNotificationCount(),
+    ]);
   }
 
   /// Reload live data when connectivity is restored so the map stays current.
@@ -131,8 +152,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(MapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Check for target location when widget updates
-    _checkAndFocusTargetLocation();
+    // Schedule a focus check but only run it once per resume, not on every
+    // setState. _pendingFocusCheck is cleared inside _checkAndFocusTargetLocation.
+    _pendingFocusCheck = true;
   }
 
   @override
@@ -145,6 +167,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// Check if we should focus on a target location from notification.
   /// Also reads a highlight report_id so the specific hazard marker pulses.
   Future<void> _checkAndFocusTargetLocation() async {
+    _pendingFocusCheck = false; // consume the pending flag immediately
     final prefs = await SharedPreferences.getInstance();
     final shouldFocus = prefs.getBool('map_should_focus') ?? false;
 
@@ -202,71 +225,62 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> _initializeMap() async {
+    // Map is already visible with the Bulan default centre.
+    // This method only locates the device and pans the camera — it never
+    // blocks the UI.
     try {
       final permissionStatus = await Permission.location.request();
 
       if (permissionStatus.isGranted) {
         try {
+          // Use medium accuracy (cell/WiFi) so the fix arrives in <1 s.
+          // Give it a hard 5-second wall-clock limit; if GPS is still warming
+          // up we will get a last-known or coarser fix instead of waiting.
           final position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high,
+            desiredAccuracy: LocationAccuracy.medium,
+          ).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => Geolocator.getLastKnownPosition().then(
+              (last) => last ??
+                  Position(
+                    latitude: 12.6699,
+                    longitude: 123.8758,
+                    timestamp: DateTime.now(),
+                    accuracy: 999,
+                    altitude: 0,
+                    altitudeAccuracy: 0,
+                    heading: 0,
+                    headingAccuracy: 0,
+                    speed: 0,
+                    speedAccuracy: 0,
+                  ),
+            ),
           );
 
-          setState(() {
-            // Always use actual GPS position when available
-            _userLocation = LatLng(position.latitude, position.longitude);
-            _isLoading = false;
-          });
-          print('📍 Current location: ${position.latitude}, ${position.longitude}');
+          if (mounted) {
+            setState(() {
+              _userLocation = LatLng(position.latitude, position.longitude);
+              _gpsLocating = false;
+            });
+            _mapController.move(_userLocation, 16.0);
+          }
         } catch (e) {
-          // Only use Bulan when GPS actually fails (no position available)
-          print('⚠️ GPS error: $e, using Bulan default');
-          setState(() {
-            _userLocation = LatLng(12.6699, 123.8758);
-            _isLoading = false;
-          });
-        }
-
-        // Move map after widget is built - delegate to shared focus helper
-        if (_userLocation != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            if (mounted) {
-              final prefs = await SharedPreferences.getInstance();
-              final shouldFocus = prefs.getBool('map_should_focus') ?? false;
-              if (shouldFocus) {
-                await _checkAndFocusTargetLocation();
-              } else {
-                _mapController.move(_userLocation!, 16.0);
-              }
-            }
-          });
+          if (mounted) setState(() => _gpsLocating = false);
         }
       } else {
-        setState(() {
-          _userLocation = LatLng(12.6699, 123.8758);
-          _isLoading = false;
-        });
-        
-        // Move map after widget is built
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _mapController.move(_userLocation!, 16.0);
-          }
-        });
+        if (mounted) setState(() => _gpsLocating = false);
         _showPermissionDeniedDialog();
       }
     } catch (e) {
-      print('⚠️ Map initialization error: $e');
-      setState(() {
-        _userLocation = LatLng(12.6699, 123.8758);
-        _isLoading = false;
-      });
-      
-      // Move map after widget is built
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _mapController.move(_userLocation!, 16.0);
-        }
-      });
+      if (mounted) setState(() => _gpsLocating = false);
+    }
+
+    // After GPS resolves, check if a notification requested a specific map focus.
+    if (mounted) {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('map_should_focus') == true) {
+        await _checkAndFocusTargetLocation();
+      }
     }
   }
 
@@ -303,7 +317,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   /// Handle evacuation center selection - Show routes
   Future<void> _onSelectCenter(EvacuationCenter center) async {
-    if (_userLocation == null || _isOpeningRoutes) return;
+    if (_isOpeningRoutes) return;
     setState(() {
       _isOpeningRoutes = true;
       _selectedCenter = center;
@@ -316,7 +330,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       MaterialPageRoute(
         builder: (context) => RoutesSelectionScreen(
           evacuationCenter: center,
-          userLocation: _userLocation!,
+          userLocation: _userLocation,
         ),
       ),
     );
@@ -398,9 +412,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       MaterialPageRoute(
                         builder: (context) => ReportHazardScreen(
                           location: location,
-                          userLocation: _userLocation != null
-                              ? LatLng(_userLocation!.latitude, _userLocation!.longitude)
-                              : null,
+                          userLocation: _userLocation,
                         ),
                       ),
                     ).then((_) => _loadHazardReports()); // Reload after reporting
@@ -735,30 +747,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    // When returning from Notifications "View on Map", focus on report location
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkAndFocusTargetLocation();
-    });
+    // Only run the focus check when a navigation/notification has set the
+    // pending flag — not on every setState rebuild.
+    if (_pendingFocusCheck) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _pendingFocusCheck) _checkAndFocusTargetLocation();
+      });
+    }
     return ExitConfirmScope(
       child: Scaffold(
-      body: _isLoading
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Getting your location...'),
-                ],
-              ),
-            )
-          : Stack(
+      body: Stack(
               children: [
                 // Map
                 FlutterMap(
                   mapController: _mapController,
                   options: MapOptions(
-                    initialCenter: _userLocation ?? const LatLng(12.6699, 123.8758),
+                    initialCenter: _userLocation,
                     initialZoom: 16.0,
                     minZoom: 13.5,
                     maxZoom: 18.0,
@@ -790,10 +794,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     // Markers
                     MarkerLayer(
                       markers: [
-                        // User location
-                        if (_userLocation != null)
-                          Marker(
-                            point: _userLocation!,
+                        // User location marker (always shown — starts at Bulan default,
+                        // updates to real GPS fix when it arrives)
+                        Marker(
+                            point: _userLocation,
                             width: 50,
                             height: 50,
                             child: Container(
@@ -1256,12 +1260,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 itemCount: _evacuationCenters.length,
                                 itemBuilder: (context, index) {
                                   final center = _evacuationCenters[index];
-                                  final distance = _userLocation != null
-                                      ? _calculateDistance(
-                                          _userLocation!,
-                                          LatLng(center.latitude, center.longitude),
-                                        )
-                                      : 0.0;
+                                  final distance = _calculateDistance(
+                                    _userLocation,
+                                    LatLng(center.latitude, center.longitude),
+                                  );
 
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 12),
@@ -1430,15 +1432,51 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   right: 16,
                   child: FloatingActionButton(
                     heroTag: 'recenter',
-                    onPressed: () {
-                      if (_userLocation != null) {
-                        _mapController.move(_userLocation!, 16.0);
-                      }
-                    },
+                    onPressed: () => _mapController.move(_userLocation, 16.0),
                     backgroundColor: Colors.white,
                     child: Icon(Icons.my_location, color: Colors.blue[700]),
                   ),
                 ),
+
+                // GPS-locating pill — shown while the initial GPS fix is pending.
+                if (_gpsLocating)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 56,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Locating…',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
 
                 // Offline mode indicator — always on top of all other overlays
                 const OfflineBanner(),
