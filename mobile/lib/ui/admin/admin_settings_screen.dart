@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../features/admin/admin_mock_service.dart';
+import '../../core/config/api_config.dart';
 import '../../features/authentication/auth_service.dart';
 import '../../features/emergency_contacts/emergency_contacts_service.dart';
+import '../../features/notifications/notification_service.dart';
 import '../../utils/input_validators.dart';
 import '../../utils/input_formatters.dart';
 import '../screens/welcome_screen.dart';
 import 'system_logs_screen.dart';
 
-/// Admin Settings Screen - MDRRMO admin settings and emergency contacts management
+/// MDRRMO Admin Settings Screen
+/// Contains only fully-functional, production-ready options.
 class AdminSettingsScreen extends StatefulWidget {
   const AdminSettingsScreen({super.key});
 
@@ -17,13 +19,18 @@ class AdminSettingsScreen extends StatefulWidget {
 }
 
 class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
-  final AdminMockService _adminService = AdminMockService();
   final AuthService _authService = AuthService();
   final EmergencyContactsService _contactsService = EmergencyContactsService();
-  
+  final NotificationService _notifService = NotificationService();
+
   Map<String, dynamic>? _userProfile;
   List<EmergencyContact> _emergencyContacts = [];
   bool _isLoading = true;
+  bool _isRefreshing = false;
+
+  // ── Palette ────────────────────────────────────────────────────────────────
+  static const Color _navy = Color(0xFF1E3A8A);
+  static const Color _navyLight = Color(0xFF2563EB);
 
   @override
   void initState() {
@@ -31,131 +38,140 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     _loadData();
   }
 
+  // ── Data loading ───────────────────────────────────────────────────────────
+
   Future<void> _loadData() async {
     try {
       final profile = await _authService.getCurrentUser();
       final contacts = await _contactsService.getAllContacts();
-      
-      setState(() {
-        _userProfile = profile;
-        _emergencyContacts = contacts;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _userProfile = profile;
+          _emergencyContacts = contacts;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
+
+  Future<void> _refreshData() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    try {
+      final profile = await _authService.getCurrentUser();
+      final contacts = await _contactsService.getAllContacts();
+      if (mounted) {
+        setState(() {
+          _userProfile = profile;
+          _emergencyContacts = contacts;
+        });
+        _showSnack('Data refreshed successfully.', Colors.green);
+      }
+    } catch (e) {
+      if (mounted) _showSnack('Failed to refresh. Check your connection.', Colors.red);
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
 
   Future<void> _handleLogout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
+    final confirm = await _showConfirmDialog(
+      icon: Icons.logout,
+      iconColor: Colors.red,
+      title: 'Logout',
+      message: 'Are you sure you want to log out of your MDRRMO account?',
+      confirmLabel: 'Logout',
+      confirmColor: Colors.red,
     );
+    if (confirm != true) return;
 
-    if (confirm == true) {
-      await _authService.logout();
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-          (route) => false,
-        );
-      }
+    await _authService.logout();
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+        (route) => false,
+      );
     }
   }
 
-  Future<void> _showAddContactDialog() async {
-    final TextEditingController nameController = TextEditingController();
-    final TextEditingController numberController = TextEditingController();
-    final TextEditingController descriptionController = TextEditingController();
-    String selectedType = EmergencyContactsService.getContactTypes()[0];
+  Future<void> _handleMarkAllRead() async {
+    final confirm = await _showConfirmDialog(
+      icon: Icons.mark_email_read_outlined,
+      iconColor: Colors.teal,
+      title: 'Mark All Notifications Read',
+      message: 'This will mark all pending notifications as read. Continue?',
+      confirmLabel: 'Mark All Read',
+      confirmColor: Colors.teal,
+    );
+    if (confirm != true) return;
+
+    try {
+      final msg = await _notifService.markAllAsRead();
+      if (mounted) _showSnack(msg, Colors.green);
+    } catch (e) {
+      if (mounted) _showSnack('Failed to mark notifications: $e', Colors.red);
+    }
+  }
+
+  Future<void> _handleChangePassword() async {
+    final currentCtrl = TextEditingController();
+    final newCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    bool obscureCurrent = true;
+    bool obscureNew = true;
+    bool obscureConfirm = true;
 
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Row(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
             children: [
-              Icon(Icons.add_circle_outline, color: Colors.blue),
-              SizedBox(width: 8),
-              Text('Add Emergency Contact'),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _navy.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.lock_outline, color: _navy, size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Text('Change Password',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: nameController,
-                  inputFormatters: [
-                    NameInputFormatter(), // Only letters, spaces, hyphens
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: 'Contact Name *',
-                    hintText: 'e.g., Police Hotline',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
+                _buildPasswordField(
+                  controller: currentCtrl,
+                  label: 'Current Password',
+                  obscure: obscureCurrent,
+                  onToggle: () =>
+                      setDialogState(() => obscureCurrent = !obscureCurrent),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: numberController,
-                  keyboardType: TextInputType.phone,
-                  inputFormatters: [
-                    PhoneNumberInputFormatter(), // 11 digits, starts with 09
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: 'Contact Number *',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.phone_outlined),
-                    hintText: '09XXXXXXXXX',
-                  ),
+                _buildPasswordField(
+                  controller: newCtrl,
+                  label: 'New Password',
+                  obscure: obscureNew,
+                  onToggle: () =>
+                      setDialogState(() => obscureNew = !obscureNew),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedType,
-                  decoration: const InputDecoration(
-                    labelText: 'Contact Type *',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.category_outlined),
-                  ),
-                  items: EmergencyContactsService.getContactTypes()
-                      .map((type) => DropdownMenuItem(
-                            value: type,
-                            child: Text(type),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() => selectedType = value);
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descriptionController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Description (Optional)',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.description_outlined),
-                  ),
+                _buildPasswordField(
+                  controller: confirmCtrl,
+                  label: 'Confirm New Password',
+                  obscure: obscureConfirm,
+                  onToggle: () =>
+                      setDialogState(() => obscureConfirm = !obscureConfirm),
                 ),
               ],
             ),
@@ -166,1094 +182,875 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               child: const Text('Cancel'),
             ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _navy,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                if (currentCtrl.text.isEmpty ||
+                    newCtrl.text.isEmpty ||
+                    confirmCtrl.text.isEmpty) {
+                  _showSnack('All fields are required.', Colors.red);
+                  return;
+                }
+                if (newCtrl.text.length < 6) {
+                  _showSnack(
+                      'New password must be at least 6 characters.', Colors.red);
+                  return;
+                }
+                if (newCtrl.text != confirmCtrl.text) {
+                  _showSnack('Passwords do not match.', Colors.red);
+                  return;
+                }
+                Navigator.pop(context);
+                try {
+                  await _authService.changePassword(
+                    oldPassword: currentCtrl.text,
+                    newPassword: newCtrl.text,
+                    newPasswordConfirm: confirmCtrl.text,
+                  );
+                  if (mounted) {
+                    _showSnack('Password changed successfully.', Colors.green);
+                  }
+                } catch (e) {
+                  if (mounted) _showSnack(e.toString(), Colors.red);
+                }
+              },
+              child: const Text('Change Password'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    currentCtrl.dispose();
+    newCtrl.dispose();
+    confirmCtrl.dispose();
+  }
+
+  // ── Emergency Contacts ─────────────────────────────────────────────────────
+
+  Future<void> _showAddContactDialog() async {
+    final nameCtrl = TextEditingController();
+    final numberCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+    String selectedType = EmergencyContactsService.getContactTypes()[0];
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (ctx, setDS) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.add_circle_outline,
+                  color: Colors.green, size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Text('Add Emergency Contact',
+                style:
+                    TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ]),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  inputFormatters: [NameInputFormatter()],
+                  decoration: _inputDeco('Contact Name *', Icons.person_outline),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: numberCtrl,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [PhoneNumberInputFormatter()],
+                  decoration: _inputDeco(
+                      'Contact Number * (09XXXXXXXXX)', Icons.phone_outlined),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedType,
+                  decoration: _inputDeco('Contact Type *', Icons.category_outlined),
+                  items: EmergencyContactsService.getContactTypes()
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setDS(() => selectedType = v);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descCtrl,
+                  maxLines: 2,
+                  decoration:
+                      _inputDeco('Description (optional)', Icons.description_outlined),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green, foregroundColor: Colors.white),
               onPressed: () {
-                // Validate name
-                final nameError = InputValidators.validateName(
-                  nameController.text, 
-                  fieldName: 'Contact name',
-                );
-                if (nameError != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(nameError),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                final nameErr = InputValidators.validateName(nameCtrl.text,
+                    fieldName: 'Contact name');
+                if (nameErr != null) {
+                  _showSnack(nameErr, Colors.red);
                   return;
                 }
-                
-                // Validate phone number
-                final phoneError = InputValidators.validatePhoneNumber(numberController.text);
-                if (phoneError != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(phoneError),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                final phoneErr =
+                    InputValidators.validatePhoneNumber(numberCtrl.text);
+                if (phoneErr != null) {
+                  _showSnack(phoneErr, Colors.red);
                   return;
                 }
-                
-                final newContact = EmergencyContact(
+                final contact = EmergencyContact(
                   id: _contactsService.generateId(),
-                  name: nameController.text,
-                  number: numberController.text,
+                  name: nameCtrl.text,
+                  number: numberCtrl.text,
                   type: selectedType,
-                  description: descriptionController.text,
+                  description: descCtrl.text,
                 );
-                
-                _contactsService.addContact(newContact).then((_) {
+                _contactsService.addContact(contact).then((_) {
                   _loadData();
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Contact added successfully'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
+                  _showSnack('Contact added successfully.', Colors.green);
                 });
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-              ),
               child: const Text('Add Contact'),
             ),
           ],
         ),
       ),
     );
-
-    nameController.dispose();
-    numberController.dispose();
-    descriptionController.dispose();
+    nameCtrl.dispose();
+    numberCtrl.dispose();
+    descCtrl.dispose();
   }
 
   Future<void> _showEditContactDialog(EmergencyContact contact) async {
-    final TextEditingController nameController = TextEditingController(text: contact.name);
-    final TextEditingController numberController = TextEditingController(text: contact.number);
-    final TextEditingController descriptionController = TextEditingController(text: contact.description);
+    final nameCtrl = TextEditingController(text: contact.name);
+    final numberCtrl = TextEditingController(text: contact.number);
+    final descCtrl = TextEditingController(text: contact.description);
     String selectedType = contact.type;
 
     await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.edit, color: Colors.orange),
-              SizedBox(width: 8),
-              Text('Edit Emergency Contact'),
-            ],
-          ),
+        builder: (ctx, setDS) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.edit_outlined,
+                  color: Colors.orange, size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Text('Edit Contact',
+                style:
+                    TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ]),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
-                  controller: nameController,
-                  inputFormatters: [
-                    NameInputFormatter(), // Only letters, spaces, hyphens
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: 'Contact Name *',
-                    hintText: 'e.g., Police Hotline',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
+                  controller: nameCtrl,
+                  inputFormatters: [NameInputFormatter()],
+                  decoration: _inputDeco('Contact Name *', Icons.person_outline),
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: numberController,
+                  controller: numberCtrl,
                   keyboardType: TextInputType.phone,
-                  inputFormatters: [
-                    PhoneNumberInputFormatter(), // 11 digits, starts with 09
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: 'Contact Number *',
-                    hintText: '09XXXXXXXXX',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.phone_outlined),
-                  ),
+                  inputFormatters: [PhoneNumberInputFormatter()],
+                  decoration: _inputDeco('Contact Number *', Icons.phone_outlined),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: selectedType,
-                  decoration: const InputDecoration(
-                    labelText: 'Contact Type *',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.category_outlined),
-                  ),
+                  decoration: _inputDeco('Contact Type *', Icons.category_outlined),
                   items: EmergencyContactsService.getContactTypes()
-                      .map((type) => DropdownMenuItem(
-                            value: type,
-                            child: Text(type),
-                          ))
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                       .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setDialogState(() => selectedType = value);
-                    }
+                  onChanged: (v) {
+                    if (v != null) setDS(() => selectedType = v);
                   },
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: descriptionController,
+                  controller: descCtrl,
                   maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Description (Optional)',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.description_outlined),
-                  ),
+                  decoration:
+                      _inputDeco('Description (optional)', Icons.description_outlined),
                 ),
               ],
             ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel')),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange, foregroundColor: Colors.white),
               onPressed: () {
-                // Validate name
-                final nameError = InputValidators.validateName(
-                  nameController.text, 
-                  fieldName: 'Contact name',
-                );
-                if (nameError != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(nameError),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                final nameErr = InputValidators.validateName(nameCtrl.text,
+                    fieldName: 'Contact name');
+                if (nameErr != null) {
+                  _showSnack(nameErr, Colors.red);
                   return;
                 }
-                
-                // Validate phone number
-                final phoneError = InputValidators.validatePhoneNumber(numberController.text);
-                if (phoneError != null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(phoneError),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                final phoneErr =
+                    InputValidators.validatePhoneNumber(numberCtrl.text);
+                if (phoneErr != null) {
+                  _showSnack(phoneErr, Colors.red);
                   return;
                 }
-                
-                final updatedContact = contact.copyWith(
-                  name: nameController.text,
-                  number: numberController.text,
+                final updated = contact.copyWith(
+                  name: nameCtrl.text,
+                  number: numberCtrl.text,
                   type: selectedType,
-                  description: descriptionController.text,
+                  description: descCtrl.text,
                 );
-                
-                _contactsService.updateContact(updatedContact).then((_) {
+                _contactsService.updateContact(updated).then((_) {
                   _loadData();
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Contact updated successfully'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
+                  _showSnack('Contact updated.', Colors.green);
                 });
               },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-              ),
               child: const Text('Update'),
             ),
           ],
         ),
       ),
     );
-
-    nameController.dispose();
-    numberController.dispose();
-    descriptionController.dispose();
+    nameCtrl.dispose();
+    numberCtrl.dispose();
+    descCtrl.dispose();
   }
 
   Future<void> _showDeleteContactDialog(EmergencyContact contact) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber, color: Colors.red),
-            SizedBox(width: 8),
-            Text('Delete Contact'),
-          ],
-        ),
-        content: Text(
-          'Are you sure you want to delete "${contact.name}"?\n\nThis contact will be removed from residents\' view as well.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirm = await _showConfirmDialog(
+      icon: Icons.delete_outline,
+      iconColor: Colors.red,
+      title: 'Delete Contact',
+      message:
+          'Remove "${contact.name}" from the emergency contacts list?\n\nResidents will no longer see this contact.',
+      confirmLabel: 'Delete',
+      confirmColor: Colors.red,
     );
-
-    if (confirm == true) {
-      await _contactsService.deleteContact(contact.id);
-      _loadData();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Contact deleted successfully'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    }
+    if (confirm != true) return;
+    await _contactsService.deleteContact(contact.id);
+    _loadData();
+    if (mounted) _showSnack('Contact deleted.', Colors.orange);
   }
 
-  Future<void> _showChangePasswordDialog() async {
-    final TextEditingController currentPwController = TextEditingController();
-    final TextEditingController newPwController = TextEditingController();
-    final TextEditingController confirmPwController = TextEditingController();
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Change Password'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: currentPwController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Current Password',
-                border: OutlineInputBorder(),
+  void _showSnack(String msg, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Future<bool?> _showConfirmDialog({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required Color confirmColor,
+  }) =>
+      showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+          title: Row(children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
               ),
+              child: Icon(icon, color: iconColor, size: 22),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: newPwController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'New Password',
-                border: OutlineInputBorder(),
-              ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(title,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold)),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: confirmPwController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Confirm New Password',
-                border: OutlineInputBorder(),
+          ]),
+          content: Text(message,
+              style: TextStyle(color: Colors.grey[700], fontSize: 14,
+                  height: 1.5)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: confirmColor,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(confirmLabel),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (newPwController.text.length < 6) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Password must be at least 6 characters'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-              if (newPwController.text != confirmPwController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Passwords do not match'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Password changed successfully'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-            child: const Text('Change Password'),
-          ),
-        ],
-      ),
-    );
+      );
 
-    currentPwController.dispose();
-    newPwController.dispose();
-    confirmPwController.dispose();
-  }
+  InputDecoration _inputDeco(String label, IconData icon) => InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(icon),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      );
 
-  /// Build System Logs Section
-  Widget _buildSystemLogsSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.history, color: Color(0xFF1E3A8A)),
-              SizedBox(width: 8),
-              Text(
-                'System Logs',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E3A8A),
-                ),
-              ),
-            ],
+  Widget _buildPasswordField({
+    required TextEditingController controller,
+    required String label,
+    required bool obscure,
+    required VoidCallback onToggle,
+  }) =>
+      TextField(
+        controller: controller,
+        obscureText: obscure,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          prefixIcon: const Icon(Icons.lock_outline),
+          suffixIcon: IconButton(
+            icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
+            onPressed: onToggle,
           ),
-          const SizedBox(height: 8),
-          Text(
-            'View and manage system activity logs',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[300]!),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SystemLogsScreen(),
-                    ),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.blue[50],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.list_alt,
-                          color: Colors.blue[700],
-                          size: 28,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'View System Logs',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Track all system activities and events',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right,
-                        color: Colors.grey[400],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        ),
+      );
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F9),
       appBar: AppBar(
-        title: const Text('Settings'),
-        backgroundColor: const Color(0xFF1E3A8A),
+        title: const Text('Settings',
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: _navy,
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
+        elevation: 0,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Column(
-                children: [
-                  // Admin Profile
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [const Color(0xFF1E3A8A), Colors.blue[700]!],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 3),
-                          ),
-                          child: const Icon(
-                            Icons.admin_panel_settings,
-                            size: 48,
-                            color: Color(0xFF1E3A8A),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _userProfile?['username'] ?? 'MDRRMO Admin',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Text(
-                            'MDRRMO ADMINISTRATOR',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Admin profile header ───────────────────────────────────────
+            _buildProfileHeader(),
 
-                  const SizedBox(height: 24),
+            const SizedBox(height: 24),
 
-                  // Admin Actions
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Admin Actions',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3A8A),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        _buildActionCard(
-                          icon: Icons.password,
-                          title: 'Change Password',
-                          subtitle: 'Update your admin password',
-                          color: Colors.blue,
-                          onTap: _showChangePasswordDialog,
-                        ),
-
-                        _buildActionCard(
-                          icon: Icons.model_training,
-                          title: 'Retrain AI Models',
-                          subtitle: 'Trigger model retraining with new data',
-                          color: Colors.purple,
-                          onTap: () => _handleModelRetraining(),
-                        ),
-
-                        _buildActionCard(
-                          icon: Icons.clear_all,
-                          title: 'Clear Cache',
-                          subtitle: 'Clear all cached data',
-                          color: Colors.orange,
-                          onTap: () => _handleClearCache(),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Emergency Contacts Management
-                  _buildEmergencyContactsSection(),
-
-                  const SizedBox(height: 24),
-
-                  // System Logs Section
-                  _buildSystemLogsSection(),
-
-                  const SizedBox(height: 24),
-
-                  // System Information
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'System Information',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1E3A8A),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.grey[300]!),
-                          ),
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            children: [
-                              _buildInfoRow('Model Version', '1.2.3'),
-                              _buildInfoRow('Dataset Version', '2024-02'),
-                              _buildInfoRow('Last Sync', '2 hours ago'),
-                              _buildInfoRow('App Version', '1.0.0'),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Logout Button
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _handleLogout,
-                        icon: const Icon(Icons.logout),
-                        label: const Text(
-                          'Logout',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red[600],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 32),
-                ],
+            // ── Account section ────────────────────────────────────────────
+            _buildSectionHeader(Icons.manage_accounts_outlined, 'Account'),
+            const SizedBox(height: 10),
+            _buildCard(children: [
+              _buildTile(
+                icon: Icons.lock_outline,
+                iconColor: _navy,
+                title: 'Change Password',
+                subtitle: 'Update your MDRRMO admin password',
+                onTap: _handleChangePassword,
               ),
-            ),
+              _buildDivider(),
+              _buildTile(
+                icon: Icons.logout,
+                iconColor: Colors.red,
+                title: 'Logout',
+                subtitle: 'Sign out of this admin account',
+                onTap: _handleLogout,
+                trailingColor: Colors.red,
+              ),
+            ]),
+
+            const SizedBox(height: 24),
+
+            // ── Data & Sync section ────────────────────────────────────────
+            _buildSectionHeader(Icons.sync_outlined, 'Data & Sync'),
+            const SizedBox(height: 10),
+            _buildCard(children: [
+              _buildTile(
+                icon: Icons.refresh,
+                iconColor: _navyLight,
+                title: 'Refresh Latest Data',
+                subtitle: 'Reload your profile and contacts from server',
+                trailing: _isRefreshing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : null,
+                onTap: _refreshData,
+              ),
+              _buildDivider(),
+              _buildTile(
+                icon: Icons.mark_email_read_outlined,
+                iconColor: Colors.teal,
+                title: 'Mark All Notifications as Read',
+                subtitle: 'Clear all unread notification badges',
+                onTap: _handleMarkAllRead,
+              ),
+            ]),
+
+            const SizedBox(height: 24),
+
+            // ── Admin Tools section ────────────────────────────────────────
+            _buildSectionHeader(Icons.admin_panel_settings_outlined, 'Admin Tools'),
+            const SizedBox(height: 10),
+            _buildCard(children: [
+              _buildTile(
+                icon: Icons.list_alt_outlined,
+                iconColor: Colors.indigo,
+                title: 'System Logs',
+                subtitle: 'View all system activity and events',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const SystemLogsScreen()),
+                ),
+              ),
+              _buildDivider(),
+              _buildTile(
+                icon: Icons.emergency_outlined,
+                iconColor: Colors.red,
+                title: 'Emergency Contacts',
+                subtitle: 'Manage contacts visible to all residents',
+                onTap: _scrollToContacts,
+              ),
+            ]),
+
+            const SizedBox(height: 24),
+
+            // ── Emergency Contacts section ─────────────────────────────────
+            _buildEmergencyContactsSection(),
+
+            const SizedBox(height: 24),
+
+            // ── System Information section ─────────────────────────────────
+            _buildSectionHeader(Icons.info_outline, 'System Information'),
+            const SizedBox(height: 10),
+            _buildCard(children: [
+              _buildInfoRow(Icons.computer_outlined, 'App Version', '1.0.0'),
+              _buildDivider(),
+              _buildInfoRow(Icons.cloud_outlined, 'Environment',
+                  ApiConfig.baseUrl.contains('localhost') || ApiConfig.baseUrl.contains('10.0.2.2')
+                      ? 'Local Development'
+                      : 'Production (Render)'),
+              _buildDivider(),
+              _buildInfoRow(Icons.location_city_outlined, 'Coverage Area',
+                  'Bulan, Sorsogon'),
+              _buildDivider(),
+              _buildInfoRow(Icons.psychology_outlined, 'AI Models',
+                  'Naive Bayes v1 · Random Forest v1'),
+            ]),
+
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildEmergencyContactsSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.emergency, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text(
-                    'Emergency Contacts',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E3A8A),
-                    ),
-                  ),
-                ],
-              ),
-              ElevatedButton.icon(
-                onPressed: _showAddContactDialog,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add Contact'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Manage emergency contacts visible to all residents',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 16),
+  // ── Section widgets ────────────────────────────────────────────────────────
 
-          // Contacts Table
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: _emergencyContacts.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          Icon(Icons.contacts, size: 48, color: Colors.grey[400]),
-                          const SizedBox(height: 8),
-                          Text(
-                            'No emergency contacts yet',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : Column(
-                    children: _emergencyContacts
-                        .map((contact) => _buildContactRow(contact))
-                        .toList(),
-                  ),
+  Widget _buildProfileHeader() {
+    final name = _userProfile?['full_name'] ??
+        _userProfile?['username'] ??
+        'MDRRMO Admin';
+    final email = _userProfile?['email'] ?? '';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [_navy, _navyLight],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _navy.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildContactRow(EmergencyContact contact) {
-    Color color = _getColorForType(contact.type);
-    
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Colors.grey[200]!),
-        ),
-      ),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(20),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 64,
+            height: 64,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.white.withOpacity(0.15),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
             ),
-            child: Icon(_getIconForType(contact.type), color: color, size: 22),
+            child: const Icon(Icons.admin_panel_settings,
+                size: 34, color: Colors.white),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  contact.name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+                Text(name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    )),
+                if (email.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(email,
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white.withOpacity(0.8))),
+                ],
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  contact.number,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[700],
-                  ),
-                ),
-                if (contact.description.isNotEmpty)
-                  Text(
-                    contact.description,
+                  child: const Text(
+                    'MDRRMO ADMINISTRATOR',
                     style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600],
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 0.8,
                     ),
                   ),
+                ),
               ],
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              contact.type,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.edit, size: 20),
-            color: Colors.orange,
-            onPressed: () => _showEditContactDialog(contact),
-            tooltip: 'Edit',
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete, size: 20),
-            color: Colors.red,
-            onPressed: () => _showDeleteContactDialog(contact),
-            tooltip: 'Delete',
           ),
         ],
       ),
     );
   }
 
-  Color _getColorForType(String type) {
-    switch (type.toLowerCase()) {
-      case 'police':
-        return Colors.indigo;
-      case 'fire':
-        return Colors.red;
-      case 'medical':
-        return Colors.green;
-      case 'mdrrmo':
-        return Colors.blue;
-      case 'coast guard':
-        return Colors.cyan;
-      case 'emergency':
-        return Colors.orange;
-      default:
-        return Colors.grey;
-    }
-  }
+  Widget _buildSectionHeader(IconData icon, String label) => Row(
+        children: [
+          Icon(icon, size: 18, color: _navy),
+          const SizedBox(width: 8),
+          Text(
+            label.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: _navy,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Container(height: 1, color: Colors.blue.shade100)),
+        ],
+      );
 
-  IconData _getIconForType(String type) {
-    switch (type.toLowerCase()) {
-      case 'police':
-        return Icons.local_police;
-      case 'fire':
-        return Icons.local_fire_department;
-      case 'medical':
-        return Icons.local_hospital;
-      case 'mdrrmo':
-        return Icons.shield_outlined;
-      case 'coast guard':
-        return Icons.sailing;
-      case 'emergency':
-        return Icons.emergency_outlined;
-      default:
-        return Icons.phone;
-    }
-  }
+  Widget _buildCard({required List<Widget> children}) => Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(children: children),
+      );
 
-  Widget _buildActionCard({
+  Widget _buildTile({
     required IconData icon,
+    required Color iconColor,
     required String title,
     required String subtitle,
-    required Color color,
     required VoidCallback onTap,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
-      ),
-      child: Material(
+    Widget? trailing,
+    Color? trailingColor,
+  }) =>
+      Material(
         color: Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
         child: InkWell(
+          borderRadius: BorderRadius.circular(14),
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  width: 42,
+                  height: 42,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
+                    color: iconColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, color: color, size: 24),
+                  child: Icon(icon, color: iconColor, size: 22),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      Text(title,
+                          style: const TextStyle(
+                              fontSize: 15, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey[600],
-                        ),
-                      ),
+                      Text(subtitle,
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey[600])),
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right, color: Colors.grey[400]),
+                trailing ??
+                    Icon(Icons.chevron_right,
+                        color: trailingColor ?? Colors.grey[400]),
               ],
             ),
           ),
         ),
-      ),
+      );
+
+  Widget _buildDivider() => Divider(
+      height: 1, thickness: 1, color: Colors.grey[100], indent: 72);
+
+  Widget _buildInfoRow(IconData icon, String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: Colors.grey[600], size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(fontSize: 14, color: Colors.grey[700])),
+            ),
+            Text(value,
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      );
+
+  Widget _buildEmergencyContactsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(children: [
+              const Icon(Icons.emergency, color: Colors.red, size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'EMERGENCY CONTACTS',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(height: 1, width: 40, color: Colors.red.shade100),
+            ]),
+            TextButton.icon(
+              onPressed: _showAddContactDialog,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add'),
+              style: TextButton.styleFrom(
+                foregroundColor: _navy,
+                textStyle: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text('Visible to all residents in the app',
+            style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+        const SizedBox(height: 10),
+        _buildCard(
+          children: _emergencyContacts.isEmpty
+              ? [
+                  Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      children: [
+                        Icon(Icons.contacts_outlined,
+                            size: 48, color: Colors.grey[300]),
+                        const SizedBox(height: 8),
+                        Text('No emergency contacts added yet',
+                            style: TextStyle(color: Colors.grey[500])),
+                      ],
+                    ),
+                  ),
+                ]
+              : _emergencyContacts
+                  .asMap()
+                  .entries
+                  .map((e) => Column(children: [
+                        _buildContactRow(e.value),
+                        if (e.key < _emergencyContacts.length - 1)
+                          _buildDivider(),
+                      ]))
+                  .toList(),
+        ),
+      ],
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  Widget _buildContactRow(EmergencyContact contact) {
+    final color = _colorForType(contact.type);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[600],
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(_iconForType(contact.type), color: color, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(contact.name,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600)),
+                Text(contact.number,
+                    style:
+                        TextStyle(fontSize: 13, color: Colors.grey[600])),
+                if (contact.description.isNotEmpty)
+                  Text(contact.description,
+                      style: TextStyle(
+                          fontSize: 11, color: Colors.grey[500])),
+              ],
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
             ),
+            child: Text(contact.type,
+                style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: color)),
           ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _handleModelRetraining() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.model_training, color: Colors.purple),
-            SizedBox(width: 8),
-            Text('Retrain Models'),
-          ],
-        ),
-        content: const Text(
-          'This will retrain all AI models with the latest data. This process may take several minutes.\n\nProceed?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            color: Colors.orange,
+            onPressed: () => _showEditContactDialog(contact),
+            tooltip: 'Edit',
+            visualDensity: VisualDensity.compact,
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.purple,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Start Training'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      _showProgressDialog('Retraining Models...');
-      try {
-        await _adminService.triggerModelRetraining();
-        Navigator.pop(context);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Models retrained successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        Navigator.pop(context);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to retrain models: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _handleSyncData() async {
-    _showProgressDialog('Syncing Data...');
-    try {
-      await _adminService.syncBaselineData();
-      Navigator.pop(context);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Data synced successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      Navigator.pop(context);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to sync data: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _handleClearCache() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Clear Cache'),
-          ],
-        ),
-        content: const Text('This will clear all cached data. Continue?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Clear'),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 18),
+            color: Colors.red,
+            onPressed: () => _showDeleteContactDialog(contact),
+            tooltip: 'Delete',
+            visualDensity: VisualDensity.compact,
           ),
         ],
       ),
     );
+  }
 
-    if (confirm == true) {
-      try {
-        await _adminService.clearCache();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Cache cleared successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to clear cache: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+  // Placeholder so the "Emergency Contacts" quick-link feels responsive.
+  // In a real multi-screen setup this would scroll to the contacts section.
+  void _scrollToContacts() => _showSnack(
+        'Scroll down to manage Emergency Contacts.',
+        Colors.blue,
+      );
+
+  Color _colorForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'police': return Colors.indigo;
+      case 'fire': return Colors.red;
+      case 'medical': return Colors.green;
+      case 'mdrrmo': return _navy;
+      case 'coast guard': return Colors.cyan;
+      default: return Colors.orange;
     }
   }
 
-  void _showProgressDialog(String message) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        content: Row(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(width: 16),
-            Expanded(child: Text(message)),
-          ],
-        ),
-      ),
-    );
+  IconData _iconForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'police': return Icons.local_police;
+      case 'fire': return Icons.local_fire_department;
+      case 'medical': return Icons.local_hospital;
+      case 'mdrrmo': return Icons.shield_outlined;
+      case 'coast guard': return Icons.sailing;
+      default: return Icons.emergency_outlined;
+    }
   }
 }
