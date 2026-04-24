@@ -14,7 +14,6 @@ import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
 import '../../data/mock_evacuation_centers.dart';
 import '../../features/routing/routing_service.dart';
-import '../../features/hazards/hazard_service.dart';
 import '../../features/residents/resident_hazard_reports_service.dart';
 import '../../features/residents/resident_notifications_service.dart';
 import '../widgets/offline_banner.dart';
@@ -61,7 +60,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   
   // Selected center and routes
   EvacuationCenter? _selectedCenter;
-  List<app_route.Route>? _calculatedRoutes;
   app_route.Route? _activeRoute;
 
   // Double-tap prevention for "Routes" button on each center card.
@@ -266,7 +264,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       }
       if (permission == LocationPermission.deniedForever ||
           permission == LocationPermission.denied) {
-        if (mounted) setState(() => _gpsLocating = false);
+        if (!mounted) return;
+        setState(() => _gpsLocating = false);
         _showPermissionDeniedDialog();
         return;
       }
@@ -293,8 +292,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _mapController.move(_userLocation, 16.0);
       }
     } catch (_) {
-      // Timed out or failed (e.g. permission denied inside getCurrentPosition).
-      if (mounted) setState(() { _gpsLocating = false; _gpsFailed = true; });
+      // Timed out or failed. Only show the retry banner if we have no real
+      // position at all — if last-known position already placed the marker,
+      // just clear the locating indicator silently.
+      if (mounted) setState(() {
+        _gpsLocating = false;
+        _gpsFailed = !_locationIsReal;
+      });
     }
 
     // ── STEP 4: Honour notification deep-link focus ──────────────────────────

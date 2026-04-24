@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../core/config/api_config.dart';
 import '../../features/authentication/auth_service.dart';
 import '../../features/emergency_contacts/emergency_contacts_service.dart';
@@ -136,7 +135,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: _navy.withOpacity(0.1),
+                  color: _navy.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.lock_outline, color: _navy, size: 22),
@@ -248,7 +247,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.1),
+                color: Colors.green.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(Icons.add_circle_outline,
@@ -324,8 +323,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   type: selectedType,
                   description: descCtrl.text,
                 );
-                _contactsService.addContact(contact).then((_) {
-                  _loadData();
+                _contactsService.addContact(contact).then((_) async {
+                  await _loadData();
+                  if (!mounted) return;
                   Navigator.pop(context);
                   _showSnack('Contact added successfully.', Colors.green);
                 });
@@ -357,7 +357,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
+                color: Colors.orange.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(Icons.edit_outlined,
@@ -431,8 +431,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   type: selectedType,
                   description: descCtrl.text,
                 );
-                _contactsService.updateContact(updated).then((_) {
-                  _loadData();
+                _contactsService.updateContact(updated).then((_) async {
+                  await _loadData();
+                  if (!mounted) return;
                   Navigator.pop(context);
                   _showSnack('Contact updated.', Colors.green);
                 });
@@ -494,7 +495,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.1),
+                color: iconColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(icon, color: iconColor, size: 22),
@@ -715,7 +716,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: _navy.withOpacity(0.3),
+            color: _navy.withValues(alpha: 0.3),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -728,9 +729,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
+              color: Colors.white.withValues(alpha: 0.15),
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
             ),
             child: const Icon(Icons.admin_panel_settings,
                 size: 34, color: Colors.white),
@@ -751,14 +752,14 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   Text(email,
                       style: TextStyle(
                           fontSize: 13,
-                          color: Colors.white.withOpacity(0.8))),
+                          color: Colors.white.withValues(alpha: 0.8))),
                 ],
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Text(
@@ -803,7 +804,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -835,7 +836,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: iconColor.withOpacity(0.1),
+                    color: iconColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(icon, color: iconColor, size: 22),
@@ -970,7 +971,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(_iconForType(contact.type), color: color, size: 22),
@@ -996,7 +997,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(contact.type,
@@ -1054,3 +1055,4 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     }
   }
 }
+
