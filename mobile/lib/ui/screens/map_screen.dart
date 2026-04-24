@@ -253,23 +253,34 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       } catch (_) {}
     }
 
-    // ── STEP 2: Check permission via Geolocator (no permission_handler overhead)
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.deniedForever ||
-        permission == LocationPermission.denied) {
-      if (mounted) setState(() => _gpsLocating = false);
-      _showPermissionDeniedDialog();
-      return;
+    // ── STEP 2: Permission check (native only) ───────────────────────────────
+    // On web, Geolocator.checkPermission/requestPermission only query the
+    // current browser state and NEVER trigger the browser "Allow location?"
+    // popup. The popup is only shown when getCurrentPosition() is called.
+    // Skipping the pre-check on web so we don't return early with
+    // "permission denied" before the user has even been asked.
+    if (!kIsWeb) {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.denied) {
+        if (mounted) setState(() => _gpsLocating = false);
+        _showPermissionDeniedDialog();
+        return;
+      }
     }
 
-    // ── STEP 3: Accurate fix (medium = cell/WiFi, fast; 8-second hard cap) ──
+    // ── STEP 3: Get position — browser handles its own permission prompt ─────
+    // Longer timeout on web (20 s) because network/IP geolocation can be
+    // slow and the browser permission dialog is part of this call.
+    final timeout =
+        kIsWeb ? const Duration(seconds: 20) : const Duration(seconds: 8);
     try {
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-      ).timeout(const Duration(seconds: 8));
+        desiredAccuracy: LocationAccuracy.high,
+      ).timeout(timeout);
 
       if (mounted) {
         _pulseController.stop();
@@ -282,7 +293,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _mapController.move(_userLocation, 16.0);
       }
     } catch (_) {
-      // getCurrentPosition timed out or failed.
+      // Timed out or failed (e.g. permission denied inside getCurrentPosition).
       if (mounted) setState(() { _gpsLocating = false; _gpsFailed = true; });
     }
 
@@ -298,14 +309,30 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// Re-run the GPS acquisition (called from the orange retry pill / FAB).
   Future<void> _retryLocate() async {
     if (_gpsLocating) return; // already in progress
-    if (mounted) {
-      setState(() {
-        _gpsLocating = true;
-        _gpsFailed = false;
-      });
-      _pulseController.repeat(reverse: true);
+    if (!mounted) return;
+    setState(() { _gpsLocating = true; _gpsFailed = false; });
+    _pulseController.repeat(reverse: true);
+
+    final timeout =
+        kIsWeb ? const Duration(seconds: 20) : const Duration(seconds: 8);
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      ).timeout(timeout);
+
+      if (mounted) {
+        _pulseController.stop();
+        setState(() {
+          _userLocation = LatLng(position.latitude, position.longitude);
+          _locationIsReal = true;
+          _gpsLocating = false;
+          _gpsFailed = false;
+        });
+        _mapController.move(_userLocation, 16.0);
+      }
+    } catch (_) {
+      if (mounted) setState(() { _gpsLocating = false; _gpsFailed = true; });
     }
-    await _initializeMap();
   }
 
   void _showPermissionDeniedDialog() {
@@ -1531,7 +1558,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                               Text(
                                 _gpsFailed
                                     ? 'Location unavailable — Tap to retry'
-                                    : 'Getting your location…',
+                                    : kIsWeb
+                                        ? 'Allow location in browser — getting your position…'
+                                        : 'Getting your location…',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
