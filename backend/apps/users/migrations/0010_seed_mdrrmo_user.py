@@ -9,8 +9,19 @@ Default login:
   email   : admin@mdrrmo.bulan.gov.ph
   password: Admin@1234
 """
+import secrets
 from django.db import migrations
 from django.contrib.auth.hashers import make_password
+
+
+def _unique_six_digit(User):
+    """Generate a unique 6-digit public_display_id not yet used in the table."""
+    used = set(User.objects.values_list('public_display_id', flat=True))
+    for _ in range(100):
+        n = secrets.randbelow(900_000) + 100_000
+        if n not in used:
+            return n
+    raise RuntimeError('Could not allocate a unique public_display_id')
 
 
 def seed_mdrrmo_admin(apps, schema_editor):
@@ -30,6 +41,7 @@ def seed_mdrrmo_admin(apps, schema_editor):
             email_verified=True,
             is_active=True,
             is_suspended=False,
+            public_display_id=_unique_six_digit(User),
         )
 
 
