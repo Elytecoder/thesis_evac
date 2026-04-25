@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/config/api_config.dart';
 import '../../core/map/cached_tile_provider.dart';
 import '../../core/services/connectivity_service.dart';
+import '../../core/services/sync_service.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
 import '../../data/mock_evacuation_centers.dart';
@@ -32,7 +33,8 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
+class _MapScreenState extends State<MapScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final MapController _mapController = MapController();
   // Shared singleton — cache dir is pre-warmed so the first tile requests
   // don't stall on an async file-system call.
@@ -43,6 +45,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final ResidentNotificationsService _notificationsService = ResidentNotificationsService();
   final ConnectivityService _connectivity = ConnectivityService();
   StreamSubscription<bool>? _reconnectSub;
+  StreamSubscription<void>? _syncRefreshSub;
+  Timer? _pollTimer;
 
   // Default to Bulan, Sorsogon so the map renders instantly.
   // Updated to the real GPS fix as soon as it arrives.
@@ -96,6 +100,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
     // Pulse the searching marker until a real GPS fix arrives.
     _pulseController.repeat(reverse: true);
+    // Register for app lifecycle callbacks (resume → refresh data).
+    WidgetsBinding.instance.addObserver(this);
     // Kick off GPS and all data loads concurrently.
     // Map renders immediately with the Bulan default centre; each piece of
     // data calls setState independently so content appears progressively
@@ -103,6 +109,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _initializeMap();
     _loadDataInBackground();
     _listenForReconnect();
+    _listenForSyncRefresh();
+    _startPolling();
   }
 
   /// Runs all non-GPS data loads in parallel so each one updates the UI
@@ -121,6 +129,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       if (isOnline && mounted) {
         _loadEvacuationCenters();
         _loadHazardReports();
+      }
+    });
+  }
+
+  /// After a background sync completes (pending reports uploaded, caches refreshed)
+  /// pull fresh hazard and center data into the map UI immediately.
+  void _listenForSyncRefresh() {
+    _syncRefreshSub = SyncService().mapRefreshStream.listen((_) {
+      if (mounted) {
+        _loadHazardReports();
+        _loadEvacuationCenters();
       }
     });
   }
@@ -165,9 +184,38 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _reconnectSub?.cancel();
+    _syncRefreshSub?.cancel();
+    _pollTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  /// Polls live data every 30 s while the app is foregrounded.
+  /// Stops automatically when the app goes to background (see [didChangeAppLifecycleState]).
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) {
+        _loadHazardReports();
+        _loadEvacuationCenters();
+      }
+    });
+  }
+
+  /// Refresh data immediately when the user brings the app back to the foreground,
+  /// and restart the polling timer. Pauses polling while in background to save battery.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _loadHazardReports();
+      _loadEvacuationCenters();
+      _loadNotificationCount();
+      _startPolling();
+    } else if (state == AppLifecycleState.paused) {
+      _pollTimer?.cancel();
+    }
   }
   
   /// Check if we should focus on a target location from notification.

@@ -291,21 +291,41 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Icon
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Icons.person_add,
-                            size: 40,
-                            color: Colors.white.withOpacity(0.9),
+                        // Logo + name
+                        SizedBox(
+                          width: 72,
+                          height: 72,
+                          child: Image.asset(
+                            'assets/images/haznav_logo.png',
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 72,
+                              height: 72,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Icon(
+                                Icons.shield_outlined,
+                                size: 36,
+                                color: Colors.white.withValues(alpha: 0.9),
+                              ),
+                            ),
                           ),
                         ),
-                        
+
+                        const SizedBox(height: 12),
+
+                        const Text(
+                          'HAZNAV',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 4,
+                          ),
+                        ),
+
                         const SizedBox(height: 24),
                         
                         // Title

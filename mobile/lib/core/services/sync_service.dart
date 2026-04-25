@@ -39,6 +39,10 @@ class SyncService {
   final _progressController = StreamController<(int, int)>.broadcast();
   Stream<(int, int)> get uploadProgressStream => _progressController.stream;
 
+  // Emits once after a successful sync cycle finishes so map widgets can pull fresh data.
+  final _mapRefreshController = StreamController<void>.broadcast();
+  Stream<void> get mapRefreshStream => _mapRefreshController.stream;
+
   /// Start listening for connectivity changes.
   /// Safe to call multiple times — subsequent calls are no-ops.
   void startListening() {
@@ -67,6 +71,7 @@ class SyncService {
       await _refreshEvacuationCenters();
       await _refreshVerifiedHazards();
       await _saveLastSyncTime();
+      _mapRefreshController.add(null); // signal map to re-read fresh data
       developer.log('Sync completed successfully', name: 'SyncService');
     } catch (e) {
       developer.log('Sync cycle error: $e', name: 'SyncService');

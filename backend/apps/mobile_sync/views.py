@@ -525,31 +525,38 @@ def check_similar_reports(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Find similar pending reports
-    similar_reports = []
-    pending_reports = HazardReport.objects.filter(
-        status=HazardReport.Status.PENDING,
+    # Base filter: same hazard type, not deleted, not auto-rejected, NOT the requesting user's own reports.
+    # Exclude own reports so the dialog never asks a user to "confirm" their own submission.
+    base_qs = HazardReport.objects.filter(
         hazard_type=hazard_type,
         auto_rejected=False,
         is_deleted=False,
-    ).select_related('user')
-    
-    for report in pending_reports:
+    ).exclude(user=request.user).select_related('user')
+
+    # Search both PENDING (confirmable) and APPROVED (already verified) reports.
+    candidate_qs = base_qs.filter(
+        status__in=[HazardReport.Status.PENDING, HazardReport.Status.APPROVED]
+    )
+
+    similar_reports = []
+    for report in candidate_qs:
         distance = _haversine_meters(
             latitude, longitude,
             float(report.latitude), float(report.longitude)
         )
-        
+
         if distance <= radius_meters:
             report_data = HazardReportSerializer(report).data
             report_data['distance_meters'] = round(distance, 2)
             report_data['confirmation_count'] = report.confirmation_count
             report_data['has_user_confirmed'] = report.has_user_confirmed(request.user)
+            # Let the client know whether this report is confirmable (pending only).
+            report_data['is_approved'] = (report.status == HazardReport.Status.APPROVED)
             similar_reports.append(report_data)
-    
-    # Sort by confirmation count (most confirmed first)
-    similar_reports.sort(key=lambda x: x['confirmation_count'], reverse=True)
-    
+
+    # Sort: approved first (already verified carries more weight), then by confirmation count.
+    similar_reports.sort(key=lambda x: (not x['is_approved'], -x['confirmation_count']))
+
     return Response({
         'similar_reports': similar_reports,
         'count': len(similar_reports),
@@ -969,6 +976,16 @@ def suspend_user(request, user_id):
     user.is_suspended = True
     user.is_active = False
     user.save(update_fields=['is_suspended', 'is_active'])
+
+    # Invalidate the existing auth token so the resident is forced out
+    # immediately on their next request (DRF TokenAuth checks is_active, but
+    # deleting the token provides a hard guarantee regardless of that check).
+    try:
+        from rest_framework.authtoken.models import Token
+        Token.objects.filter(user=user).delete()
+    except Exception:
+        pass
+
     return Response(MdrrmoUserListSerializer(user).data)
 
 

@@ -32,18 +32,27 @@ class ApiClient {
       },
     ));
 
-    // Intercept 401 responses on authenticated endpoints and trigger a global
-    // session-expiry callback so the user is immediately sent back to login.
+    // Intercept 401 / suspension-403 responses and trigger a global session-expiry
+    // callback so the user is immediately sent back to login.
     _dio.interceptors.add(
       InterceptorsWrapper(
         onError: (DioException error, ErrorInterceptorHandler handler) {
-          if (error.response?.statusCode == 401) {
-            final path = error.requestOptions.path;
-            final isAuthEndpoint = path.contains('/auth/login') ||
-                path.contains('/auth/register') ||
-                path.contains('/auth/send-verification');
-            if (!isAuthEndpoint && onUnauthorized != null) {
+          final code = error.response?.statusCode;
+          final path = error.requestOptions.path;
+          final isAuthEndpoint = path.contains('/auth/login') ||
+              path.contains('/auth/register') ||
+              path.contains('/auth/send-verification');
+
+          if (!isAuthEndpoint && onUnauthorized != null) {
+            if (code == 401) {
               onUnauthorized!();
+            } else if (code == 403) {
+              // Force logout when the account has been suspended/deactivated.
+              final data = error.response?.data;
+              final msg = (data is Map ? (data['error'] ?? data['detail'] ?? '') : '').toString().toLowerCase();
+              if (msg.contains('suspend') || msg.contains('inactive') || msg.contains('not active')) {
+                onUnauthorized!();
+              }
             }
           }
           handler.next(error);

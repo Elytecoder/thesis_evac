@@ -27,7 +27,7 @@ class ReverseGeocodingService {
       final response = await http.get(
         url,
         headers: {
-          'User-Agent': 'EvacRoute Mobile App',
+          'User-Agent': 'HAZNAV Mobile App',
           'Accept': 'application/json',
         },
       ).timeout(

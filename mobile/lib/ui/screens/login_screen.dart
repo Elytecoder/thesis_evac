@@ -144,39 +144,48 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Icon
-                        Container(
+                        // Logo
+                        SizedBox(
                           width: 80,
                           height: 80,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(
-                            Icons.login,
-                            size: 40,
-                            color: Colors.white.withOpacity(0.9),
+                          child: Image.asset(
+                            'assets/images/haznav_logo.png',
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 80,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Icon(
+                                Icons.shield_outlined,
+                                size: 40,
+                                color: Colors.white.withValues(alpha: 0.9),
+                              ),
+                            ),
                           ),
                         ),
                         
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 16),
                         
-                        // Title
+                        // App name
                         const Text(
-                          'Welcome Back',
+                          'HAZNAV',
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 4,
                           ),
                         ),
                         
                         const SizedBox(height: 8),
                         
                         Text(
-                          'Login to access evacuation routes',
+                          'Sign in to your account',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
+                            color: Colors.white.withValues(alpha: 0.9),
                             fontSize: 16,
                           ),
                         ),

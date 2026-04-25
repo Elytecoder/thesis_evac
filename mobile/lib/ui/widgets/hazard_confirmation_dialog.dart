@@ -26,7 +26,7 @@ class HazardConfirmationDialog extends StatelessWidget {
       return aCount > bCount ? a : b;
     });
 
-    final reportId = mostConfirmed['id'] as int;
+    final reportId = (mostConfirmed['id'] as num?)?.toInt() ?? 0;
     final hazardType = mostConfirmed['hazard_type'] as String? ?? 'Unknown';
     final description = mostConfirmed['description'] as String? ?? '';
     final distance = mostConfirmed['distance_meters'] as num? ?? 0;

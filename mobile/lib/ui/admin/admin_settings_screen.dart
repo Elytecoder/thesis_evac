@@ -677,7 +677,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             _buildSectionHeader(Icons.info_outline, 'System Information'),
             const SizedBox(height: 10),
             _buildCard(children: [
-              _buildInfoRow(Icons.computer_outlined, 'App Version', '1.0.0'),
+              _buildInfoRow(Icons.computer_outlined, 'App', 'HAZNAV v1.0.0'),
               _buildDivider(),
               _buildInfoRow(Icons.cloud_outlined, 'Environment',
                   ApiConfig.baseUrl.contains('localhost') || ApiConfig.baseUrl.contains('10.0.2.2')
@@ -773,6 +773,16 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+          // HAZNAV logo watermark in top-right of card
+          SizedBox(
+            width: 36,
+            height: 36,
+            child: Image.asset(
+              'assets/images/haznav_logo.png',
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
             ),
           ),
         ],

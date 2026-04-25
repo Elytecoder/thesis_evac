@@ -57,7 +57,7 @@ class EvacuationApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Evacuation Route System',
+      title: 'HAZNAV',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,

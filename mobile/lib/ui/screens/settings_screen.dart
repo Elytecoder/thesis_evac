@@ -908,9 +908,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.info_outline, color: Colors.blue[700]),
-            const SizedBox(width: 8),
-            const Text('About'),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: Image.asset(
+                'assets/images/haznav_logo.png',
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.shield_outlined, color: Colors.blue[700], size: 28),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text('About HAZNAV'),
           ],
         ),
         content: Column(
@@ -918,23 +927,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'AI-Powered Evacuation Routing',
+              'HAZNAV',
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 3,
+                color: Color(0xFF0D47A1),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 2),
+            const Text(
+              'Hazard-Aware Evacuation Navigator',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 6),
             Text(
               'Version 1.0.0',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 color: Colors.grey[600],
               ),
             ),
             const SizedBox(height: 16),
             const Text(
-              'An intelligent mobile application for safe evacuation routing in Bulan, Sorsogon, Philippines.',
+              'An AI-powered mobile application for safe evacuation route guidance in Bulan, Sorsogon, Philippines.',
             ),
             const SizedBox(height: 16),
             Text(
@@ -951,7 +967,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildFeatureItem('• Emergency hotlines'),
             const SizedBox(height: 16),
             Text(
-              '© 2026 Thesis Project',
+              '© 2026 HAZNAV · Bulan MDRRMO',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey[600],

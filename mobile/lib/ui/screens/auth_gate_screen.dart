@@ -125,8 +125,47 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: const Color(0xFF0D47A1),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 100,
+                height: 100,
+                child: Image.asset(
+                  'assets/images/haznav_logo.png',
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.shield_outlined,
+                    size: 64,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'HAZNAV',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  color: Colors.white54,
+                  strokeWidth: 2.5,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
     return _home ?? const WelcomeScreen();
