@@ -1,6 +1,6 @@
 # System Workflow — Quick Reference
 
-**Project:** Hazard-Aware Evacuation Route Advisory System · Bulan, Sorsogon  
+**Project:** HAZNAV (Hazard-Aware Evacuation Navigator) · Bulan, Sorsogon  
 **Stack:** Django 5 · Flutter 3 · SQLite · OSRM (turn hints only)
 
 ---
@@ -111,12 +111,28 @@ Resident picks a route → backend polyline is passed directly to navigation.
 | State | Behavior |
 |-------|----------|
 | **Goes offline** | Banner shown; cached centers + hazards still displayed |
-| **Submits report offline** | Queued in local storage (Hive) |
-| **Comes back online** | Queued reports submitted → centers + hazards refreshed |
+| **Submits report offline** | Report queued in local Hive storage; photo as base64, video as local file path |
+| **Comes back online** | Queued reports uploaded (idempotent via `client_submission_id`) → centers + hazards refreshed |
+| **Media upload** | Multipart form upload on reconnect; removed from queue only on `200 OK` |
 
 ---
 
-## 9. Key Data Rules
+## 9. Multi-User Consistency
+
+MDRRMO actions propagate to all Resident views within ~30 seconds:
+
+| MDRRMO Action | Resident Effect |
+|---------------|----------------|
+| Approve report | Hazard marker appears on map; routing risk updated |
+| Reject / delete report | Marker removed; route recalculated |
+| Add / update center | New center visible after next refresh |
+| Suspend resident | Token invalidated; resident logged out on next request |
+
+Map screen polls the backend every **30 seconds** and also refreshes on app resume.
+
+---
+
+## 10. Key Data Rules
 
 - Reporter must be **≤ 150 m** from the pinned hazard (enforced server-side)
 - User GPS coordinates are **required** to submit a report
@@ -127,7 +143,7 @@ Resident picks a route → backend polyline is passed directly to navigation.
 
 ---
 
-## 10. Other Features
+## 11. Other Features
 
 | Feature | Summary |
 |---------|---------|
@@ -137,6 +153,7 @@ Resident picks a route → backend polyline is passed directly to navigation.
 | **System Logs** | Every significant action logged in background (auth, reports, navigation, etc.) |
 | **Evacuation Centers** | MDRRMO can create, update, deactivate, and reactivate centers |
 | **User Management** | MDRRMO can view, suspend, and delete resident accounts |
+| **Forgot Password** | Email OTP reset flow; lockout only on repeated invalid attempts |
 
 ---
 
@@ -149,5 +166,7 @@ For in-depth technical documentation see:
 | `SYSTEM_WORKFLOW.md` | Full workflow with all formulas, rules, and API tables |
 | `Algorithms_How_They_Work.md` | Deep-dive: NB, RF features, Dijkstra, decay profiles |
 | `algorithm-workflow.md` | Decision flow diagrams and scoring step-by-step |
+| `OFFLINE_MODE.md` | Offline architecture: Hive boxes, sync lifecycle, media queue |
+| `HAZARD_CONFIRMATION_SYSTEM.md` | Confirmation/consensus system |
 | `SRS_Software_Requirements_Specification.md` | Functional requirements (REQ-001 – REQ-160) |
 | `Test_Case_Document.md` | Test cases for all features |

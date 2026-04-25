@@ -1,6 +1,6 @@
-# How the Algorithms Work
+# How the Algorithms Work — HAZNAV
 
-This document explains the three main algorithms in the AI-Powered Mobile Evacuation Routing Application: **Naive Bayes** (report validation), **Random Forest** (road risk prediction), and **Modified Dijkstra** (safest-path routing).
+This document explains the three main algorithms in **HAZNAV** (Hazard-Aware Evacuation Navigator): **Naive Bayes** (report validation), **Random Forest** (road risk prediction), and **Modified Dijkstra** (safest-path routing).
 
 ---
 

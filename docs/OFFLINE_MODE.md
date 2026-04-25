@@ -1,7 +1,7 @@
 # Offline Mode — Architecture & Behaviour
 
 **Last updated:** April 2026  
-**Project:** Hazard-Aware Evacuation Route Advisory System · Bulan, Sorsogon
+**Project:** HAZNAV (Hazard-Aware Evacuation Navigator) · Bulan, Sorsogon
 
 ---
 
@@ -103,7 +103,7 @@ across restarts and connectivity loss.
 | **Shown on map** | Local pending reports shown immediately as yellow markers |
 | **After reconnect** | `SyncService._flushPendingReports()` auto-uploads the queue |
 | **Partial failure** | Only failed reports remain in queue; successful ones are removed |
-| **Media** | Photo stored as base64 data URL inside the queued report JSON |
+| **Media** | Photos stored as base64 data URL; videos stored as a local file path on device — both are re-uploaded as multipart on reconnect and removed from queue only on confirmed success |
 
 No duplicate uploads: each report is removed from the queue individually only after a
 successful `200 OK` response.  Timestamps are the original submission time (not the sync

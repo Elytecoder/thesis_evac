@@ -1,4 +1,6 @@
-# Documentation index
+# Documentation index — HAZNAV
+
+**Project:** HAZNAV (Hazard-Aware Evacuation Navigator) · Bulan, Sorsogon
 
 | Document | Description |
 |----------|-------------|
@@ -19,4 +21,4 @@
 - **[../backend/README.md](../backend/README.md)** — Django setup, email config, deploy, management commands
 - **[../mobile/README.md](../mobile/README.md)** — Flutter setup, `api_config`, build
 
-Additional narrative `*.md` files at the repo root (e.g. `COMPLETE_SYSTEM_DOCUMENTATION.md`) are supplementary thesis/project notes.
+Additional narrative `*.md` files at the repo root (e.g. `COMPLETE_SYSTEM_DOCUMENTATION.md`) are supplementary thesis/project notes. The `archive_unused_files/` folder contains older implementation notes that are superseded by the documents above.

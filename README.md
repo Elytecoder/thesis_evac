@@ -1,4 +1,4 @@
-# AI-Powered Evacuation Routing Application
+# HAZNAV — Hazard-Aware Evacuation Navigator
 
 A full-stack system for **intelligent evacuation route recommendation** using machine learning and risk-weighted routing. Built for **Bulan, Sorsogon, Philippines** — a mobile app for residents and an admin backend for MDRRMO (Municipal Disaster Risk Reduction and Management Office).
 
@@ -316,7 +316,7 @@ flutter test
 
 ## Thesis context
 
-This repository supports a thesis on **AI-powered mobile evacuation route recommendation** for Bulan, Sorsogon, combining:
+This repository supports a thesis on **AI-powered mobile evacuation route recommendation** for Bulan, Sorsogon. The application is branded **HAZNAV** (Hazard-Aware Evacuation Navigator) and combines:
 
 - Risk-weighted pathfinding (Modified Dijkstra on road segments)
 - Machine learning for report validation (Naive Bayes) and road segment risk (Random Forest)

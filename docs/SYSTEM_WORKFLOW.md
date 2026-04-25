@@ -1,8 +1,8 @@
-# System Workflow — Evacuation Route Advisory System
+# HAZNAV — Full System Workflow
 
-**Document Version:** 1.0  
+**Document Version:** 1.1  
 **Date:** April 2026  
-**Project:** Thesis — Hazard-Aware Evacuation Route Advisory System for Bulan, Sorsogon  
+**Project:** HAZNAV — Hazard-Aware Evacuation Navigator for Bulan, Sorsogon  
 **Stack:** Django 5 (backend) · Flutter 3 (mobile) · SQLite · OSRM (turn hints)
 
 ---

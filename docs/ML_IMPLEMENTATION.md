@@ -1,6 +1,6 @@
-# ML Implementation: Naive Bayes & Random Forest
+# ML Implementation: Naive Bayes & Random Forest — HAZNAV
 
-Complete reference for the machine learning pipeline — from synthetic training data to live predictions — for the AI-Powered Mobile Evacuation Routing Application.
+Complete reference for the machine learning pipeline — from synthetic training data to live predictions — for **HAZNAV** (Hazard-Aware Evacuation Navigator).
 
 > **Status:** Fully implemented and tested. Using synthetic training data (temporary).  
 > Replace `ml_data/naive_bayes_dataset.csv` and `ml_data/random_forest_dataset.csv` with real MDRRMO historical data when available, then run `python manage.py train_ml_models --force`.

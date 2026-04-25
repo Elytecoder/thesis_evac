@@ -44,24 +44,23 @@ The Hazard Confirmation System reduces duplicate reports and strengthens validat
 1. User long-presses on map
 2. Selects "Report Hazard"
 3. Fills form and submits
-4. System detects similar report within 100m
+4. System detects similar report within 100m (same hazard type, PENDING or APPROVED, not own report)
 5. **Confirmation Dialog Appears**:
+   - If the nearby report is **PENDING**: shows "Pending Review" badge + "Confirm Existing Hazard" button (adds consensus weight)
+   - If the nearby report is **APPROVED**: shows "Verified ✓" badge + a note that the hazard is already active; "Confirm" button is hidden (no need to add weight to an already-approved report)
    ```
-   Similar Hazard Found
-   
-   A similar hazard has already been reported nearby.
-   Would you like to confirm it instead?
-   
+   A Flooded Road was reported nearby.
+
    [Report Preview Card]
-   - Flooded Road
+   - Flooded Road  [Pending Review | Verified ✓]
    - 45m away
    - 2 confirmations
-   
-   [✓ Confirm Existing Hazard] ← Recommended
+
+   [✓ Confirm Existing Hazard (Recommended)] ← only shown for PENDING
    [+ Submit New Report Anyway]
    [Cancel]
    ```
-6. If user clicks "Confirm":
+6. If user clicks "Confirm" (PENDING only):
    - Confirmation recorded
    - Validation scores updated
    - Success message shown
@@ -144,6 +143,7 @@ CREATE TABLE hazards_confirmation (
       "distance_meters": 45.3,
       "confirmation_count": 3,
       "has_user_confirmed": false,
+      "is_approved": false,
       "status": "pending",
       "created_at": "2026-03-31T10:15:00Z"
     }
@@ -178,7 +178,7 @@ CREATE TABLE hazards_confirmation (
 **Error Cases:**
 - `400`: Already confirmed by this user
 - `400`: Cannot confirm your own report
-- `400`: Can only confirm pending reports
+- `400`: Can only confirm pending reports (approved reports cannot be confirmed via this endpoint)
 - `404`: Report not found
 
 ---
@@ -384,9 +384,9 @@ Validation: 85%
   - Info message shown
   - API blocks duplicate confirmation (unique constraint)
 
-### 3. Approved/Rejected Reports
-- **Scenario**: Report status changes before confirmation
-- **Behavior**: API only allows confirming pending reports
+### 3. Approved Reports
+- **Scenario**: Nearby report has already been APPROVED by MDRRMO
+- **Behavior**: Dialog shows the approved report with a "Verified ✓" badge. The "Confirm" button is **hidden** (there is no need to confirm an already-verified hazard). The user can still submit a new report if the situation is different or worsening.
 
 ### 4. Offline Mode
 - **Scenario**: No internet connection
@@ -504,8 +504,9 @@ high_confirmed_reports = HazardReport.objects.annotate(
 **Symptom**: Confirmation dialog doesn't appear
 **Causes**:
 1. No similar reports within 100m
-2. Similar reports not pending (approved/rejected)
-3. API error (check backend logs)
+2. Similar reports are all REJECTED (rejected reports are excluded)
+3. User is the original reporter of the nearby report (own reports are excluded)
+4. API error (check backend logs)
 **Solution**: Check backend terminal for API response
 
 ### Confirmation Not Recorded

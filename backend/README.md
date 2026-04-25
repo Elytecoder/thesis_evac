@@ -1,6 +1,6 @@
-# Evacuation Route Recommendation – Backend
+# HAZNAV — Backend (Django API)
 
-AI-powered evacuation routing API: **Django + Django REST Framework**, **SQLite** (`db.sqlite3` in this folder), token auth, and optional **Render** deployment.
+AI-powered evacuation routing API for HAZNAV: **Django + Django REST Framework**, **SQLite** (`db.sqlite3` in this folder), token auth, and optional **Render** deployment.
 
 **Where things live**
 

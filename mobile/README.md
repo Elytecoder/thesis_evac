@@ -1,13 +1,13 @@
-# Mobile App — AI-Powered Evacuation Routing
+# HAZNAV — Mobile App
 
-Flutter mobile application for the AI-powered evacuation routing system. Provides real-time evacuation routing, hazard reporting, and full offline support for residents and MDRRMO personnel.
+Flutter mobile application for HAZNAV (Hazard-Aware Evacuation Navigator) — an AI-powered evacuation routing system. Provides real-time evacuation routing, hazard reporting, and full offline support for residents and MDRRMO personnel.
 
 ---
 
 ## Features
 
 ### Resident Features
-- **Live Navigation** — Turn-by-turn navigation with voice guidance to evacuation centers
+- **Live Navigation** — Turn-by-turn visual navigation to evacuation centers (arrow, step banner, distance, deviation detection, arrival modal)
 - **Map View** — OpenStreetMap-based map showing evacuation centers and hazards
 - **Route Planning** — Multiple risk-weighted route options (Green / Yellow / Red)
 - **Hazard Reporting** — Submit hazard reports with photos/videos and location; auto-rejected if reporter is more than 150 m from the hazard; queued offline and auto-synced when reconnected
@@ -34,8 +34,8 @@ Flutter mobile application for the AI-powered evacuation routing system. Provide
 |----------|--------------|
 | **Framework** | Flutter 3.x, Dart 3.x |
 | **Maps** | flutter_map, OpenStreetMap tiles, OSRM API |
-| **Location** | geolocator, permission_handler |
-| **Navigation** | flutter_tts (voice guidance) |
+| **Location** | geolocator (GPS + native permission handling) |
+| **Navigation** | Visual turn-by-turn (bearing analysis + OSRM hints; no voice TTS) |
 | **Offline storage** | hive + hive_flutter (evacuation centers, hazards, routes, pending queue) |
 | **Connectivity** | connectivity_plus (network monitoring and auto-sync trigger) |
 | **Auth storage** | flutter_secure_storage (token), shared_preferences (session cache) |
@@ -224,8 +224,7 @@ flutter test
 |---------|---------|---------|
 | `flutter_map` | `^7.0.2` | Interactive map widget |
 | `latlong2` | `^0.9.1` | Latitude/longitude handling |
-| `geolocator` | `^12.0.0` | GPS location tracking |
-| `flutter_tts` | `^4.2.1` | Text-to-speech for live navigation |
+| `geolocator` | `^12.0.0` | GPS location tracking (native permission handling) |
 | `dio` | `^5.4.0` | HTTP client (singleton, keep-alive) |
 | `http` | `^1.2.0` | Supplementary HTTP requests |
 | `hive` | `^2.2.3` | Offline key-value storage engine |
@@ -235,12 +234,12 @@ flutter test
 | `shared_preferences` | `^2.2.0` | Lightweight key-value store (profile cache, settings, map state) |
 | `image_picker` | `^1.0.7` | Camera/gallery access for hazard reports |
 | `flutter_image_compress` | `^2.3.0` | Photo compression before upload |
-| `permission_handler` | `^11.3.1` | Runtime permissions (location, camera) |
 | `intl` | `^0.19.0` | Date/time formatting |
 | `url_launcher` | `^6.2.5` | Open external URLs |
 | `collection` | `^1.18.0` | Extended collection utilities |
+| `uuid` | `^4.0.0` | UUID generation for offline report deduplication (`client_submission_id`) |
 
-Full list in `pubspec.yaml`.
+Full list in `pubspec.yaml`. Launcher icon generated with `flutter_launcher_icons` (dev dependency).
 
 ---
 
