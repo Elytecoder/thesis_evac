@@ -31,31 +31,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _showMdrrmoHint(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('MDRRMO Access'),
-        content: const SingleChildScrollView(
-          child: Text(
-            'MDRRMO staff use the same login form with their work email and password.\n\n'
-            'If test users are set up on the backend (python manage.py create_test_users), you can use:\n\n'
-            'Email: admin@mdrrmo.bulan.gov.ph\n'
-            'Password: admin123\n\n'
-            'After login you will be taken to the MDRRMO dashboard.',
-            style: TextStyle(fontSize: 14),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -390,20 +365,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ],
                                 ),
                                 const SizedBox(height: 8),
-                                // MDRRMO staff hint
-                                TextButton(
-                                  onPressed: _isLoading
-                                      ? null
-                                      : () => _showMdrrmoHint(context),
-                                  child: Text(
-                                    'MDRRMO staff? Log in here',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.white70,
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                  ),
-                                ),
                               ],
                             ),
                           ),
