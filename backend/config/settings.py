@@ -104,7 +104,7 @@ if _DATABASE_URL:
             default=_DATABASE_URL,
             conn_max_age=600,
             conn_health_checks=True,
-            ssl_require=True,
+            ssl_require=False,   # Internal Render URL uses private network — no SSL needed
         )
     }
 else:
