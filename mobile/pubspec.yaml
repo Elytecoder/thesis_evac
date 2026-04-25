@@ -49,6 +49,8 @@ dependencies:
   # Open http(s) media links (e.g. hosted video) from MDRRMO report detail
   url_launcher: ^6.2.5
   flutter_compass: ^0.8.1
+  # Inline video playback for hazard report videos (base64 or HTTP)
+  video_player: ^2.10.0
 
 dev_dependencies:
   flutter_test:

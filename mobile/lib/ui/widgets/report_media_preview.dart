@@ -1,7 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/config/api_config.dart';
 import '../../models/hazard_report.dart';
@@ -251,56 +255,200 @@ class ReportMediaSection extends StatelessWidget {
   }
 }
 
-class _VideoRow extends StatelessWidget {
+class _VideoRow extends StatefulWidget {
   final String url;
 
   const _VideoRow({required this.url});
 
   @override
-  Widget build(BuildContext context) {
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return OutlinedButton.icon(
-        onPressed: () async {
-          final uri = Uri.tryParse(url);
-          if (uri == null) return;
-          if (await canLaunchUrl(uri)) {
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
-          } else if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Could not open video link')),
-            );
+  State<_VideoRow> createState() => _VideoRowState();
+}
+
+class _VideoRowState extends State<_VideoRow> {
+  VideoPlayerController? _controller;
+  bool _initialized = false;
+  bool _error = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initPlayer();
+  }
+
+  Future<void> _initPlayer() async {
+    try {
+      VideoPlayerController ctrl;
+
+      if (widget.url.startsWith('data:video')) {
+        if (kIsWeb) {
+          // Web: pass data URL directly to the HTML5 video element
+          ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+        } else {
+          // Mobile: decode base64 → temp file
+          final i = widget.url.indexOf(',');
+          if (i < 0) {
+            setState(() { _error = true; _loading = false; });
+            return;
           }
-        },
-        icon: const Icon(Icons.open_in_new),
-        label: const Text('Open video in browser'),
+          final bytes = base64Decode(widget.url.substring(i + 1));
+          final dir = await getTemporaryDirectory();
+          final file = File(
+            '${dir.path}/hzv_${DateTime.now().millisecondsSinceEpoch}.mp4',
+          );
+          await file.writeAsBytes(bytes, flush: true);
+          ctrl = VideoPlayerController.file(file);
+        }
+      } else if (widget.url.startsWith('http://') ||
+          widget.url.startsWith('https://')) {
+        ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      } else {
+        setState(() { _error = true; _loading = false; });
+        return;
+      }
+
+      await ctrl.initialize();
+      if (!mounted) { ctrl.dispose(); return; }
+      setState(() {
+        _controller = ctrl;
+        _initialized = true;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() { _error = true; _loading = false; });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _togglePlayPause() {
+    final c = _controller;
+    if (c == null) return;
+    setState(() {
+      c.value.isPlaying ? c.pause() : c.play();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Container(
+        height: 180,
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+              SizedBox(height: 10),
+              Text('Loading video…',
+                  style: TextStyle(color: Colors.white70, fontSize: 12)),
+            ],
+          ),
+        ),
       );
     }
-    if (url.startsWith('data:video')) {
+
+    if (_error) {
       return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.blueGrey.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.blueGrey.shade200),
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.red.shade200),
         ),
         child: Row(
           children: [
-            Icon(Icons.videocam, color: Colors.blueGrey.shade700),
-            const SizedBox(width: 12),
+            Icon(Icons.videocam_off, color: Colors.red.shade400),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Video is attached (embedded). Use approved export or future file download to retrieve the full file.',
-                style: TextStyle(fontSize: 13, color: Colors.blueGrey.shade800),
+                'Video could not be loaded.',
+                style: TextStyle(color: Colors.red.shade700, fontSize: 13),
               ),
             ),
+            if (widget.url.startsWith('http'))
+              TextButton.icon(
+                onPressed: () async {
+                  final uri = Uri.tryParse(widget.url);
+                  if (uri != null && await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('Open'),
+              ),
           ],
         ),
       );
     }
-    return Text(
-      'Video reference: ${url.length > 80 ? '${url.substring(0, 80)}…' : url}',
-      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+
+    final ctrl = _controller!;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Video frame
+          AspectRatio(
+            aspectRatio: ctrl.value.aspectRatio,
+            child: VideoPlayer(ctrl),
+          ),
+          // Play/pause overlay
+          GestureDetector(
+            onTap: _togglePlayPause,
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: ctrl,
+              builder: (_, value, __) {
+                return AnimatedOpacity(
+                  opacity: value.isPlaying ? 0.0 : 1.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      value.isPlaying ? Icons.pause : Icons.play_arrow,
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // Bottom progress bar
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: ctrl,
+              builder: (_, value, __) {
+                return VideoProgressIndicator(
+                  ctrl,
+                  allowScrubbing: true,
+                  colors: const VideoProgressColors(
+                    playedColor: Colors.blue,
+                    bufferedColor: Colors.white30,
+                    backgroundColor: Colors.black26,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
