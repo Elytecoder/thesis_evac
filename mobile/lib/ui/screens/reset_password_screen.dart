@@ -57,7 +57,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       );
       if (!mounted) return;
 
+      // Server revoked all tokens. Clear local session so the stale token in
+      // FlutterSecureStorage is gone before AuthGateScreen runs next time.
+      // Without this, the user would get a brief MapScreen flash then a
+      // "Session expired" banner on the next app open.
+      await _authService.clearLocalSessionOnly();
+
       // Show success and navigate back to login
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Password reset successfully! Please log in.'),

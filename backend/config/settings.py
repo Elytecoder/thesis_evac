@@ -85,13 +85,35 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# SQLite for development. No production DB config.
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# ── Database ──────────────────────────────────────────────────────────────────
+# Production (Render): set the DATABASE_URL environment variable to the
+# Internal Database URL from your Render PostgreSQL instance.
+# Local dev: DATABASE_URL is not set → SQLite is used automatically.
+#
+# HOW TO SET UP ON RENDER:
+#   1. Create a new "PostgreSQL" resource in Render dashboard.
+#   2. Copy its "Internal Database URL" (starts with postgres://...).
+#   3. Add it as env var DATABASE_URL on the Web Service.
+#   4. Re-deploy — data now survives all future re-deploys.
+import dj_database_url as _dj_db_url
+
+_DATABASE_URL = os.environ.get('DATABASE_URL', '')
+if _DATABASE_URL:
+    DATABASES = {
+        'default': _dj_db_url.config(
+            default=_DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},

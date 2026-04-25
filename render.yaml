@@ -1,12 +1,35 @@
-# Render Blueprint - Django backend
-# In Render dashboard: set "Root Directory" to "backend" for this service.
+# Render Blueprint - HAZNAV backend (Django API)
+# ─────────────────────────────────────────────────────────────────────────────
+# SETUP INSTRUCTIONS (first-time deploy only):
+#
+# 1. Push this file to your repo.
+# 2. In Render dashboard → New → Blueprint → select this repo.
+# 3. Render will automatically:
+#    - Create a PostgreSQL database (thesis-evac-db)
+#    - Create the Web Service (thesis-evac-api)
+#    - Link DATABASE_URL from the database to the web service
+# 4. First deploy runs: pip install, migrate, collectstatic, create_test_users
+# 5. All future deploys run migrations again (safe, no data loss with Postgres)
+#
+# DATA PERSISTENCE:
+# - PostgreSQL on Render is a managed service with persistent storage.
+# - User accounts, tokens, hazard reports, and evacuation centers
+#   ALL survive re-deploys. No more data loss.
+# ─────────────────────────────────────────────────────────────────────────────
+
+databases:
+  - name: thesis-evac-db
+    databaseName: thesis_evac
+    user: thesis_evac_user
+    plan: free
+
 services:
   - type: web
     name: thesis-evac-api
     runtime: python
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py migrate --noinput && python manage.py collectstatic --noinput
-    # Create test users (MDRRMO + residents) on every start if missing; then start server. No Shell needed.
+    # Create test users (MDRRMO + residents) on every start if missing; safe to run repeatedly.
     startCommand: python manage.py create_test_users 2>/dev/null; gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
     envVars:
       - key: DJANGO_SECRET_KEY
@@ -17,3 +40,7 @@ services:
         value: "true"
       - key: PYTHON_VERSION
         value: "3.11.0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: thesis-evac-db
+          property: connectionString

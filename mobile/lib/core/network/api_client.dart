@@ -12,7 +12,6 @@ class ApiClient {
   factory ApiClient() => _instance;
 
   late final Dio _dio;
-  String? _authToken;
 
   /// Called when any authenticated request receives a 401 (session expired /
   /// token invalidated on server).  Set this once in main() to clear the local
@@ -41,7 +40,11 @@ class ApiClient {
           final path = error.requestOptions.path;
           final isAuthEndpoint = path.contains('/auth/login') ||
               path.contains('/auth/register') ||
-              path.contains('/auth/send-verification');
+              path.contains('/auth/send-verification') ||
+              path.contains('/auth/logout') ||
+              path.contains('/auth/forgot-password') ||
+              path.contains('/auth/verify-reset-code') ||
+              path.contains('/auth/reset-password');
 
           if (!isAuthEndpoint && onUnauthorized != null) {
             if (code == 401) {
@@ -71,13 +74,11 @@ class ApiClient {
 
   /// Set authentication token
   void setAuthToken(String token) {
-    _authToken = token;
     _dio.options.headers['Authorization'] = 'Token $token';
   }
 
   /// Clear authentication token
   void clearAuthToken() {
-    _authToken = null;
     _dio.options.headers.remove('Authorization');
   }
 
@@ -149,7 +150,7 @@ class ApiClient {
         
         if (responseData != null) {
           if (responseData is Map) {
-            final map = responseData as Map;
+            final map = responseData;
             // Check for common error field names
             message = map['error'] ?? 
                      map['detail'] ?? 
@@ -201,10 +202,10 @@ class ApiClient {
           return ApiException('Resource not found.', statusCode: 404);
         } else if (statusCode == 500) {
           // responseData can be Map (parsed JSON) or String (e.g. if content-type was wrong)
-          Map? errMap = responseData is Map ? responseData as Map : null;
+          Map? errMap = responseData is Map ? responseData : null;
           if (errMap == null && responseData is String) {
             try {
-              final decoded = _tryDecodeJson(responseData as String);
+              final decoded = _tryDecodeJson(responseData);
               if (decoded is Map) errMap = decoded;
             } catch (_) {}
           }
