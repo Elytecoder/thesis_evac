@@ -656,7 +656,7 @@ def confirm_hazard_report(request):
     # Log the confirmation
     from apps.system_logs.models import SystemLog
     SystemLog.log_action(
-        action=SystemLog.Action.HAZARD_SUBMIT,
+        action=SystemLog.Action.REPORT_SUBMITTED,
         module=SystemLog.Module.HAZARD_REPORTS,
         user=request.user,
         description=f'User confirmed hazard report #{report.id} (total confirmations: {confirmation_count})',

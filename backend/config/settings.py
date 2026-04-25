@@ -1,7 +1,7 @@
 """
-Django settings for Evacuation Route Recommendation backend.
-SQLite only. No production database configuration.
-Build: 2026-04-22-r2  (forces Render redeploy)
+Django settings for HAZNAV backend.
+Production DB: PostgreSQL via DATABASE_URL env var (Render managed Postgres).
+Local dev: SQLite fallback when DATABASE_URL is not set.
 """
 import os
 from pathlib import Path

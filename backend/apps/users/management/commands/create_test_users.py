@@ -20,7 +20,6 @@ class Command(BaseCommand):
                 password='admin123',
                 role='mdrrmo',
                 full_name='MDRRMO Administrator',
-                phone_number='09171234567',
                 barangay='Poblacion',
             )
             mdrrmo.email_verified = True
@@ -54,7 +53,6 @@ class Command(BaseCommand):
                 'email': 'resident1@gmail.com',
                 'password': 'resident123',
                 'full_name': 'Juan Dela Cruz',
-                'phone_number': '09171111111',
                 'barangay': 'Zone 1',
             },
             {
@@ -62,7 +60,6 @@ class Command(BaseCommand):
                 'email': 'resident2@gmail.com',
                 'password': 'resident123',
                 'full_name': 'Maria Santos',
-                'phone_number': '09172222222',
                 'barangay': 'Zone 2',
             },
             {
@@ -70,7 +67,6 @@ class Command(BaseCommand):
                 'email': 'test@example.com',
                 'password': 'test123',
                 'full_name': 'Test Resident',
-                'phone_number': '09173333333',
                 'barangay': 'Zone 3',
             },
         ]
@@ -83,7 +79,6 @@ class Command(BaseCommand):
                     password=data['password'],
                     role='resident',
                     full_name=data['full_name'],
-                    phone_number=data['phone_number'],
                     barangay=data['barangay'],
                 )
                 u.email_verified = True
