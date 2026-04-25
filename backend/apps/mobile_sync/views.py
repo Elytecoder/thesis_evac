@@ -152,8 +152,7 @@ def report_hazard(request):
                 user=request.user,
             ).first()
             if existing:
-                from apps.hazards.serializers import HazardReportSerializer
-                return Response(HazardReportSerializer(existing).data, status=status.HTTP_200_OK)
+            return Response(HazardReportSerializer(existing).data, status=status.HTTP_200_OK)
 
         report = process_new_report(
             user=request.user,
