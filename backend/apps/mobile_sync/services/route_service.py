@@ -757,6 +757,18 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         return None  # Deactivated centers are never used for routing
     _ensure_segment_risk_scores()
     segments = list(RoadSegment.objects.all())
+    segment_count = len(segments)
+    if not segments:
+        return {
+            'evacuation_center_id': ec.id,
+            'evacuation_center_name': ec.name,
+            'routes': [],
+            'no_safe_route': True,
+            'message': 'Road network data is not yet loaded on this server. Please contact the administrator.',
+            'recommended_action': 'Road segment data must be seeded via: python manage.py migrate',
+            'alternative_centers': [],
+            'segment_count': 0,
+        }
     approved_hazards = _get_approved_hazards()
     for seg in segments:
         seg.effective_risk = calculate_segment_risk(seg, approved_hazards)
@@ -858,4 +870,5 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         'message': message,
         'recommended_action': recommended_action,
         'alternative_centers': alternative_centers,
+        'segment_count': segment_count,
     }

@@ -1036,3 +1036,19 @@ def delete_user_admin(request, user_id):
 
     user.delete()
     return Response({'message': 'User deleted successfully.'}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def check_road_data(request):
+    """
+    GET /api/check-road-data/
+    Diagnostic: returns road segment count and seeding status.
+    """
+    from apps.routing.models import RoadSegment
+    count = RoadSegment.objects.count()
+    return Response({
+        'segment_count': count,
+        'seeded': count > 0,
+        'note': 'Routing requires segments to be seeded via the 0004_seed_road_segments migration.',
+    })

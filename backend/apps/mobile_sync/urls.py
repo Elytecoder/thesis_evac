@@ -35,6 +35,7 @@ urlpatterns = [
     
     # Routing
     path('calculate-route/', views.calculate_route, name='calculate_route'),
+    path('check-road-data/', views.check_road_data, name='check_road_data'),
 
     # Bootstrap data
     path('bootstrap-sync/', views.bootstrap_sync, name='bootstrap_sync'),
