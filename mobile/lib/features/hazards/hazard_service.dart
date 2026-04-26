@@ -210,7 +210,7 @@ class HazardService {
     required String hazardType,
     required double latitude,
     required double longitude,
-    double radiusMeters = 100.0,
+    double radiusMeters = 150.0,
   }) async {
     if (ApiConfig.useMockData) {
       // Mock: return empty list (no similar reports)

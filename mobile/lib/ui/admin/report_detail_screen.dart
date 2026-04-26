@@ -1001,7 +1001,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       _buildFeatureRow('Hazard type', _formatHazardType(report.hazardType)),
       _buildFeatureRow('Description', '$descLen chars · $descCategory'),
       _buildFeatureRow('Distance', distanceMeters != null ? '$distanceMeters m · $distanceCategory' : 'Not recorded'),
-      _buildFeatureRow('Nearby reports', nearbyCount != null ? '$nearbyCount within 50 m · $nearbyCategory' : nearbyCategory),
+      _buildFeatureRow('Nearby reports', nearbyCount != null ? '$nearbyCount within 150 m · $nearbyCategory' : nearbyCategory),
       _buildFeatureRow('User confirmations', '${breakdown?['confirmation_count'] ?? 0} ${(breakdown?['confirmation_count'] ?? 0) == 1 ? 'user' : 'users'}'),
       const SizedBox(height: 10),
       Text(

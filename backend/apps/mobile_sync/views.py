@@ -557,7 +557,7 @@ def check_similar_reports(request):
     hazard_type = request.data.get('hazard_type')
     latitude = request.data.get('latitude')
     longitude = request.data.get('longitude')
-    radius_meters = request.data.get('radius_meters', 100)  # Default 100m
+    radius_meters = request.data.get('radius_meters', 150)  # Default 150 m — matches auto-reject proximity limit
     
     if not all([hazard_type, latitude, longitude]):
         return Response(

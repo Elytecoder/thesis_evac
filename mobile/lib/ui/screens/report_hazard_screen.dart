@@ -271,7 +271,7 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
         hazardType: _selectedHazardType,
         latitude: widget.location.latitude,
         longitude: widget.location.longitude,
-        radiusMeters: 100.0,
+        radiusMeters: 150.0,
       );
 
       if (!mounted) return;
@@ -337,7 +337,7 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
         final dialogBody = isApproved
             ? 'This hazard has already been verified by MDRRMO and is currently active. '
               'Submit a new report only if this is a different or worsening occurrence.'
-            : 'A $hazardLabel report is awaiting MDRRMO review nearby. '
+            : 'A similar $hazardLabel report (within 150 m) is awaiting MDRRMO review. '
               'Confirming it instead of creating a new one helps MDRRMO prioritize faster.';
 
         return Dialog(

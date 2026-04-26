@@ -22,8 +22,8 @@ from core.utils.geo import within_radius
 
 
 # Radius in meters for counting nearby reports of the same hazard type.
-# Updated: Changed from 50 m to 100 m to better capture the same incident area.
-CONSENSUS_RADIUS_METERS = 100.0
+# Standardized to 150 m to match the auto-reject proximity limit and thesis spec.
+CONSENSUS_RADIUS_METERS = 150.0
 # Time window: only count reports within this many hours.
 NEARBY_TIME_WINDOW_HOURS = 1
 

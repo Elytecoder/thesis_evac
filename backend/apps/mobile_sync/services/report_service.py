@@ -213,7 +213,7 @@ def process_new_report(
         'nearby_count': nearby,
         'nearby_category': nearby_category,
         'confirmation_count': confirmation_count,
-        'consensus_radius_meters': 100,
+        'consensus_radius_meters': 150,
         # Plain-English explanation for MDRRMO
         'explanation': explanation,
     }
