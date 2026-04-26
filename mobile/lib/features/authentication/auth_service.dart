@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:developer' as developer;
@@ -81,6 +82,9 @@ class AuthService {
       if (user.authToken != null) {
         _apiClient.setAuthToken(user.authToken!);
       }
+      // Register the FCM device token with the backend so this user receives
+      // push notifications on this device.
+      _registerFcmToken();
       return user;
     } on ApiException catch (e) {
       throw Exception(e.message);
@@ -246,6 +250,14 @@ class AuthService {
   Future<void> logout() async {
     if (!ApiConfig.useMockData) {
       try {
+        // Clear the FCM token on the server before logging out so this device
+        // no longer receives push notifications for the signed-out account.
+        await _apiClient.post(
+          ApiConfig.fcmTokenEndpoint,
+          data: {'fcm_token': ''},
+        );
+      } catch (_) {}
+      try {
         // Call logout endpoint to invalidate token on server
         await _apiClient.post(ApiConfig.logoutEndpoint);
       } catch (e) {
@@ -263,6 +275,23 @@ class AuthService {
     await prefs.remove('current_username');
     await prefs.remove('current_email');
     await prefs.remove('user_profile');
+  }
+
+  /// Register this device's FCM token with the backend (fire-and-forget).
+  void _registerFcmToken() {
+    Future(() async {
+      try {
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null && token.isNotEmpty) {
+          await _apiClient.post(
+            ApiConfig.fcmTokenEndpoint,
+            data: {'fcm_token': token},
+          );
+        }
+      } catch (_) {
+        // Non-critical; NotificationService.initialize() also registers it.
+      }
+    });
   }
 
   /// Save auth token using the current persistence mode (e.g. after change-password).

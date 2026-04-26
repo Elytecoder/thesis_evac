@@ -12,6 +12,9 @@ scikit-learn>=1.3
 psycopg2-binary>=2.9
 # Parses DATABASE_URL into Django DATABASES dict
 dj-database-url>=2.1
+# Firebase Admin SDK — for sending FCM push notifications to Android devices.
+# FCM is the transport layer only; PostgreSQL remains the primary database.
+firebase-admin>=6.0
 # Testing
 pytest>=7.0
 pytest-django>=4.5

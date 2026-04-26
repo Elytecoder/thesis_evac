@@ -52,6 +52,12 @@ dependencies:
   # Inline video playback for hazard report videos (base64 or HTTP)
   video_player: ^2.10.0
 
+  # Firebase push notifications (FCM transport only — PostgreSQL stays as DB)
+  firebase_core: ^3.13.0
+  firebase_messaging: ^15.2.4
+  # Show system notification banners when app is in foreground
+  flutter_local_notifications: ^18.0.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

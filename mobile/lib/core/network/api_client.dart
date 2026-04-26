@@ -44,7 +44,8 @@ class ApiClient {
               path.contains('/auth/logout') ||
               path.contains('/auth/forgot-password') ||
               path.contains('/auth/verify-reset-code') ||
-              path.contains('/auth/reset-password');
+              path.contains('/auth/reset-password') ||
+              path.contains('/auth/fcm-token');
 
           if (!isAuthEndpoint && onUnauthorized != null) {
             if (code == 401) {

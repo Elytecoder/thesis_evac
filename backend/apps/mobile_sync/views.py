@@ -31,6 +31,7 @@ from apps.mobile_sync.services.report_service import process_new_report
 from apps.mobile_sync.services.route_service import calculate_safest_routes
 from apps.mobile_sync.services.bootstrap_service import get_bootstrap_data
 from apps.notifications.models import Notification
+from apps.notifications import fcm_service
 from apps.users.serializers import MdrrmoUserListSerializer
 
 
@@ -62,6 +63,24 @@ def _sync_recompute_segment_risks():
     except Exception as exc:  # pragma: no cover
         import logging
         logging.getLogger(__name__).warning('Segment recompute failed: %s', exc)
+
+
+def _notify_mdrrmo_new_report_async(report):
+    """Send FCM push to all MDRRMO users in a background thread (non-blocking)."""
+    def _send():
+        hazard_label = report.hazard_type.replace('_', ' ').title()
+        barangay = getattr(report.user, 'barangay', '') or 'Unknown Barangay'
+        fcm_service.send_to_role(
+            role='mdrrmo',
+            title='New Hazard Report',
+            body=f'{hazard_label} reported near Barangay {barangay}',
+            data={
+                'type': 'new_report',
+                'report_id': str(report.id),
+                'hazard_type': report.hazard_type,
+            },
+        )
+    threading.Thread(target=_send, daemon=True).start()
 
 
 @api_view(['POST'])
@@ -166,6 +185,11 @@ def report_hazard(request):
             user_longitude=user_lng,
             client_submission_id=client_submission_id,
         )
+
+        # Notify MDRRMO staff via push notification (non-blocking thread)
+        if not report.auto_rejected:
+            _notify_mdrrmo_new_report_async(report)
+
         payload = HazardReportSerializer(report).data
         return Response(payload, status=status.HTTP_201_CREATED)
     except Exception as e:
@@ -407,6 +431,15 @@ def mdrrmo_approve_report(request):
                 'longitude': str(report.longitude),
             }
         )
+        # Push to resident device
+        if report.user.fcm_token:
+            hazard_label = report.hazard_type.replace('_', ' ').title()
+            fcm_service.send_push(
+                token=report.user.fcm_token,
+                title='Report Approved ✅',
+                body=f'Your {hazard_label} report has been approved by MDRRMO.',
+                data={'type': 'report_approved', 'report_id': str(report.id)},
+            )
     else:
         report.mark_rejected()
         
@@ -423,6 +456,15 @@ def mdrrmo_approve_report(request):
                 'reason': admin_comment if admin_comment else 'Did not meet validation criteria',
             }
         )
+        # Push to resident device
+        if report.user.fcm_token:
+            hazard_label = report.hazard_type.replace('_', ' ').title()
+            fcm_service.send_push(
+                token=report.user.fcm_token,
+                title='Report Rejected',
+                body=f'Your {hazard_label} report was reviewed and rejected by MDRRMO.',
+                data={'type': 'report_rejected', 'report_id': str(report.id)},
+            )
     
     if admin_comment:
         report.admin_comment = admin_comment
@@ -1052,3 +1094,20 @@ def check_road_data(request):
         'seeded': count > 0,
         'note': 'Routing requires segments to be seeded via the 0004_seed_road_segments migration.',
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_fcm_token(request):
+    """
+    POST /api/auth/fcm-token/
+    Body: { "fcm_token": "<device FCM token>" }
+
+    Saves or clears the caller's FCM device token.
+    Called by the Flutter app on login and whenever the token refreshes.
+    Sending an empty string clears the token (e.g. on logout).
+    """
+    token = (request.data.get('fcm_token') or '').strip()
+    request.user.fcm_token = token
+    request.user.save(update_fields=['fcm_token'])
+    return Response({'status': 'ok'})

@@ -47,6 +47,10 @@ class User(AbstractUser):
     # Non-sequential public ID for MDRRMO display (6 digits, unique). DB pk unchanged.
     public_display_id = models.PositiveIntegerField(unique=True)
 
+    # FCM device token for Android push notifications (updated by the app on login).
+    # Blank = user has not registered a device token yet.
+    fcm_token = models.CharField(max_length=255, blank=True, default='')
+
     class Meta:
         db_table = 'users_user'
         indexes = [

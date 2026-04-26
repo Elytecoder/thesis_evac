@@ -1,18 +1,14 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'core/app_keys.dart';
 import 'core/network/api_client.dart';
 import 'core/storage/storage_service.dart';
 import 'core/services/sync_service.dart';
+import 'core/services/notification_service.dart';
 import 'features/authentication/auth_service.dart';
 import 'ui/screens/auth_gate_screen.dart';
 import 'ui/screens/welcome_screen.dart';
-
-/// Global navigator key — allows navigation from outside the widget tree
-/// (e.g. the 401 session-expiry handler in ApiClient).
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
-/// Global scaffold messenger key — allows SnackBars from outside the widget tree.
-final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
-    GlobalKey<ScaffoldMessengerState>();
 
 /// Main Entry Point
 ///
@@ -25,6 +21,14 @@ void main() async {
 
   // Initialize Hive for offline storage
   await StorageService.initialize();
+
+  // Initialize Firebase (required before any firebase_messaging calls).
+  // If google-services.json is missing, this throws at startup — that is the
+  // intended failure mode so the developer knows the file needs to be added.
+  await Firebase.initializeApp();
+
+  // Register the background message handler BEFORE calling requestPermission.
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
   // Start listening for connectivity changes so queued reports are automatically
   // synced when the device comes back online.
@@ -51,8 +55,23 @@ void main() async {
   runApp(const EvacuationApp());
 }
 
-class EvacuationApp extends StatelessWidget {
+class EvacuationApp extends StatefulWidget {
   const EvacuationApp({super.key});
+
+  @override
+  State<EvacuationApp> createState() => _EvacuationAppState();
+}
+
+class _EvacuationAppState extends State<EvacuationApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Initialize push notifications after the first frame so the navigator
+    // key is attached and navigation from notification taps works correctly.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.initialize();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase — these files contain project-specific credentials.
+# Each developer must download their own from the Firebase console.
+/android/app/google-services.json

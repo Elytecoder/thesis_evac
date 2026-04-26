@@ -78,6 +78,9 @@ class ApiConfig {
   static const String notificationsEndpoint = '/notifications/';
   static const String unreadCountEndpoint = '/notifications/unread-count/';
   static const String markAllReadEndpoint = '/notifications/mark-all-read/';
+
+  /// FCM push notification device token registration
+  static const String fcmTokenEndpoint = '/auth/fcm-token/';
   
   /// Route calculation
   static const String calculateRouteEndpoint = '/calculate-route/';

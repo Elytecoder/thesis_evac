@@ -37,6 +37,9 @@ urlpatterns = [
     path('calculate-route/', views.calculate_route, name='calculate_route'),
     path('check-road-data/', views.check_road_data, name='check_road_data'),
 
+    # FCM push notification token registration
+    path('auth/fcm-token/', views.update_fcm_token, name='update_fcm_token'),
+
     # Bootstrap data
     path('bootstrap-sync/', views.bootstrap_sync, name='bootstrap_sync'),
 
