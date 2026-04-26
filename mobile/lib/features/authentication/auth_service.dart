@@ -9,7 +9,6 @@ import '../../core/network/api_client.dart';
 import '../../core/services/notification_service.dart';
 import '../../models/user.dart';
 import '../../data/mock_users.dart';
-import '../../data/mock_users.dart';
 
 /// Authentication service for login/logout.
 /// 

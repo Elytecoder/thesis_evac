@@ -34,7 +34,8 @@ const _kChannelDesc = 'Hazard reports and system alerts from HazNav';
 // Navigation target keys (must match the `target` field set by the backend)
 // ────────────────────────────────────────────────────────────────────────────
 const _kTargetMdrrmoReports = 'mdrrmo_reports';
-const _kTargetResidentNotifications = 'resident_notifications';
+// 'resident_notifications' is the other backend value; all unknown/null
+// targets also fall back to the resident notifications screen.
 
 /// Manages Firebase Cloud Messaging (FCM) push notifications for HazNav.
 ///
@@ -165,7 +166,7 @@ class NotificationService {
       message.messageId.hashCode,
       n.title ?? 'HazNav',
       n.body ?? '',
-      NotificationDetails(
+      const NotificationDetails(
         android: AndroidNotificationDetails(
           _kChannelId,
           _kChannelName,
