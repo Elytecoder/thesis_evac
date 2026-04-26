@@ -618,10 +618,10 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
                 
                 const SizedBox(height: 12),
                 
-                // Validation score (Naive Bayes only; Consensus is not used for report validation)
+                // AI Confidence score — combined final validation score
                 _buildScoreIndicator(
-                  'Validation',
-                  report.naiveBayesScore ?? 0.0,
+                  'AI Confidence',
+                  report.finalValidationScore ?? report.naiveBayesScore ?? 0.0,
                   Colors.blue,
                 ),
                 

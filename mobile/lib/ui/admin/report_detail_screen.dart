@@ -724,120 +724,112 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     );
   }
 
-  /// Simplified AI Analysis for non-technical MDRRMO users.
-  /// Validation is a single Naive Bayes score (no separate consensus formula).
-  /// 
-  /// FIXED: Responsive layout with proper spacing and overflow handling
+  /// AI Analysis panel for MDRRMO report details.
+  /// Shows the report's AI confidence level — how likely the submission is valid.
+  /// This is NOT a hazard danger rating; it measures report credibility only.
   Widget _buildAIAnalysis() {
     final report = widget.report;
-    // Use the combined weighted score (NB 50% + distance 30% + consensus 20%).
-    // Fall back to naiveBayesScore for old records that pre-date the combined field.
+    // Combined weighted score: NB 50% + distance 30% + consensus 20%.
+    // Fall back to naiveBayesScore for older records.
     final validationScore =
         report.finalValidationScore ?? report.naiveBayesScore ?? 0.0;
-    
-    // Determine risk level from validation score only
-    String riskLevel;
-    Color riskColor;
-    IconData riskIcon;
-    
+
+    // Confidence label + colour based on validation score thresholds.
+    // Thresholds: 0.00–0.49 = Low, 0.50–0.74 = Medium, 0.75–1.00 = High
+    final String confidenceLabel;
+    final Color confidenceColor;
+    final IconData confidenceIcon;
+    final String recommendation;
+
     if (validationScore >= 0.75) {
-      riskLevel = 'HIGH';
-      riskColor = Colors.red;
-      riskIcon = Icons.warning;
+      confidenceLabel = 'High Confidence';
+      confidenceColor = const Color(0xFF1565C0); // deep blue — report likely valid
+      confidenceIcon = Icons.verified_rounded;
+      recommendation =
+          'The report has strong credibility signals. Consider approving after field verification.';
     } else if (validationScore >= 0.50) {
-      riskLevel = 'MODERATE';
-      riskColor = Colors.orange;
-      riskIcon = Icons.warning_amber;
+      confidenceLabel = 'Medium Confidence';
+      confidenceColor = Colors.orange;
+      confidenceIcon = Icons.help_outline_rounded;
+      recommendation =
+          'The report has moderate credibility. Review the details carefully before deciding.';
     } else {
-      riskLevel = 'SAFE';
-      riskColor = Colors.green;
-      riskIcon = Icons.check_circle;
-    }
-    
-    // Determine confidence level (single validation score)
-    String confidenceLevel;
-    if (validationScore >= 0.80) {
-      confidenceLevel = 'High';
-    } else if (validationScore >= 0.60) {
-      confidenceLevel = 'Medium';
-    } else {
-      confidenceLevel = 'Low';
-    }
-    
-    // Generate recommendation
-    String recommendation;
-    if (riskLevel == 'HIGH') {
-      recommendation = 'This hazard likely blocks access to evacuation routes.';
-    } else if (riskLevel == 'MODERATE') {
-      recommendation = 'This hazard may partially affect evacuation routes.';
-    } else {
-      recommendation = 'This hazard does not significantly affect evacuation routes.';
+      confidenceLabel = 'Low Confidence';
+      confidenceColor = Colors.grey[700]!;
+      confidenceIcon = Icons.info_outline_rounded;
+      recommendation =
+          'The report has low credibility indicators. Additional verification is recommended before approval.';
     }
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Determine if we're on a small screen
         final isSmallScreen = constraints.maxWidth < 600;
-        
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Simplified AI Summary Card with responsive layout
             Container(
               width: double.infinity,
               padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: riskColor.withOpacity(0.3), width: 2),
+                border: Border.all(color: confidenceColor.withOpacity(0.3), width: 2),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // SECTION 1: Risk Level Banner (Always visible, responsive)
+                  // SECTION 1: AI Confidence Level Banner
                   Container(
                     width: double.infinity,
                     padding: EdgeInsets.symmetric(
-                      horizontal: isSmallScreen ? 16 : 24, 
+                      horizontal: isSmallScreen ? 16 : 24,
                       vertical: isSmallScreen ? 12 : 16,
                     ),
                     decoration: BoxDecoration(
-                      color: riskColor,
+                      color: confidenceColor,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 12,
-                      runSpacing: 8,
+                    child: Column(
                       children: [
-                        Icon(riskIcon, color: Colors.white, size: isSmallScreen ? 24 : 32),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(confidenceIcon, color: Colors.white, size: isSmallScreen ? 20 : 24),
+                            const SizedBox(width: 8),
+                            Text(
+                              'AI Confidence Level',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: isSmallScreen ? 13 : 14,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
                         Text(
-                          'Risk Level: $riskLevel',
+                          confidenceLabel,
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: isSmallScreen ? 20 : 28,
+                            fontSize: isSmallScreen ? 22 : 28,
                             fontWeight: FontWeight.bold,
                           ),
                           textAlign: TextAlign.center,
-                          softWrap: true,
-                          overflow: TextOverflow.visible,
                         ),
                       ],
                     ),
                   ),
-                  
+
                   const SizedBox(height: 20),
-                  
-                  // SECTION 2: Confidence Score (Responsive wrapping)
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 8,
+
+                  // SECTION 2: Confidence Score percentage
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Confidence: ',
+                        'Confidence Score: ',
                         style: TextStyle(
                           fontSize: isSmallScreen ? 14 : 16,
                           color: Colors.black87,
@@ -845,32 +837,37 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                       ),
                       Container(
                         padding: EdgeInsets.symmetric(
-                          horizontal: isSmallScreen ? 10 : 12, 
+                          horizontal: isSmallScreen ? 10 : 12,
                           vertical: isSmallScreen ? 4 : 6,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
+                          color: confidenceColor.withOpacity(0.10),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.green),
+                          border: Border.all(color: confidenceColor.withOpacity(0.6)),
                         ),
                         child: Text(
-                          '$confidenceLevel (${(validationScore * 100).toStringAsFixed(0)}%)',
+                          '${(validationScore * 100).toStringAsFixed(0)}%',
                           style: TextStyle(
-                            fontSize: isSmallScreen ? 14 : 16,
+                            fontSize: isSmallScreen ? 15 : 17,
                             fontWeight: FontWeight.bold,
-                            color: Colors.green,
+                            color: confidenceColor,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  // SECTION 3: Recommendation (Proper word wrapping)
+
+                  const SizedBox(height: 16),
+
+                  // SECTION 3: Score breakdown row
+                  _buildScoreBreakdownRow(report, isSmallScreen),
+
+                  const SizedBox(height: 16),
+
+                  // SECTION 4: Recommendation
                   Container(
                     width: double.infinity,
-                    padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                    padding: EdgeInsets.all(isSmallScreen ? 12 : 14),
                     decoration: BoxDecoration(
                       color: Colors.blue.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(8),
@@ -880,8 +877,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.lightbulb, color: Colors.blue, size: isSmallScreen ? 18 : 20),
+                            Icon(Icons.lightbulb_outline, color: Colors.blue, size: isSmallScreen ? 16 : 18),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -889,14 +887,13 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                                 style: TextStyle(
                                   fontSize: isSmallScreen ? 13 : 14,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.blue,
+                                  color: Colors.blue[800],
                                 ),
-                                overflow: TextOverflow.visible,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
                         Text(
                           recommendation,
                           style: TextStyle(
@@ -905,16 +902,45 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                             height: 1.5,
                           ),
                           softWrap: true,
-                          overflow: TextOverflow.visible,
                         ),
                       ],
                     ),
                   ),
-                  
+
+                  const SizedBox(height: 12),
+
+                  // SECTION 5: Helper note
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.policy_outlined, size: 15, color: Colors.grey[600]),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'This score estimates how likely the report is valid. MDRRMO still makes the final approval decision.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey[700],
+                              height: 1.4,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   const SizedBox(height: 16),
-                  
-                  // SECTION 4: Expandable Technical Details (Proper spacing)
-                  // Random Forest is used only for road segment risk prediction and not for report validation.
+
+                  // SECTION 6: Expandable Technical Details
+                  // Random Forest is used only for road segment risk and not for report validation.
                   ExpansionTile(
                     title: Text(
                       'View Technical Details',
@@ -939,6 +965,77 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           ],
         );
       },
+    );
+  }
+
+  /// Three mini score bars: Text Credibility, Reporter Proximity, Community Confirmation.
+  Widget _buildScoreBreakdownRow(HazardReport report, bool isSmallScreen) {
+    final bd = report.validationBreakdown;
+    // Prefer breakdown values; fall back to top-level model fields.
+    final nbScore = (bd?['naive_bayes_score'] as num?)?.toDouble()
+        ?? report.naiveBayesScore
+        ?? 0.0;
+    final distScore = (bd?['distance_weight'] as num?)?.toDouble() ?? 0.0;
+    final consScore = (bd?['consensus_score'] as num?)?.toDouble()
+        ?? report.consensusScore
+        ?? 0.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Score Breakdown',
+          style: TextStyle(
+            fontSize: isSmallScreen ? 12 : 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[700],
+          ),
+        ),
+        const SizedBox(height: 8),
+        _buildMiniScoreBar('Text Credibility', nbScore, const Color(0xFF1565C0), isSmallScreen),
+        const SizedBox(height: 6),
+        _buildMiniScoreBar('Reporter Proximity', distScore, Colors.teal, isSmallScreen),
+        const SizedBox(height: 6),
+        _buildMiniScoreBar('Community Confirmation', consScore, Colors.purple, isSmallScreen),
+      ],
+    );
+  }
+
+  Widget _buildMiniScoreBar(String label, double score, Color color, bool isSmallScreen) {
+    return Row(
+      children: [
+        SizedBox(
+          width: isSmallScreen ? 130 : 160,
+          child: Text(
+            label,
+            style: TextStyle(fontSize: isSmallScreen ? 11 : 12, color: Colors.grey[700]),
+          ),
+        ),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: score.clamp(0.0, 1.0),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation(color),
+              minHeight: 6,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 34,
+          child: Text(
+            '${(score * 100).toStringAsFixed(0)}%',
+            style: TextStyle(
+              fontSize: isSmallScreen ? 11 : 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
     );
   }
 
@@ -978,7 +1075,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Validation score', style: TextStyle(fontSize: 13, color: Colors.black54)),
+                const Text('Confidence Score', style: TextStyle(fontSize: 13, color: Colors.black54)),
                 Text(
                   '${(prob * 100).toStringAsFixed(0)}%',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1E3A8A)),
@@ -1007,7 +1104,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       _buildFeatureRow('User confirmations', '${breakdown?['confirmation_count'] ?? 0} ${(breakdown?['confirmation_count'] ?? 0) == 1 ? 'user' : 'users'}'),
       const SizedBox(height: 10),
       Text(
-        'Score combines these features using the validation model.',
+        'Score combines text, proximity and community features to estimate report credibility.',
         style: TextStyle(fontSize: 11, color: Colors.grey[600], height: 1.3),
       ),
       const SizedBox(height: 12),
