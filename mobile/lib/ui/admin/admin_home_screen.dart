@@ -41,9 +41,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Set<int> _knownPendingIds = {};
   bool _initialPollDone = false;
 
-  /// Total number of pending reports on the server (updated every poll).
-  /// Used for the bell badge so the count is always accurate, not just new arrivals.
-  int _totalPendingCount = 0;
+  /// IDs of pending reports the admin has already seen/read.
+  /// Persisted in SharedPreferences so it survives app restarts.
+  Set<int> _seenPendingIds = {};
 
   /// Queue of new reports waiting to be announced.
   final List<HazardReport> _notificationQueue = [];
@@ -61,7 +61,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   void initState() {
     super.initState();
-    _startPolling();
+    _loadSeenIds().then((_) => _startPolling());
   }
 
   @override
@@ -69,6 +69,46 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     _pollingTimer?.cancel();
     super.dispose();
   }
+
+  // ── Seen-IDs persistence ───────────────────────────────────────────────────
+
+  Future<void> _loadSeenIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('mdrrmo_seen_report_ids') ?? [];
+      if (mounted) {
+        setState(() {
+          _seenPendingIds =
+              list.map((s) => int.tryParse(s)).whereType<int>().toSet();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persistSeenIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        'mdrrmo_seen_report_ids',
+        _seenPendingIds.map((id) => id.toString()).toList(),
+      );
+    } catch (_) {}
+  }
+
+  /// Mark a single report as seen and persist.
+  Future<void> _markSeen(int reportId) async {
+    if (_seenPendingIds.contains(reportId)) return;
+    setState(() => _seenPendingIds.add(reportId));
+    await _persistSeenIds();
+  }
+
+  /// Mark all currently pending reports as seen (used by "Mark as Read").
+  Future<void> _markAllSeen() async {
+    setState(() => _seenPendingIds.addAll(_knownPendingIds));
+    await _persistSeenIds();
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   // ── Polling ────────────────────────────────────────────────────────────────
 
@@ -88,21 +128,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           .map((r) => r.id!)
           .toSet();
 
-      // Always keep the total count up-to-date so the bell badge reflects
-      // all pending reports, not just those that arrived since the app started.
-      if (mounted) {
-        setState(() => _totalPendingCount = reports.length);
-      }
-
       if (!_initialPollDone) {
         // First poll: seed known IDs so we don't flash banners on startup.
-        _knownPendingIds = currentIds;
+        // Do NOT mark them as seen — admin still needs to review them.
+        if (mounted) setState(() => _knownPendingIds = currentIds);
         _initialPollDone = true;
         return;
       }
 
       final newIds = currentIds.difference(_knownPendingIds);
-      _knownPendingIds = currentIds;
+      // Clean up seen IDs for reports that are no longer pending (reviewed).
+      final resolved = _knownPendingIds.difference(currentIds);
+      if (mounted) {
+        setState(() {
+          _knownPendingIds = currentIds;
+          _seenPendingIds.removeAll(resolved);
+        });
+      }
 
       if (newIds.isEmpty || !mounted) return;
 
@@ -142,6 +184,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Future<void> _openReportFromNotification(HazardReport report) async {
     _dismissNotification();
 
+    // Mark this report as seen so the badge count drops.
+    if (report.id != null) await _markSeen(report.id!);
+
     // Signal the reports screen to open this specific report.
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('admin_open_report_id', report.id!);
@@ -152,9 +197,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   // ── Notification bell ──────────────────────────────────────────────────────
 
-  /// Badge count: shows total pending reports so MDRRMO always sees the full
-  /// backlog, not just reports that arrived since the app was opened.
-  int get _badgeCount => _totalPendingCount;
+  /// Badge = pending reports the admin has NOT yet read.
+  int get _badgeCount => _knownPendingIds.difference(_seenPendingIds).length;
 
   /// Bell icon widget with optional red badge.
   Widget _buildNotificationBell() {
@@ -205,10 +249,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _NotificationPanel(
         hazardService: _hazardService,
+        seenIds: Set<int>.from(_seenPendingIds),
         onViewReport: (report) {
           Navigator.pop(context);
           _openReportFromNotification(report);
         },
+        onMarkAllRead: () {
+          Navigator.pop(context);
+          _markAllSeen();
+        },
+        onMarkOneRead: (reportId) => _markSeen(reportId),
       ),
     );
   }
@@ -339,11 +389,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
 class _NotificationPanel extends StatefulWidget {
   final HazardService hazardService;
+  final Set<int> seenIds;
   final void Function(HazardReport) onViewReport;
+  final VoidCallback onMarkAllRead;
+  final void Function(int reportId) onMarkOneRead;
 
   const _NotificationPanel({
     required this.hazardService,
+    required this.seenIds,
     required this.onViewReport,
+    required this.onMarkAllRead,
+    required this.onMarkOneRead,
   });
 
   @override
@@ -353,10 +409,12 @@ class _NotificationPanel extends StatefulWidget {
 class _NotificationPanelState extends State<_NotificationPanel> {
   List<HazardReport> _pendingReports = [];
   bool _loading = true;
+  late Set<int> _seenIds;
 
   @override
   void initState() {
     super.initState();
+    _seenIds = Set<int>.from(widget.seenIds);
     _load();
   }
 
@@ -367,6 +425,11 @@ class _NotificationPanelState extends State<_NotificationPanel> {
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _markOneRead(int reportId) {
+    setState(() => _seenIds.add(reportId));
+    widget.onMarkOneRead(reportId);
   }
 
   String _hazardLabel(String raw) => raw
@@ -399,7 +462,7 @@ class _NotificationPanelState extends State<_NotificationPanel> {
             ),
             // Header
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
               child: Row(
                 children: [
                   const Icon(Icons.notifications_rounded,
@@ -415,19 +478,57 @@ class _NotificationPanelState extends State<_NotificationPanel> {
                       ),
                     ),
                   ),
-                  if (!_loading)
+                  if (!_loading && _pendingReports.isNotEmpty) ...[
+                    // Unread count pill
+                    () {
+                      final unread = _pendingReports
+                          .where((r) => r.id != null && !_seenIds.contains(r.id))
+                          .length;
+                      return unread > 0
+                          ? Container(
+                              margin: const EdgeInsets.only(right: 8),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.orange,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '$unread unread',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            )
+                          : const SizedBox.shrink();
+                    }(),
+                    // Mark all as read button
+                    TextButton.icon(
+                      onPressed: widget.onMarkAllRead,
+                      icon: const Icon(Icons.done_all, size: 16),
+                      label: const Text('Mark all read',
+                          style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF1E3A8A),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
+                  if (!_loading && _pendingReports.isEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _pendingReports.isEmpty
-                            ? Colors.green
-                            : Colors.orange,
+                        color: Colors.green,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text(
-                        '${_pendingReports.length} pending',
-                        style: const TextStyle(
+                      child: const Text(
+                        '0 pending',
+                        style: TextStyle(
                             color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.bold),
@@ -463,6 +564,7 @@ class _NotificationPanelState extends State<_NotificationPanel> {
                               const Divider(height: 1, indent: 16),
                           itemBuilder: (_, i) {
                             final r = _pendingReports[i];
+                            final isUnread = r.id != null && !_seenIds.contains(r.id);
                             final score = r.validationBreakdown != null
                                 ? (r.validationBreakdown!['final_validation_score'] as num?)?.toDouble()
                                 : r.naiveBayesScore;
@@ -477,20 +579,45 @@ class _NotificationPanelState extends State<_NotificationPanel> {
                                         ? Colors.orange
                                         : Colors.red;
                             return ListTile(
-                              leading: Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: Colors.orange.withOpacity(0.12),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(Icons.report_problem_rounded,
-                                    color: Colors.orange, size: 22),
+                              tileColor: isUnread
+                                  ? Colors.blue.withOpacity(0.05)
+                                  : null,
+                              leading: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.withOpacity(0.12),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                        Icons.report_problem_rounded,
+                                        color: Colors.orange, size: 22),
+                                  ),
+                                  if (isUnread)
+                                    Positioned(
+                                      top: -2,
+                                      right: -2,
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: const BoxDecoration(
+                                          color: Colors.red,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                               title: Text(
                                 _hazardLabel(r.hazardType),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600, fontSize: 14),
+                                style: TextStyle(
+                                    fontWeight: isUnread
+                                        ? FontWeight.bold
+                                        : FontWeight.w600,
+                                    fontSize: 14),
                               ),
                               subtitle: Text(
                                 '${r.reporterBarangay ?? 'Unknown'} · AI score: $scoreText',
@@ -520,7 +647,10 @@ class _NotificationPanelState extends State<_NotificationPanel> {
                                       color: Colors.grey),
                                 ],
                               ),
-                              onTap: () => widget.onViewReport(r),
+                              onTap: () {
+                                if (r.id != null) _markOneRead(r.id!);
+                                widget.onViewReport(r);
+                              },
                             );
                           },
                         ),
