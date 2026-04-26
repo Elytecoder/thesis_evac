@@ -69,13 +69,14 @@ def _notify_mdrrmo_new_report_async(report):
     """Send FCM push to all MDRRMO users in a background thread (non-blocking)."""
     def _send():
         hazard_label = report.hazard_type.replace('_', ' ').title()
-        barangay = getattr(report.user, 'barangay', '') or 'Unknown Barangay'
+        barangay = getattr(report.user, 'barangay', '') or 'Unknown Location'
         fcm_service.send_to_role(
             role='mdrrmo',
-            title='New Hazard Report',
+            title='New Hazard Report Submitted',
             body=f'{hazard_label} reported near Barangay {barangay}',
             data={
                 'type': 'new_report',
+                'target': 'mdrrmo_reports',   # Flutter uses this to navigate to reports screen
                 'report_id': str(report.id),
                 'hazard_type': report.hazard_type,
             },
@@ -436,9 +437,13 @@ def mdrrmo_approve_report(request):
             hazard_label = report.hazard_type.replace('_', ' ').title()
             fcm_service.send_push(
                 token=report.user.fcm_token,
-                title='Report Approved ✅',
-                body=f'Your {hazard_label} report has been approved by MDRRMO.',
-                data={'type': 'report_approved', 'report_id': str(report.id)},
+                title='Report Approved',
+                body='Your reported hazard has been verified and approved.',
+                data={
+                    'type': 'report_approved',
+                    'target': 'resident_notifications',
+                    'report_id': str(report.id),
+                },
             )
     else:
         report.mark_rejected()
@@ -462,8 +467,12 @@ def mdrrmo_approve_report(request):
             fcm_service.send_push(
                 token=report.user.fcm_token,
                 title='Report Rejected',
-                body=f'Your {hazard_label} report was reviewed and rejected by MDRRMO.',
-                data={'type': 'report_rejected', 'report_id': str(report.id)},
+                body='Your reported hazard was reviewed and rejected.',
+                data={
+                    'type': 'report_rejected',
+                    'target': 'resident_notifications',
+                    'report_id': str(report.id),
+                },
             )
     
     if admin_comment:

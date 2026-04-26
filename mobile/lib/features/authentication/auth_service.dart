@@ -6,7 +6,9 @@ import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
 import '../../core/config/storage_config.dart';
 import '../../core/network/api_client.dart';
+import '../../core/services/notification_service.dart';
 import '../../models/user.dart';
+import '../../data/mock_users.dart';
 import '../../data/mock_users.dart';
 
 /// Authentication service for login/logout.
@@ -250,26 +252,21 @@ class AuthService {
   Future<void> logout() async {
     if (!ApiConfig.useMockData) {
       try {
-        // Clear the FCM token on the server before logging out so this device
-        // no longer receives push notifications for the signed-out account.
-        await _apiClient.post(
-          ApiConfig.fcmTokenEndpoint,
-          data: {'fcm_token': ''},
-        );
+        // Clear FCM token so this device stops receiving push notifications
+        // for the signed-out account. Must happen before token is wiped locally.
+        await NotificationService.clearToken();
       } catch (_) {}
       try {
-        // Call logout endpoint to invalidate token on server
         await _apiClient.post(ApiConfig.logoutEndpoint);
       } catch (e) {
         print('Logout API call failed: $e');
-        // Continue with local cleanup even if API call fails
       }
     }
-    
+
     // Clear local auth data
     await clearAuthToken();
     _apiClient.clearAuthToken();
-    
+
     // Clear saved username and profile
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('current_username');

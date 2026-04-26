@@ -1,20 +1,29 @@
 """
 Firebase Cloud Messaging (FCM) service — push notification transport layer.
 
-Sends push notifications to Android devices.
-FCM is purely a delivery mechanism; PostgreSQL remains the primary database.
+FCM is used ONLY for push delivery. PostgreSQL remains the primary database.
+Existing Django auth, routing, AI, and report logic are untouched.
 
-Credentials are loaded from the FIREBASE_CREDENTIALS environment variable,
-which must contain the Firebase service account JSON encoded as a base64 string.
+Security model
+--------------
+* send_to_role() performs the role check server-side — callers cannot override it.
+* Tokens are stored per-user in PostgreSQL; the role stored in PostgreSQL governs
+  who receives which notification type.
+* Residents can never trigger or receive MDRRMO-role pushes via this service.
 
-If FIREBASE_CREDENTIALS is absent (local dev / not configured), all send calls
-are silently no-ops so the rest of the application continues to work normally.
+Token lifecycle
+---------------
+* Token saved on login (via /api/auth/fcm-token/).
+* Token refreshed automatically via FirebaseMessaging.onTokenRefresh.
+* Token cleared to '' on logout.
+* Permanently invalid tokens (app uninstalled, token rotated) are automatically
+  removed from the database on the first failed send.
 
-Setup on Render:
-  1. Firebase console → Project Settings → Service Accounts → Generate new private key
-  2. base64-encode the downloaded JSON:
-       python -c "import base64,open; print(base64.b64encode(open('key.json','rb').read()).decode())"
-  3. Set FIREBASE_CREDENTIALS = <the base64 string> in Render environment variables.
+Credentials
+-----------
+Set FIREBASE_CREDENTIALS env var to the base64-encoded service account JSON.
+When absent (local dev), all send calls are silent no-ops; the rest of the app
+continues to work normally.
 """
 from __future__ import annotations
 
@@ -27,6 +36,14 @@ logger = logging.getLogger(__name__)
 
 _app = None
 _init_attempted = False
+
+# FCM error codes that mean the token is permanently invalid and should be
+# removed from the database so we stop wasting send attempts.
+_INVALID_TOKEN_CODES = frozenset({
+    'registration-token-not-registered',   # app uninstalled / token expired
+    'invalid-registration-token',          # malformed token
+    'mismatched-credential',               # wrong Firebase project
+})
 
 
 def _get_app():
@@ -55,12 +72,31 @@ def _get_app():
     return _app
 
 
+def _is_invalid_token_error(exc: Exception) -> bool:
+    """Return True if the FCM exception indicates the token is permanently invalid."""
+    code = getattr(exc, 'code', '') or ''
+    return code in _INVALID_TOKEN_CODES
+
+
+def _clear_stale_token(token: str) -> None:
+    """Remove a permanently-invalid FCM token from PostgreSQL."""
+    try:
+        from apps.users.models import User
+        cleared = User.objects.filter(fcm_token=token.strip()).update(fcm_token='')
+        if cleared:
+            logger.info('Cleared stale FCM token: %s…', token[:12])
+    except Exception as exc:
+        logger.warning('Could not clear stale token: %s', exc)
+
+
 def send_push(token: str, title: str, body: str, data: dict | None = None) -> bool:
     """
     Send a push notification to a single FCM device token.
 
-    Returns True on success, False if skipped or failed.
-    Never raises; errors are logged as warnings only.
+    - Returns True on success, False if skipped or failed.
+    - Automatically removes permanently-invalid tokens from PostgreSQL so
+      future sends are not wasted on stale devices.
+    - Never raises; all errors are logged as warnings.
     """
     if not token or not token.strip():
         return False
@@ -73,7 +109,7 @@ def send_push(token: str, title: str, body: str, data: dict | None = None) -> bo
 
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
-            # data must be string→string; callers may pass ints/None
+            # FCM data payload must be string→string only.
             data={k: str(v) for k, v in (data or {}).items()},
             android=messaging.AndroidConfig(
                 priority='high',
@@ -87,25 +123,32 @@ def send_push(token: str, title: str, body: str, data: dict | None = None) -> bo
             token=token.strip(),
         )
         messaging.send(message)
-        logger.debug('FCM push sent to token %s…', token[:12])
+        logger.debug('FCM push sent → token %s…', token[:12])
         return True
 
     except Exception as exc:
         logger.warning('FCM send failed (token=%s…): %s', token[:12], exc)
+        # Clean up permanently-invalid tokens so they don't clog the database.
+        if _is_invalid_token_error(exc):
+            _clear_stale_token(token)
         return False
 
 
 def send_to_role(role: str, title: str, body: str, data: dict | None = None) -> int:
     """
-    Broadcast a push notification to ALL users of *role* who have an FCM token.
+    Broadcast a push notification to every active device of every user with *role*.
 
-    Returns the number of successful sends (0 when FCM is not configured).
+    The role filter is enforced here against PostgreSQL — it cannot be spoofed
+    by a client. Residents will never receive MDRRMO-role notifications.
+
+    Returns the count of successful sends (0 when FCM is not configured).
     """
     try:
         from apps.users.models import User
 
         tokens = list(
-            User.objects.filter(role=role)
+            User.objects
+            .filter(role=role, is_active=True, is_suspended=False)
             .exclude(fcm_token='')
             .values_list('fcm_token', flat=True)
         )

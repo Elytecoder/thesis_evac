@@ -6,32 +6,51 @@ import '../app_keys.dart';
 import '../config/api_config.dart';
 import '../network/api_client.dart';
 import '../../ui/screens/notifications_screen.dart';
+import '../../ui/admin/reports_management_screen.dart';
 
 /// Top-level background message handler.
 ///
-/// This MUST be a top-level (non-class, non-closure) function so that FCM can
-/// invoke it when the app is in the background or fully terminated.
-/// FCM automatically displays the notification in the Android tray — no extra
-/// work is needed here for background/killed-state delivery.
+/// Must be a top-level function (not a closure or class method) so that the
+/// FCM plugin can invoke it in a separate isolate when the app is in the
+/// background or fully terminated.
+///
+/// When the app is in the background or killed, FCM automatically displays the
+/// system notification in the Android tray — no additional work is needed here.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // No additional processing needed; FCM shows the notification automatically.
+  // FCM handles background/terminated notification display automatically.
+  // No DB, UI, or navigation work can be done here — the main isolate is not
+  // running. Navigation happens in the tap handler instead.
 }
 
-/// Notification channel identifiers for Android.
+// ────────────────────────────────────────────────────────────────────────────
+// Notification channel constants
+// ────────────────────────────────────────────────────────────────────────────
 const _kChannelId = 'haznav_alerts';
 const _kChannelName = 'HazNav Alerts';
 const _kChannelDesc = 'Hazard reports and system alerts from HazNav';
 
-/// Manages Firebase Cloud Messaging (FCM) push notifications.
+// ────────────────────────────────────────────────────────────────────────────
+// Navigation target keys (must match the `target` field set by the backend)
+// ────────────────────────────────────────────────────────────────────────────
+const _kTargetMdrrmoReports = 'mdrrmo_reports';
+const _kTargetResidentNotifications = 'resident_notifications';
+
+/// Manages Firebase Cloud Messaging (FCM) push notifications for HazNav.
 ///
-/// Responsibilities:
-/// - Request Android notification permission (Android 13+).
-/// - Create the Android notification channel used for all HazNav alerts.
-/// - Register/refresh the FCM device token with the Django backend.
-/// - Display a local notification banner when a push arrives while the app is
-///   in the foreground (FCM does NOT auto-show notifications in foreground).
-/// - Navigate to the notifications screen when the user taps a notification.
+/// Architecture:
+/// - FCM is the push transport only; PostgreSQL remains the primary database.
+/// - In-app notifications (NotificationsScreen) are kept alongside FCM pushes.
+/// - Role-based navigation: admin taps → reports screen, resident taps →
+///   notifications screen.  The `target` key in the FCM data payload (set
+///   server-side) drives this — residents can never forge an admin target.
+///
+/// Behaviour per app state:
+/// | State       | Source                     | Action                           |
+/// |-------------|----------------------------|----------------------------------|
+/// | Foreground  | onMessage listener         | show local banner + SnackBar     |
+/// | Background  | FCM auto-display in tray   | tap → onMessageOpenedApp         |
+/// | Terminated  | FCM auto-display in tray   | tap → getInitialMessage          |
 class NotificationService {
   NotificationService._();
 
@@ -43,12 +62,12 @@ class NotificationService {
   // Public API
   // ──────────────────────────────────────────────────────────────────────────
 
-  /// Call once after [Firebase.initializeApp()] in main().
+  /// Call once from main() after [Firebase.initializeApp()].
   static Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
 
-    // 1. Request permission (Android 13+ shows a system dialog)
+    // 1. Request Android 13+ notification permission
     await _messaging.requestPermission(
       alert: true,
       badge: true,
@@ -63,13 +82,14 @@ class NotificationService {
       description: _kChannelDesc,
       importance: Importance.high,
       playSound: true,
+      enableVibration: true,
     );
     await _localNotifications
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(androidChannel);
 
-    // 3. Initialise flutter_local_notifications (for foreground banners)
+    // 3. Initialise flutter_local_notifications for foreground banners
     const initSettings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
@@ -78,32 +98,34 @@ class NotificationService {
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
 
-    // 4. Register the FCM token with the backend; refresh when it rotates
+    // 4. Register FCM token; refresh automatically when it rotates
     await _registerToken();
     _messaging.onTokenRefresh.listen(_sendTokenToServer);
 
-    // 5. Foreground messages → show a local notification banner
+    // 5. Foreground: show a local notification banner
     FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
 
-    // 6. Background tap (app suspended but not killed)
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
+    // 6. Background tap (app suspended but alive in memory)
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleTap);
 
-    // 7. Terminated-state tap — message is already delivered; just navigate
+    // 7. Terminated-state tap — navigate after a short delay so the widget
+    //    tree is fully built before we try to push a new route.
     final initial = await _messaging.getInitialMessage();
     if (initial != null) {
-      await Future.delayed(const Duration(milliseconds: 600));
-      _navigateToNotifications();
+      await Future.delayed(const Duration(milliseconds: 700));
+      _navigateByTarget(initial.data['target']);
     }
   }
 
-  /// Call on logout to clear the FCM token from the backend so the user no
-  /// longer receives pushes on this device after signing out.
+  /// Clear the FCM token on the backend when the user logs out.
+  /// After this call the device will no longer receive push notifications
+  /// for the signed-out account until the user logs back in.
   static Future<void> clearToken() async {
     await _sendTokenToServer('');
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Private helpers
+  // Token management
   // ──────────────────────────────────────────────────────────────────────────
 
   static Future<void> _registerToken() async {
@@ -122,17 +144,24 @@ class NotificationService {
         data: {'fcm_token': token},
       );
     } catch (_) {
-      // Non-critical; the server will receive the token on the next login.
+      // Non-critical — the token is also registered after every login.
     }
   }
 
-  /// Show a local notification banner when the app is in the foreground.
+  // ──────────────────────────────────────────────────────────────────────────
+  // Message handlers
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// Foreground: show a system notification banner via flutter_local_notifications
+  /// (FCM does NOT auto-display when the app is in the foreground on Android).
   static void _handleForegroundMessage(RemoteMessage message) {
     final n = message.notification;
     if (n == null) return;
 
+    final target = message.data['target'] as String?;
+
+    // Show the system notification tray banner
     _localNotifications.show(
-      // Use a stable ID derived from the message so duplicate calls collapse.
       message.messageId.hashCode,
       n.title ?? 'HazNav',
       n.body ?? '',
@@ -144,42 +173,59 @@ class NotificationService {
           importance: Importance.high,
           priority: Priority.high,
           playSound: true,
+          enableVibration: true,
           icon: '@mipmap/ic_launcher',
         ),
       ),
-      payload: message.data['type'],
+      // Store the target so _onLocalNotificationTap can navigate correctly.
+      payload: target,
     );
 
-    // Also refresh in-app notification badge via SnackBar hint (optional UX)
+    // Also surface a SnackBar with a "View" shortcut while the app is open.
     scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text('${n.title ?? 'HazNav'}: ${n.body ?? ''}'),
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 5),
         action: SnackBarAction(
           label: 'View',
-          onPressed: _navigateToNotifications,
+          onPressed: () => _navigateByTarget(target),
         ),
       ),
     );
   }
 
-  /// Navigate to notifications screen when a background notification is tapped.
-  static void _handleMessageTap(RemoteMessage _) => _navigateToNotifications();
+  /// Background tap: user tapped the Android notification while app was alive.
+  static void _handleTap(RemoteMessage message) {
+    _navigateByTarget(message.data['target'] as String?);
+  }
 
-  /// Navigate to notifications screen when a local notification banner is tapped.
-  static void _onLocalNotificationTap(NotificationResponse _) =>
-      _navigateToNotifications();
+  /// Local notification tap (foreground banner tapped).
+  static void _onLocalNotificationTap(NotificationResponse response) {
+    _navigateByTarget(response.payload);
+  }
 
-  static void _navigateToNotifications() {
+  // ──────────────────────────────────────────────────────────────────────────
+  // Role-based navigation
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /// Navigate to the correct screen based on the FCM `target` data field.
+  ///
+  /// The `target` value is set server-side so its authenticity is guaranteed:
+  /// - `mdrrmo_reports`         → MDRRMO reports management screen
+  /// - `resident_notifications` → Resident notifications screen
+  /// - null / unknown           → Resident notifications screen (safe default)
+  static void _navigateByTarget(String? target) {
     final nav = navigatorKey.currentState;
     if (nav == null) return;
-    // Push the notifications screen on top of whatever is showing; if it's
-    // already the top route, do nothing to avoid stacking duplicates.
-    if (nav.canPop()) {
-      nav.push(MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+
+    Widget destination;
+    if (target == _kTargetMdrrmoReports) {
+      destination = const ReportsManagementScreen();
     } else {
-      nav.pushReplacement(
-          MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+      destination = const NotificationsScreen();
     }
+
+    // Push on top of the current stack; avoid duplicate routes.
+    nav.push(MaterialPageRoute(builder: (_) => destination));
   }
 }
