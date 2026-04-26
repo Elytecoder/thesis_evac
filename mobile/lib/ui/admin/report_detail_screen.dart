@@ -728,8 +728,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
   /// FIXED: Responsive layout with proper spacing and overflow handling
   Widget _buildAIAnalysis() {
     final report = widget.report;
-    final validationScore = report.naiveBayesScore ?? 0.0;
-    // Legacy: consensus no longer computed; single NB score used for decisions.
+    // Use the combined weighted score (NB 50% + distance 30% + consensus 20%).
+    // Fall back to naiveBayesScore for old records that pre-date the combined field.
+    final validationScore =
+        report.finalValidationScore ?? report.naiveBayesScore ?? 0.0;
     
     // Determine risk level from validation score only
     String riskLevel;

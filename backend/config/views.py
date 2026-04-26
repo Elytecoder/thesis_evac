@@ -30,7 +30,6 @@ def api_root(request):
             'notifications': '/api/notifications/',
         },
         'test_credentials': {
-            'mdrrmo': 'mdrrmo_admin / admin123',
-            'resident': 'resident1 / resident123',
+            'note': 'Credentials are managed via environment variables. See deployment docs.',
         }
     })

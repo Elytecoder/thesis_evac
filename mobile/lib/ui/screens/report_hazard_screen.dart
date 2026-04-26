@@ -671,7 +671,7 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
         }
       }
 
-      await _hazardService.submitHazardReport(
+      final submittedReport = await _hazardService.submitHazardReport(
         hazardType: _selectedHazardType,
         latitude: widget.location.latitude,
         longitude: widget.location.longitude,
@@ -689,45 +689,60 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       if (mounted) {
         Navigator.pop(context);
 
-        // Show simplified success dialog (no validation scores for residents)
+        final bool wasAutoRejected = submittedReport.autoRejected;
+
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Row(
+            title: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.green, size: 28),
-                SizedBox(width: 12),
-                Text('Report Submitted'),
+                Icon(
+                  wasAutoRejected ? Icons.info_outline : Icons.check_circle,
+                  color: wasAutoRejected ? Colors.orange : Colors.green,
+                  size: 28,
+                ),
+                const SizedBox(width: 12),
+                Text(wasAutoRejected ? 'Report Not Submitted' : 'Report Submitted'),
               ],
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Report submitted successfully',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                Text(
+                  wasAutoRejected
+                      ? 'Your report could not be submitted'
+                      : 'Report submitted successfully',
+                  style: const TextStyle(
+                      fontSize: 17, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Your hazard report has been received.',
-                  style: TextStyle(fontSize: 15),
+                Text(
+                  wasAutoRejected
+                      ? (submittedReport.adminComment?.isNotEmpty == true
+                          ? submittedReport.adminComment!
+                          : 'You appear to be too far from the reported hazard location. Please move closer and try again.')
+                      : 'Your hazard report has been received.',
+                  style: const TextStyle(fontSize: 15),
                 ),
-                if (_selectedImage != null || _selectedVideo != null) ...[
+                if (!wasAutoRejected && (_selectedImage != null || _selectedVideo != null)) ...[
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       if (_selectedImage != null) ...[
                         const Icon(Icons.photo, size: 16, color: Colors.grey),
                         const SizedBox(width: 4),
-                        const Text('Photo attached', style: TextStyle(fontSize: 12)),
+                        const Text('Photo attached',
+                            style: TextStyle(fontSize: 12)),
                       ],
                       if (_selectedImage != null && _selectedVideo != null)
                         const SizedBox(width: 12),
                       if (_selectedVideo != null) ...[
-                        const Icon(Icons.videocam, size: 16, color: Colors.grey),
+                        const Icon(Icons.videocam,
+                            size: 16, color: Colors.grey),
                         const SizedBox(width: 4),
-                        const Text('Video attached', style: TextStyle(fontSize: 12)),
+                        const Text('Video attached',
+                            style: TextStyle(fontSize: 12)),
                       ],
                     ],
                   ),
@@ -736,19 +751,33 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blue[50],
+                    color: wasAutoRejected
+                        ? Colors.orange[50]
+                        : Colors.blue[50],
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                      Icon(
+                        wasAutoRejected
+                            ? Icons.warning_amber_outlined
+                            : Icons.info_outline,
+                        color: wasAutoRejected
+                            ? Colors.orange[700]
+                            : Colors.blue[700],
+                        size: 20,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'The MDRRMO will review and verify your report.',
+                          wasAutoRejected
+                              ? 'Make sure you are physically near the hazard before reporting.'
+                              : 'The MDRRMO will review and verify your report.',
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.blue[900],
+                            color: wasAutoRejected
+                                ? Colors.orange[900]
+                                : Colors.blue[900],
                           ),
                         ),
                       ),
@@ -761,7 +790,8 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
               TextButton(
                 onPressed: () => Navigator.pop(context),
                 style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 24, vertical: 12),
                 ),
                 child: const Text('OK', style: TextStyle(fontSize: 16)),
               ),

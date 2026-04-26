@@ -30,11 +30,13 @@ class HazardReport {
   // Auto-rejection flag
   final bool autoRejected;
   
-  // AI validation scores (Naive Bayes only for report validation)
+  // AI validation scores
   final double? naiveBayesScore;
   final double? consensusScore;
-  final int confirmationCount;  // Number of users who confirmed this hazard
-  /// Naive Bayes technical breakdown for MDRRMO "View Technical Details". No Random Forest data.
+  /// Combined weighted score: NB (50%) + distance (30%) + consensus (20%).
+  /// This is the primary score for MDRRMO decision-making.
+  final double? finalValidationScore;
+  final int confirmationCount;
   final Map<String, dynamic>? validationBreakdown;
 
   // Admin actions
@@ -72,7 +74,8 @@ class HazardReport {
     this.autoRejected = false,
     this.naiveBayesScore,
     this.consensusScore,
-    this.confirmationCount = 0,  // Added
+    this.finalValidationScore,
+    this.confirmationCount = 0,
     this.validationBreakdown,
     this.adminComment,
     this.restorationReason,
@@ -108,7 +111,11 @@ class HazardReport {
       autoRejected: json['auto_rejected'] as bool? ?? false,
       naiveBayesScore: (json['naive_bayes_score'] as num?)?.toDouble(),
       consensusScore: (json['consensus_score'] as num?)?.toDouble(),
-      confirmationCount: json['confirmation_count'] as int? ?? 0,  // Added
+      finalValidationScore: (json['final_validation_score'] as num?)?.toDouble()
+          ?? (json['validation_breakdown'] != null
+              ? (json['validation_breakdown']['final_validation_score'] as num?)?.toDouble()
+              : null),
+      confirmationCount: json['confirmation_count'] as int? ?? 0,
       validationBreakdown: json['validation_breakdown'] != null && json['validation_breakdown'] is Map
           ? Map<String, dynamic>.from(json['validation_breakdown'] as Map)
           : null,

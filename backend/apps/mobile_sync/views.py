@@ -662,7 +662,6 @@ def confirm_hazard_report(request):
         )
     
     # Recalculate validation scores with new confirmation count
-    from apps.mobile_sync.services.report_service import process_new_report
     # Read count once, outside try/except so it is always defined for the
     # log and response message below even if score re-calculation fails.
     confirmation_count = report.confirmation_count
@@ -694,11 +693,11 @@ def confirm_hazard_report(request):
         report.consensus_score = consensus_score_val
         report.final_validation_score = final_score
         
-        # Update breakdown
+        # Update breakdown — use consistent keys matching process_new_report
         if report.validation_breakdown:
             report.validation_breakdown['confirmation_count'] = confirmation_count
-            report.validation_breakdown['consensus_rule_score'] = round(consensus_score_val, 4)
-            report.validation_breakdown['final_probability'] = round(final_score, 4)
+            report.validation_breakdown['consensus_score'] = round(consensus_score_val, 4)
+            report.validation_breakdown['final_validation_score'] = round(final_score, 4)
         
         report.save(update_fields=['consensus_score', 'final_validation_score', 'validation_breakdown'])
     except Exception as e:

@@ -12,6 +12,16 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-key-change-in-produ
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() in ('1', 'true', 'yes')
 
+# Safety guard: refuse to run with weak defaults when DEBUG is off
+if not DEBUG and SECRET_KEY == 'dev-secret-key-change-in-production':
+    import warnings
+    warnings.warn(
+        "SECURITY WARNING: DJANGO_SECRET_KEY is not set. "
+        "Set a strong random secret key via the environment variable.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
 # Render sets RENDER_EXTERNAL_HOSTNAME; locally allow 127.0.0.1 and localhost
 _allowed = os.environ.get('ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
 if os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
@@ -155,9 +165,18 @@ REST_FRAMEWORK = {
     ],
 }
 
-# CORS settings for web browser access
-# Allow all localhost origins for development
-CORS_ALLOW_ALL_ORIGINS = True  # Development only - restrict in production
+# CORS settings
+# In development: allow all origins for convenience.
+# In production (DEBUG=False): restrict to known origins.
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = [
+        o.strip()
+        for o in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+        if o.strip()
+    ]
 
 CORS_ALLOW_CREDENTIALS = True
 

@@ -118,10 +118,18 @@ def process_new_report(
             float(latitude), float(longitude),
         )
         if should_reject:
+            from django.utils import timezone
+            from datetime import timedelta
+            now = timezone.now()
             report.status = HazardReport.Status.REJECTED
             report.auto_rejected = True
             report.admin_comment = reason
-            report.save(update_fields=['status', 'auto_rejected', 'admin_comment'])
+            report.rejected_at = now
+            report.deletion_scheduled_at = now + timedelta(days=7)
+            report.save(update_fields=[
+                'status', 'auto_rejected', 'admin_comment',
+                'rejected_at', 'deletion_scheduled_at',
+            ])
             return report
         distance_km_val = float(distance_km)
         distance_m_val = distance_km_val * 1000
@@ -138,7 +146,7 @@ def process_new_report(
     consensus = ConsensusScoringService()
     nearby = consensus.count_nearby_reports(
         float(report.latitude), float(report.longitude),
-        HazardReport.objects.exclude(id=report.id),
+        HazardReport.objects.filter(is_deleted=False).exclude(id=report.id),
         exclude_report_id=report.id,
         time_window_hours=1,
         hazard_type=hazard_type,
