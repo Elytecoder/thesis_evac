@@ -23,6 +23,7 @@ urlpatterns = [
     path('mdrrmo/restore-report/', views.restore_report, name='restore_report'),
     path('mdrrmo/reports/<int:report_id>/', views.mdrrmo_delete_report, name='mdrrmo_delete_report'),
     path('mdrrmo/reports/<int:report_id>/media/', views.admin_report_media, name='admin_report_media'),
+    path('mdrrmo/high-risk-roads/', views.mdrrmo_high_risk_roads, name='mdrrmo_high_risk_roads'),
     
     # Evacuation centers (Public - Read only operational centers)
     path('evacuation-centers/', views.evacuation_centers, name='evacuation_centers'),

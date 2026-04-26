@@ -60,6 +60,7 @@ class ApiConfig {
   static const String approveReportEndpoint = '/mdrrmo/approve-report/';
   static const String restoreReportEndpoint = '/mdrrmo/restore-report/';
   static const String mdrrmoDeleteReportEndpoint = '/mdrrmo/reports/';
+  static const String mdrrmoHighRiskRoadsEndpoint = '/mdrrmo/high-risk-roads/';
   
   /// Evacuation center endpoints
   static const String evacuationCentersEndpoint = '/evacuation-centers/';

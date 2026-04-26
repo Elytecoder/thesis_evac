@@ -270,6 +270,77 @@ def calculate_route(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, IsMDRRMO])
+def mdrrmo_high_risk_roads(request):
+    """
+    GET /api/mdrrmo/high-risk-roads/
+    Returns road segments with elevated effective risk (>= 0.3) for MDRRMO monitoring.
+    Includes id, coordinates, risk_score, risk_level, and nearby hazard info.
+    """
+    try:
+        from apps.routing.models import RoadSegment
+        from apps.mobile_sync.services.route_service import (
+            calculate_segment_risk,
+            _get_approved_hazards,
+            HAZARD_INFLUENCE_RADIUS,
+        )
+        from math import radians, cos, sin, asin, sqrt
+
+        def _haversine_m(lat1, lng1, lat2, lng2):
+            r = 6_371_000
+            dlat = radians(lat2 - lat1)
+            dlng = radians(lng2 - lng1)
+            a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+            return 2 * r * asin(sqrt(a))
+
+        segments = list(RoadSegment.objects.all())
+        approved_hazards = _get_approved_hazards()
+        result = []
+
+        for seg in segments:
+            risk = calculate_segment_risk(seg, approved_hazards)
+            if risk < 0.30:
+                continue
+            mid_lat = (float(seg.start_lat) + float(seg.end_lat)) / 2
+            mid_lng = (float(seg.start_lng) + float(seg.end_lng)) / 2
+
+            # Find nearest approved hazard causing this elevation
+            nearest = None
+            nearest_dist = float('inf')
+            for h in approved_hazards:
+                d = _haversine_m(mid_lat, mid_lng, float(h.latitude), float(h.longitude))
+                if d < nearest_dist:
+                    nearest_dist = d
+                    nearest = h
+
+            level = 'high' if risk >= 0.65 else 'moderate'
+            entry = {
+                'id': seg.id,
+                'start_lat': float(seg.start_lat),
+                'start_lng': float(seg.start_lng),
+                'end_lat': float(seg.end_lat),
+                'end_lng': float(seg.end_lng),
+                'risk_score': round(risk, 3),
+                'risk_level': level,
+            }
+            if nearest:
+                entry['nearest_hazard'] = {
+                    'type': nearest.hazard_type,
+                    'distance_m': round(nearest_dist),
+                    'barangay': nearest.user.barangay if nearest.user else '',
+                }
+            result.append(entry)
+
+        result.sort(key=lambda x: x['risk_score'], reverse=True)
+        return Response({'count': len(result), 'segments': result})
+
+    except Exception as exc:
+        import traceback
+        return Response({'error': str(exc), 'detail': traceback.format_exc()},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
 def mdrrmo_dashboard_stats(request):
     """
     GET /api/mdrrmo/dashboard-stats/

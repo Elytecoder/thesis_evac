@@ -206,9 +206,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  /// Navigate to Map tab
-  void _navigateToMap() {
+  /// Navigate to Map tab and auto-enable the road risk layer
+  Future<void> _navigateToMap() async {
     if (widget.onNavigateToTab != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('map_monitor_show_risk_layer', true);
       widget.onNavigateToTab!(2); // Index 2 = Map tab
     }
   }
