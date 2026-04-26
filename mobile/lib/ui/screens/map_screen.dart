@@ -81,6 +81,8 @@ class _MapScreenState extends State<MapScreen>
   
   // Hazard reports
   List<Map<String, dynamic>> _hazardReports = [];
+  // Guard to prevent concurrent duplicate hazard API calls.
+  bool _hazardLoadInFlight = false;
   int _unreadNotificationsCount = 0;
 
   // Road Risk Layer: toggle + segment data loaded with route calculation.
@@ -263,13 +265,19 @@ class _MapScreenState extends State<MapScreen>
   }
   
   Future<void> _loadHazardReports() async {
+    if (_hazardLoadInFlight) return;
+    _hazardLoadInFlight = true;
     try {
       final reports = await _hazardReportsService.getMapReports();
-      setState(() {
-        _hazardReports = reports;
-      });
+      if (mounted) {
+        setState(() {
+          _hazardReports = reports;
+        });
+      }
     } catch (e) {
       print('Error loading hazard reports: $e');
+    } finally {
+      _hazardLoadInFlight = false;
     }
   }
   
