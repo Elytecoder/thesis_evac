@@ -82,48 +82,23 @@ class _AddEvacuationCenterScreenState extends State<AddEvacuationCenterScreen> {
         final addressComponents = await _geocodingService.reverseGeocode(selectedLocation);
         
         if (addressComponents != null && mounted) {
-          // Validate and sanitize geocoded values to match dropdown options
-          String? validProvince;
-          String? validMunicipality;
-          String? validBarangay;
-          
-          // Validate province (must exist in our list)
-          final geocodedProvince = addressComponents['province'];
-          if (geocodedProvince != null && PhilippineAddressData.provinces.contains(geocodedProvince)) {
-            validProvince = geocodedProvince;
-          } else {
-            // Default to Sorsogon if not found
-            validProvince = 'Sorsogon';
-          }
-          
-          // Validate municipality (must exist under the province)
-          final geocodedMunicipality = addressComponents['municipality'];
-          final availableMunicipalities = PhilippineAddressData.getMunicipalities(validProvince);
-          if (geocodedMunicipality != null && availableMunicipalities.contains(geocodedMunicipality)) {
-            validMunicipality = geocodedMunicipality;
-          } else {
-            // Try case-insensitive match
-            validMunicipality = availableMunicipalities.firstWhere(
-              (m) => m.toLowerCase() == geocodedMunicipality?.toLowerCase(),
-              orElse: () => availableMunicipalities.isNotEmpty ? availableMunicipalities.first : 'Bulan',
-            );
-          }
-          
-          // Validate barangay (must exist under the municipality)
-          final geocodedBarangay = addressComponents['barangay'];
-          final availableBarangays = PhilippineAddressData.getBarangays(validMunicipality);
-          if (geocodedBarangay != null && availableBarangays.contains(geocodedBarangay)) {
-            validBarangay = geocodedBarangay;
-          } else {
-            // Try case-insensitive or partial match
-            validBarangay = availableBarangays.firstWhere(
-              (b) => b.toLowerCase().contains(geocodedBarangay?.toLowerCase() ?? ''),
-              orElse: () => '', // Leave empty if no match
-            );
-            if (validBarangay.isEmpty && availableBarangays.isNotEmpty) {
-              validBarangay = null; // Don't auto-select, let user choose
-            }
-          }
+          // Province always defaults to Sorsogon for this system.
+          const String validProvince = 'Sorsogon';
+
+          // Municipality: the geocoder already fuzzy-matched against the list;
+          // fall back to 'Bulan' only if nothing came back.
+          final rawMuni = (addressComponents['municipality'] ?? '').trim();
+          final String validMunicipality = rawMuni.isNotEmpty &&
+                  PhilippineAddressData.getMunicipalities(validProvince)
+                      .contains(rawMuni)
+              ? rawMuni
+              : (PhilippineAddressData.fuzzyMatchMunicipality(rawMuni) ??
+                  'Bulan');
+
+          // Barangay: the geocoder already fuzzy-matched; keep null if blank
+          // so the user is prompted to choose manually.
+          final rawBrgy = (addressComponents['barangay'] ?? '').trim();
+          final String? validBarangay = rawBrgy.isNotEmpty ? rawBrgy : null;
           
           setState(() {
             // Auto-fill address dropdowns with validated values

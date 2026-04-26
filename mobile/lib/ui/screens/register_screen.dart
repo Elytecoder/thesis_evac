@@ -58,6 +58,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // ──────────────────────────────────────────────────────────────────────────
 
   @override
+  void initState() {
+    super.initState();
+    // Auto-select the only province so the user jumps straight to municipality.
+    _selectedProvince = PhilippineAddressData.provinces.isNotEmpty
+        ? PhilippineAddressData.provinces.first
+        : null;
+    _municipalities = _selectedProvince != null
+        ? PhilippineAddressData.getMunicipalities(_selectedProvince!)
+        : [];
+  }
+
+  @override
   void dispose() {
     _fullNameController.dispose();
     _emailController.dispose();

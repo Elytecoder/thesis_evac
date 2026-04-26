@@ -124,41 +124,23 @@ class _EditEvacuationCenterScreenState extends State<EditEvacuationCenterScreen>
         final addressComponents = await _geocodingService.reverseGeocode(selectedLocation);
 
         if (addressComponents != null && addressComponents.isNotEmpty && mounted) {
-          // Validate and sanitize geocoded values to match dropdown options
-          String validProvince = 'Sorsogon';
-          String validMunicipality = 'Bulan';
-          String? validBarangay;
+          // Province always defaults to Sorsogon for this system.
+          const String validProvince = 'Sorsogon';
 
-          final geocodedProvince = addressComponents['province'];
-          if (geocodedProvince != null && geocodedProvince.toString().trim().isNotEmpty &&
-              PhilippineAddressData.provinces.contains(geocodedProvince)) {
-            validProvince = geocodedProvince;
-          }
+          // Municipality: geocoder already fuzzy-matched; fall back to 'Bulan'.
+          final rawMuni =
+              (addressComponents['municipality'] ?? '').toString().trim();
+          final String validMunicipality = rawMuni.isNotEmpty &&
+                  PhilippineAddressData.getMunicipalities(validProvince)
+                      .contains(rawMuni)
+              ? rawMuni
+              : (PhilippineAddressData.fuzzyMatchMunicipality(rawMuni) ??
+                  'Bulan');
 
-          final availableMunicipalities = PhilippineAddressData.getMunicipalities(validProvince);
-          final geocodedMunicipality = addressComponents['municipality']?.toString().trim();
-          if (geocodedMunicipality != null && geocodedMunicipality.isNotEmpty &&
-              availableMunicipalities.contains(geocodedMunicipality)) {
-            validMunicipality = geocodedMunicipality;
-          } else if (geocodedMunicipality != null && geocodedMunicipality.isNotEmpty) {
-            validMunicipality = availableMunicipalities.firstWhere(
-              (m) => m.toLowerCase() == geocodedMunicipality.toLowerCase(),
-              orElse: () => availableMunicipalities.isNotEmpty ? availableMunicipalities.first : 'Bulan',
-            );
-          } else if (availableMunicipalities.isNotEmpty) {
-            validMunicipality = availableMunicipalities.first;
-          }
-
-          final availableBarangays = PhilippineAddressData.getBarangays(validMunicipality);
-          final geocodedBarangay = addressComponents['barangay']?.toString().trim();
-          if (geocodedBarangay != null && geocodedBarangay.isNotEmpty && availableBarangays.contains(geocodedBarangay)) {
-            validBarangay = geocodedBarangay;
-          } else if (geocodedBarangay != null && geocodedBarangay.isNotEmpty) {
-            final matches = availableBarangays.where(
-              (b) => b.toLowerCase().contains(geocodedBarangay.toLowerCase()),
-            );
-            if (matches.isNotEmpty) validBarangay = matches.first;
-          }
+          // Barangay: keep null when blank so admin is prompted to choose.
+          final rawBrgy =
+              (addressComponents['barangay'] ?? '').toString().trim();
+          final String? validBarangay = rawBrgy.isNotEmpty ? rawBrgy : null;
 
           final street = addressComponents['street']?.toString().trim() ?? '';
 
