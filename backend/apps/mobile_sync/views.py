@@ -228,6 +228,17 @@ def calculate_route(request):
     POST /api/calculate-route/
     Body: start_lat, start_lng, evacuation_center_id
     Returns 3 safest routes with risk level (Green/Yellow/Red).
+
+    The response includes a 'snap_info' object with diagnostic details:
+      user_lat/lng       - coordinates received from the client
+      user_snap_node     - nearest road-graph node to user
+      user_snap_distance_m - metres between user and snapped start node
+      ec_lat/lng         - coordinates of the selected evacuation centre
+      ec_snap_node       - nearest road-graph node to the EC
+      ec_snap_distance_m - metres between EC and snapped destination node
+      ec_in_road_bounds  - whether EC is inside the road-network bounding box
+    Large snap distances (> 500 m) indicate wrong EC coordinates or that the
+    user/EC is far from the road network — the route will look unrealistically long.
     """
     serializer = CalculateRouteRequestSerializer(data=request.data)
     if not serializer.is_valid():
@@ -251,6 +262,90 @@ def calculate_route(request):
             {'error': 'Evacuation center not found'},
             status=status.HTTP_404_NOT_FOUND,
         )
+
+    # ── Snap-distance diagnostics (helps detect wrong EC coordinates) ──────────
+    try:
+        from apps.routing.models import RoadSegment
+        from core.utils.geo import haversine_meters
+        from apps.evacuation.models import EvacuationCenter as _EC
+
+        start_lat_f = float(data['start_lat'])
+        start_lng_f = float(data['start_lng'])
+        ec_obj = _EC.objects.filter(pk=ec_id).first()
+
+        # Road-graph bounding box from the 3 247 stored segments
+        # (computed once; values match mock_road_network.json bounds)
+        GRAPH_MIN_LAT, GRAPH_MAX_LAT = 12.6407702, 12.7225778
+        GRAPH_MIN_LNG, GRAPH_MAX_LNG = 123.8578030, 123.9422168
+
+        snap_info = {
+            'user_lat': start_lat_f,
+            'user_lng': start_lng_f,
+            'user_snap_node': None,
+            'user_snap_distance_m': None,
+            'ec_lat': float(ec_obj.latitude) if ec_obj else None,
+            'ec_lng': float(ec_obj.longitude) if ec_obj else None,
+            'ec_snap_node': None,
+            'ec_snap_distance_m': None,
+            'ec_in_road_bounds': (
+                GRAPH_MIN_LAT <= float(ec_obj.latitude) <= GRAPH_MAX_LAT and
+                GRAPH_MIN_LNG <= float(ec_obj.longitude) <= GRAPH_MAX_LNG
+            ) if ec_obj else False,
+        }
+
+        # Find nearest road node for user and EC
+        segs = RoadSegment.objects.values_list(
+            'start_lat', 'start_lng', 'end_lat', 'end_lng'
+        )[:3000]  # sample – enough to find nearest node
+        best_user_d = best_ec_d = float('inf')
+        best_user_node = best_ec_node = None
+        for sla, slng, ela, elng in segs:
+            for nla, nlng in ((float(sla), float(slng)), (float(ela), float(elng))):
+                du = haversine_meters(start_lat_f, start_lng_f, nla, nlng)
+                if du < best_user_d:
+                    best_user_d = du
+                    best_user_node = [nla, nlng]
+                if ec_obj:
+                    de = haversine_meters(float(ec_obj.latitude), float(ec_obj.longitude), nla, nlng)
+                    if de < best_ec_d:
+                        best_ec_d = de
+                        best_ec_node = [nla, nlng]
+
+        snap_info['user_snap_node'] = best_user_node
+        snap_info['user_snap_distance_m'] = round(best_user_d, 1) if best_user_d < float('inf') else None
+        snap_info['ec_snap_node'] = best_ec_node
+        snap_info['ec_snap_distance_m'] = round(best_ec_d, 1) if best_ec_d < float('inf') else None
+
+        # Flag when EC is potentially misplaced
+        if ec_obj and not snap_info['ec_in_road_bounds']:
+            snap_info['ec_warning'] = (
+                f'EC coordinates ({snap_info["ec_lat"]:.6f}, {snap_info["ec_lng"]:.6f}) are OUTSIDE '
+                f'the road network bounds (lat {GRAPH_MIN_LAT}–{GRAPH_MAX_LAT}, '
+                f'lng {GRAPH_MIN_LNG}–{GRAPH_MAX_LNG}). Routes will be unrealistically long. '
+                'Please update EC coordinates in the MDRRMO admin panel.'
+            )
+        elif snap_info['ec_snap_distance_m'] and snap_info['ec_snap_distance_m'] > 500:
+            snap_info['ec_warning'] = (
+                f'EC snapped {snap_info["ec_snap_distance_m"]:.0f} m from the nearest road node. '
+                'This is unusually large and may cause incorrect routing. '
+                'Please verify EC coordinates in the MDRRMO admin panel.'
+            )
+
+        result['snap_info'] = snap_info
+
+        # Print to server log for debugging
+        print(
+            f'[ROUTE] user=({start_lat_f:.6f},{start_lng_f:.6f}) '
+            f'snap={best_user_d:.1f}m | '
+            f'ec=({snap_info["ec_lat"]},{snap_info["ec_lng"]}) '
+            f'ec_snap={best_ec_d:.1f}m '
+            f'in_bounds={snap_info["ec_in_road_bounds"]} '
+            f'routes={len(result.get("routes", []))}'
+        )
+    except Exception as diag_exc:
+        # Never let diagnostics break routing
+        result['snap_info'] = {'error': str(diag_exc)}
+        print(f'[ROUTE] snap diagnostic failed: {diag_exc}')
     # Log selected route for analytics in background (non-blocking)
     first_route = result['routes'][0] if result['routes'] else None
     if first_route:

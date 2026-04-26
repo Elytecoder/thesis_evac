@@ -764,15 +764,21 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Remaining road distance in km.
-  /// Sums: distance to the current step waypoint + distanceToNext for all
-  /// subsequent steps.  Falls back to straight-line when no route is active.
+  /// Remaining road distance in km, computed along the backend route polyline.
+  ///
+  /// Algorithm:
+  ///   1. Find the polyline point closest to the user's current GPS location
+  ///      (project onto the nearest segment).
+  ///   2. Sum haversine distances from that projection to the end of the polyline.
+  ///
+  /// This is always based on the backend Dijkstra polyline geometry, so it is
+  /// consistent with the path shown on the map regardless of what OSRM reports.
+  /// Falls back to straight-line only when no route polyline is available.
   double get _distanceRemainingKm {
     if (_userLocation == null) return 0;
 
     final route = _currentRoute;
-    final step = _currentStep;
-    if (route == null || route.steps.isEmpty || step == null) {
+    if (route == null || route.polyline.isEmpty) {
       // No route data — use straight-line as fallback
       return _gpsService.calculateDistance(
             _userLocation!,
@@ -781,15 +787,59 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           1000;
     }
 
-    // Distance from current GPS position to the next step waypoint
-    double totalM = _distanceToNextStep;
-
-    // Add distanceToNext for every step after the current one
-    for (int i = step.stepIndex + 1; i < route.steps.length; i++) {
-      totalM += route.steps[i].distanceToNext;
+    final pts = route.polyline;
+    if (pts.length == 1) {
+      return _gpsService.calculateDistance(_userLocation!, pts.first) / 1000;
     }
 
-    return totalM / 1000;
+    // Find the nearest polyline segment and the projection point on it
+    double bestDistToSeg = double.infinity;
+    int bestSegIdx = 0;
+    double bestT = 0.0; // parameter along bestSegIdx segment (0..1)
+
+    for (int i = 0; i < pts.length - 1; i++) {
+      final a = pts[i];
+      final b = pts[i + 1];
+      final t = _projectOnSegment(_userLocation!, a, b);
+      final proj = LatLng(
+        a.latitude + t * (b.latitude - a.latitude),
+        a.longitude + t * (b.longitude - a.longitude),
+      );
+      final d = _gpsService.calculateDistance(_userLocation!, proj);
+      if (d < bestDistToSeg) {
+        bestDistToSeg = d;
+        bestSegIdx = i;
+        bestT = t;
+      }
+    }
+
+    // Sum remaining distance: from projection point to end of polyline
+    double remainingM = 0.0;
+    final a = pts[bestSegIdx];
+    final b = pts[bestSegIdx + 1];
+    // Partial segment: from projection to b
+    final proj = LatLng(
+      a.latitude + bestT * (b.latitude - a.latitude),
+      a.longitude + bestT * (b.longitude - a.longitude),
+    );
+    remainingM += _gpsService.calculateDistance(proj, b);
+    // Full remaining segments
+    for (int i = bestSegIdx + 1; i < pts.length - 1; i++) {
+      remainingM += _gpsService.calculateDistance(pts[i], pts[i + 1]);
+    }
+
+    return remainingM / 1000;
+  }
+
+  /// Project point [p] onto segment [a]–[b].
+  /// Returns clamped parameter t in [0, 1].
+  static double _projectOnSegment(LatLng p, LatLng a, LatLng b) {
+    final dLat = b.latitude - a.latitude;
+    final dLng = b.longitude - a.longitude;
+    final len2 = dLat * dLat + dLng * dLng;
+    if (len2 < 1e-12) return 0.0;
+    final t = ((p.latitude - a.latitude) * dLat + (p.longitude - a.longitude) * dLng) / len2;
+    return t.clamp(0.0, 1.0);
   }
 
   /// Maximum distance (m) from user to hazard location to allow reporting. Matches backend 1 km rule.
