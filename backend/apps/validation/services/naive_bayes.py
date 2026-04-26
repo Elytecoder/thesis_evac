@@ -30,6 +30,34 @@ logger = logging.getLogger(__name__)
 
 MOCK_TRAINING_PATH = Path(__file__).resolve().parent.parent.parent.parent / 'mock_data' / 'mock_training_data.json'
 
+# Keywords that strongly suggest a real, reportable hazard event.
+# Used only for 'other' type reports to compensate for the absent type signal.
+_HAZARD_KEYWORDS = [
+    'flood', 'flooded', 'flooding', 'water', 'submerged',
+    'blocked', 'block', 'obstacle', 'debris',
+    'landslide', 'slide', 'mudslide', 'rockslide', 'collapse', 'collapsed',
+    'fallen', 'fell', 'tree', 'fallen tree', 'uprooted',
+    'damage', 'damaged', 'broken', 'crack', 'cracked',
+    'accident', 'crash', 'vehicle',
+    'fire', 'burning', 'smoke',
+    'road', 'bridge', 'path', 'route',
+    'impassable', 'unsafe', 'danger', 'dangerous',
+    'evacuation', 'evacuate',
+    'power', 'electric', 'wire', 'post',
+]
+
+
+def _keyword_match_score(description: str) -> float:
+    """
+    Return 0.0–1.0 based on hazard keyword presence in description.
+    Saturates at 3 keyword hits → 1.0. Used only for 'other' type boost.
+    """
+    if not description:
+        return 0.0
+    desc_lower = description.lower()
+    matches = sum(1 for kw in _HAZARD_KEYWORDS if kw in desc_lower)
+    return min(1.0, matches / 3.0)
+
 
 def _bucket_desc_len(length: int) -> str:
     """Bucket description character count into three quality tiers."""
@@ -141,12 +169,21 @@ class NaiveBayesValidator:
         """
         hazard_type = report_data.get('hazard_type', 'other') or 'other'
         description = report_data.get('description', '') or ''
+        is_other = hazard_type.lower() == 'other'
+
+        # For 'other' type, replace the type token with 'unknown_hazard' so that
+        # Laplace smoothing provides a neutral prior instead of the misleadingly
+        # balanced 'other' distribution from training data.
+        nb_type = 'unknown_hazard' if is_other else hazard_type
 
         # ── Primary: sklearn MultinomialNB via ml_service ─────────────────────
         try:
             from ml_data.ml_service import get_ml_service
-            score = get_ml_service().predict_naive_bayes(hazard_type, description)
+            score = get_ml_service().predict_naive_bayes(nb_type, description)
             if score is not None:
+                if is_other:
+                    keyword_score = _keyword_match_score(description)
+                    return round((score * 0.6) + (keyword_score * 0.4), 4)
                 return score
         except Exception as e:
             logger.warning('ml_service NB unavailable, using fallback: %s', e)
@@ -169,15 +206,21 @@ class NaiveBayesValidator:
             total = sum(counts.values()) or 1
             return (counts.get(val, 0) + k) / (total + k * len(counts.keys() or [val]))
 
-        v_ht   = lik(v,   'hazard_type', hazard_type)
+        v_ht   = lik(v,   'hazard_type', nb_type)
         v_desc = lik(v,   'desc_bucket', bucket)
-        i_ht   = lik(inv, 'hazard_type', hazard_type)
+        i_ht   = lik(inv, 'hazard_type', nb_type)
         i_desc = lik(inv, 'desc_bucket', bucket)
 
         post_valid   = p_valid   * v_ht * v_desc
         post_invalid = p_invalid * i_ht * i_desc
         total = post_valid + post_invalid
-        return (post_valid / total) if total else 0.5
+        base_score = (post_valid / total) if total else 0.5
+
+        if is_other:
+            keyword_score = _keyword_match_score(description)
+            return round((base_score * 0.6) + (keyword_score * 0.4), 4)
+
+        return base_score
 
 
 def nearby_count_to_category(count: int) -> str:

@@ -575,13 +575,23 @@ def check_similar_reports(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Base filter: same hazard type, not deleted, not auto-rejected, NOT the requesting user's own reports.
-    # Exclude own reports so the dialog never asks a user to "confirm" their own submission.
-    base_qs = HazardReport.objects.filter(
-        hazard_type=hazard_type,
-        auto_rejected=False,
-        is_deleted=False,
-    ).exclude(user=request.user).select_related('user')
+    # "other" is a catch-all — it may represent any unclassified hazard.
+    # Skip strict type matching and let location proximity decide instead.
+    is_other_type = str(hazard_type).lower() == 'other'
+
+    if is_other_type:
+        # Match ANY nearby hazard regardless of category.
+        base_qs = HazardReport.objects.filter(
+            auto_rejected=False,
+            is_deleted=False,
+        ).exclude(user=request.user).select_related('user')
+    else:
+        # Normal path: strict same-type matching.
+        base_qs = HazardReport.objects.filter(
+            hazard_type=hazard_type,
+            auto_rejected=False,
+            is_deleted=False,
+        ).exclude(user=request.user).select_related('user')
 
     # Search both PENDING (confirmable) and APPROVED (already verified) reports.
     candidate_qs = base_qs.filter(
@@ -610,6 +620,7 @@ def check_similar_reports(request):
     return Response({
         'similar_reports': similar_reports,
         'count': len(similar_reports),
+        'is_other_type_search': is_other_type,
     })
 
 

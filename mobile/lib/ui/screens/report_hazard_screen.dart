@@ -394,7 +394,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'A $hazardLabel was found $distanceM m from your location.',
+                              _selectedHazardType == 'other'
+                                  ? 'A similar hazard was found $distanceM m from your location. Based on the location, it may refer to the same situation.'
+                                  : 'A $hazardLabel was found $distanceM m from your location.',
                               style: TextStyle(
                                 color: Colors.white.withAlpha(230),
                                 fontSize: 13,
@@ -548,8 +550,13 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  'Confirming this report tells MDRRMO that you also see this hazard. '
-                                  'It improves accuracy and speeds up the response — no duplicate needed.',
+                                  _selectedHazardType == 'other'
+                                      ? 'This nearby report covers an unclassified hazard. '
+                                          'Confirming it adds your observation as supporting evidence '
+                                          'and strengthens its confidence score — especially important '
+                                          'when the hazard category is uncertain.'
+                                      : 'Confirming this report tells MDRRMO that you also see this hazard. '
+                                          'It improves accuracy and speeds up the response — no duplicate needed.',
                                   style: TextStyle(
                                     fontSize: 13,
                                     color: Colors.green.shade900,
@@ -1169,6 +1176,37 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                         );
                       },
                     ),
+
+                    // ── Helper tip for "Other" type ──────────────────────────
+                    if (_selectedHazardType == 'other')
+                      Container(
+                        margin: const EdgeInsets.only(top: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.blue.shade200),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.info_outline_rounded,
+                                color: Colors.blue.shade700, size: 18),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Please describe the hazard clearly. Include what you see '
+                                '(e.g. blocked road, flooding, debris, accident).',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.blue.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
                     const SizedBox(height: 24),
 
