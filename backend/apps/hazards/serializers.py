@@ -78,6 +78,8 @@ class HazardReportSerializer(serializers.ModelSerializer):
     display_report_id = serializers.SerializerMethodField()
     reporter_barangay = serializers.SerializerMethodField()
     confirmation_count = serializers.SerializerMethodField()
+    photo_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
 
     class Meta:
         model = HazardReport
@@ -115,9 +117,25 @@ class HazardReportSerializer(serializers.ModelSerializer):
 
     def get_reporter_barangay(self, obj):
         return _reporter_barangay_for_report(obj)
-    
+
     def get_confirmation_count(self, obj):
         return obj.confirmation_count
+
+    def get_photo_url(self, obj):
+        """Strip base64 blobs from list responses — return URL or empty string."""
+        url = obj.photo_url or ''
+        return '' if url.startswith('data:') else url
+
+    def get_video_url(self, obj):
+        """Strip base64 blobs from list responses — return URL or empty string."""
+        url = obj.video_url or ''
+        return '' if url.startswith('data:') else url
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['has_photo'] = bool((instance.photo_url or '').strip())
+        data['has_video'] = bool((instance.video_url or '').strip())
+        return data
 
 class PendingReportSerializer(serializers.ModelSerializer):
     """For MDRRMO pending list. validation_breakdown used in Report Details → View Technical Details."""
@@ -127,6 +145,8 @@ class PendingReportSerializer(serializers.ModelSerializer):
     display_report_id = serializers.SerializerMethodField()
     reporter_barangay = serializers.SerializerMethodField()
     confirmation_count = serializers.SerializerMethodField()
+    photo_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
 
     class Meta:
         model = HazardReport
@@ -172,6 +192,20 @@ class PendingReportSerializer(serializers.ModelSerializer):
 
     def get_reporter_barangay(self, obj):
         return _reporter_barangay_for_report(obj)
-    
+
     def get_confirmation_count(self, obj):
         return obj.confirmation_count
+
+    def get_photo_url(self, obj):
+        url = obj.photo_url or ''
+        return '' if url.startswith('data:') else url
+
+    def get_video_url(self, obj):
+        url = obj.video_url or ''
+        return '' if url.startswith('data:') else url
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['has_photo'] = bool((instance.photo_url or '').strip())
+        data['has_video'] = bool((instance.video_url or '').strip())
+        return data

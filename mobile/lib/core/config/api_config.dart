@@ -48,6 +48,8 @@ class ApiConfig {
   static const String checkSimilarReportsEndpoint = '/check-similar-reports/';
   static const String confirmHazardReportEndpoint = '/confirm-hazard-report/';
   static const String myReportsEndpoint = '/my-reports/';
+  static String reportMediaEndpoint(int reportId) => '/my-reports/$reportId/media/';
+  static String adminReportMediaEndpoint(int reportId) => '/mdrrmo/reports/$reportId/media/';
   static const String verifiedHazardsEndpoint = '/verified-hazards/';
   
   /// MDRRMO - Analytics

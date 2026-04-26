@@ -619,7 +619,7 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
         if (reportHasMedia(report)) ...[
           const SizedBox(height: 16),
-          ReportMediaSection(report: report),
+          ReportMediaSection(report: report, isAdmin: true),
         ],
       ],
     );

@@ -8,12 +8,14 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/config/api_config.dart';
+import '../../core/network/api_client.dart';
 import '../../models/hazard_report.dart';
 
 bool reportHasMedia(HazardReport r) {
   final p = r.photoUrl?.trim() ?? '';
   final v = r.videoUrl?.trim() ?? '';
-  return p.isNotEmpty || v.isNotEmpty;
+  // Also consider has_photo/has_video flags sent when base64 is stripped from list responses
+  return p.isNotEmpty || v.isNotEmpty || r.hasPhoto || r.hasVideo;
 }
 
 /// Normalise a media URL so it always points to the currently configured backend host.
@@ -189,17 +191,92 @@ class _FullscreenImageViewer extends StatelessWidget {
 }
 
 /// Full-width photo + video actions for report detail.
-class ReportMediaSection extends StatelessWidget {
+class ReportMediaSection extends StatefulWidget {
   final HazardReport report;
+  /// Set to true when shown in MDRRMO/admin context to use the admin media endpoint.
+  final bool isAdmin;
 
-  const ReportMediaSection({super.key, required this.report});
+  const ReportMediaSection({super.key, required this.report, this.isAdmin = false});
+
+  @override
+  State<ReportMediaSection> createState() => _ReportMediaSectionState();
+}
+
+class _ReportMediaSectionState extends State<ReportMediaSection> {
+  String _photo = '';
+  String _video = '';
+  bool _loading = false;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _photo = widget.report.photoUrl?.trim() ?? '';
+    _video = widget.report.videoUrl?.trim() ?? '';
+    // If the list response stripped base64, auto-fetch immediately
+    if ((_photo.isEmpty && widget.report.hasPhoto) ||
+        (_video.isEmpty && widget.report.hasVideo)) {
+      _fetchMedia();
+    }
+  }
+
+  Future<void> _fetchMedia() async {
+    if (_loading || widget.report.id == null) return;
+    setState(() => _loading = true);
+    try {
+      final apiClient = ApiClient();
+      final endpoint = widget.isAdmin
+          ? ApiConfig.adminReportMediaEndpoint(widget.report.id!)
+          : ApiConfig.reportMediaEndpoint(widget.report.id!);
+      final resp = await apiClient.dio.get(endpoint);
+      if (resp.statusCode == 200 && mounted) {
+        setState(() {
+          _photo = (resp.data['photo_url'] as String? ?? '').trim();
+          _video = (resp.data['video_url'] as String? ?? '').trim();
+          _loading = false;
+          _loaded = true;
+        });
+      } else if (mounted) {
+        setState(() => _loading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final photo = normalizeMediaUrl(report.photoUrl?.trim() ?? '');
-    final video = normalizeMediaUrl(report.videoUrl?.trim() ?? '');
+    final photo = normalizeMediaUrl(_photo);
+    final video = normalizeMediaUrl(_video);
+
+    final hasAnyMedia = widget.report.hasPhoto || widget.report.hasVideo ||
+        photo.isNotEmpty || video.isNotEmpty;
+
+    if (!hasAnyMedia) return const SizedBox.shrink();
+
+    if (_loading) {
+      return Container(
+        height: 80,
+        alignment: Alignment.center,
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 16, height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 10),
+            Text('Loading media…', style: TextStyle(fontSize: 13, color: Colors.black54)),
+          ],
+        ),
+      );
+    }
+
     if (photo.isEmpty && video.isEmpty) {
-      return const SizedBox.shrink();
+      // Media exists on server but hasn't loaded yet
+      return OutlinedButton.icon(
+        onPressed: _fetchMedia,
+        icon: const Icon(Icons.perm_media_outlined, size: 16),
+        label: const Text('Load Attached Media'),
+      );
     }
 
     return Column(

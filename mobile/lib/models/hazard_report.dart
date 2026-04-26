@@ -25,6 +25,10 @@ class HazardReport {
   final String description;
   final String? photoUrl;
   final String? videoUrl;
+  /// True when the report has a photo stored in the DB (even if photoUrl was stripped for bandwidth).
+  final bool hasPhoto;
+  /// True when the report has a video stored in the DB (even if videoUrl was stripped for bandwidth).
+  final bool hasVideo;
   final HazardStatus status;
   
   // Auto-rejection flag
@@ -70,6 +74,8 @@ class HazardReport {
     required this.description,
     this.photoUrl,
     this.videoUrl,
+    this.hasPhoto = false,
+    this.hasVideo = false,
     this.status = HazardStatus.pending,
     this.autoRejected = false,
     this.naiveBayesScore,
@@ -107,6 +113,8 @@ class HazardReport {
       description: json['description'] as String? ?? '',
       photoUrl: _nonEmptyString(json['photo_url']),
       videoUrl: _nonEmptyString(json['video_url']),
+      hasPhoto: json['has_photo'] as bool? ?? _nonEmptyString(json['photo_url']) != null,
+      hasVideo: json['has_video'] as bool? ?? _nonEmptyString(json['video_url']) != null,
       status: HazardStatus.fromString(json['status'] as String? ?? 'pending'),
       autoRejected: json['auto_rejected'] as bool? ?? false,
       naiveBayesScore: (json['naive_bayes_score'] as num?)?.toDouble(),

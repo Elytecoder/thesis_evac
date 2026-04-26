@@ -514,6 +514,26 @@ def my_reports(request):
     return Response(serializer.data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def report_media(request, report_id):
+    """
+    GET /api/my-reports/<report_id>/media/
+    Returns the full photo_url and video_url (including base64 blobs) for a
+    specific report owned by the requesting user. Used by the media viewer so
+    large base64 payloads are only downloaded when the user explicitly opens a report.
+    """
+    try:
+        report = HazardReport.objects.get(pk=report_id, user=request.user)
+    except HazardReport.DoesNotExist:
+        return Response({'error': 'Report not found or access denied'}, status=status.HTTP_404_NOT_FOUND)
+    return Response({
+        'id': report.id,
+        'photo_url': report.photo_url or '',
+        'video_url': report.video_url or '',
+    })
+
+
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def delete_my_report(request, report_id):
@@ -772,6 +792,25 @@ def restore_report(request):
     report.restore(restoration_reason)
     _sync_recompute_segment_risks()
     return Response(PendingReportSerializer(report).data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def admin_report_media(request, report_id: int):
+    """
+    GET /api/mdrrmo/reports/<report_id>/media/
+    Returns the full photo_url and video_url (including base64) for a report.
+    Only accessible by MDRRMO admins.
+    """
+    try:
+        report = HazardReport.objects.get(pk=report_id)
+    except HazardReport.DoesNotExist:
+        return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response({
+        'id': report.id,
+        'photo_url': report.photo_url or '',
+        'video_url': report.video_url or '',
+    })
 
 
 @api_view(['DELETE'])
@@ -1148,12 +1187,15 @@ def road_risk_layer(request):
     result = []
     for seg in segments:
         risk = calculate_segment_risk(seg, approved_hazards)
-        if risk > 0.05:
-            result.append({
-                's': [float(seg.start_lat), float(seg.start_lng)],
-                'e': [float(seg.end_lat),   float(seg.end_lng)],
-                'r': round(risk, 3),
-            })
+        # Include ALL segments so the road network is always visible when the layer
+        # is toggled on. Segments with risk=0 will appear green (safe) on the map.
+        # Use a small baseline of 0.04 so roads are distinguishable from background.
+        display_risk = max(risk, 0.04)
+        result.append({
+            's': [float(seg.start_lat), float(seg.start_lng)],
+            'e': [float(seg.end_lat),   float(seg.end_lng)],
+            'r': round(display_risk, 3),
+        })
 
     return Response({
         'road_risk_segments': result,

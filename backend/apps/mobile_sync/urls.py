@@ -11,6 +11,7 @@ urlpatterns = [
     path('confirm-hazard-report/', views.confirm_hazard_report, name='confirm_hazard_report'),
     path('my-reports/', views.my_reports, name='my_reports'),
     path('my-reports/<int:report_id>/', views.delete_my_report, name='delete_my_report'),
+    path('my-reports/<int:report_id>/media/', views.report_media, name='report_media'),
     path('verified-hazards/', views.verified_hazards, name='verified_hazards'),
     
     # MDRRMO - Report management
@@ -21,6 +22,7 @@ urlpatterns = [
     path('mdrrmo/approve-report/', views.mdrrmo_approve_report, name='mdrrmo_approve_report'),
     path('mdrrmo/restore-report/', views.restore_report, name='restore_report'),
     path('mdrrmo/reports/<int:report_id>/', views.mdrrmo_delete_report, name='mdrrmo_delete_report'),
+    path('mdrrmo/reports/<int:report_id>/media/', views.admin_report_media, name='admin_report_media'),
     
     # Evacuation centers (Public - Read only operational centers)
     path('evacuation-centers/', views.evacuation_centers, name='evacuation_centers'),
