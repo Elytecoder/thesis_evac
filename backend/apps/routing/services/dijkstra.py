@@ -186,9 +186,11 @@ class ModifiedDijkstraService:
         return 'Red'
 
     # Risk assigned to synthetic bridge edges that fill OSM coverage gaps.
-    # 0.3 = Yellow-band risk: passable but not ideal — encourages Dijkstra to prefer
-    # real road segments when available.
-    BRIDGE_RISK = 0.3
+    # 0.0 = no artificial penalty: bridge edges cost only their haversine distance,
+    # so Dijkstra treats them like any real road segment. This ensures the shortest
+    # valid path is always selected when no real hazards are present, keeping routing
+    # consistent with what the road risk layer shows on the map.
+    BRIDGE_RISK = 0.0
 
     def _bridge_components(self, graph: dict, nodes: set) -> dict:
         """
