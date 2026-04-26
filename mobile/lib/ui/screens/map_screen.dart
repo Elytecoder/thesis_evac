@@ -296,8 +296,7 @@ class _MapScreenState extends State<MapScreen>
   Future<void> _loadRoadRiskLayer() async {
     try {
       final apiClient = ApiClient();
-      final session = SessionStorage();
-      final token = await session.getToken();
+      final token = await SessionStorage.readToken();
       if (token != null) {
         apiClient.setAuthToken(token);
       }
