@@ -1136,7 +1136,6 @@ def road_risk_layer(request):
     """
     from apps.routing.models import RoadSegment
     from apps.mobile_sync.services.route_service import (
-        _ensure_segment_risk_scores,
         calculate_segment_risk,
         _get_approved_hazards,
     )
@@ -1144,6 +1143,8 @@ def road_risk_layer(request):
     segments = list(RoadSegment.objects.all())
     if not segments:
         return Response({'road_risk_segments': [], 'segment_count': 0})
+
+    approved_hazards = _get_approved_hazards()
     result = []
     for seg in segments:
         risk = calculate_segment_risk(seg, approved_hazards)
