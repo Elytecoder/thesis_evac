@@ -785,7 +785,10 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         return None
     if not ec.is_operational:
         return None  # Deactivated centers are never used for routing
-    _ensure_segment_risk_scores()
+    # NOTE: _ensure_segment_risk_scores() is NOT called here to avoid blocking the
+    # first request with a slow RF training cycle. Scores are pre-computed at deploy
+    # time via `python manage.py update_segment_risks`. Segments with score=0 still
+    # route correctly — effective_risk falls back to dynamic hazard signals only.
     segments = list(RoadSegment.objects.all())
     segment_count = len(segments)
     if not segments:

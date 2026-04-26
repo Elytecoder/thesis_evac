@@ -232,11 +232,18 @@ def calculate_route(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     data = serializer.validated_data
     ec_id = data['evacuation_center_id']
-    result = calculate_safest_routes(
-        data['start_lat'], data['start_lng'],
-        ec_id,
-        k=3,
-    )
+    try:
+        result = calculate_safest_routes(
+            data['start_lat'], data['start_lng'],
+            ec_id,
+            k=3,
+        )
+    except Exception as exc:
+        import traceback
+        return Response(
+            {'error': 'Route calculation failed.', 'detail': str(exc), 'trace': traceback.format_exc()},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
     if result is None:
         return Response(
             {'error': 'Evacuation center not found'},
@@ -1133,12 +1140,10 @@ def road_risk_layer(request):
         calculate_segment_risk,
         _get_approved_hazards,
     )
-    _ensure_segment_risk_scores()
+    # Scores are pre-computed at deploy time; skip auto-train to keep this endpoint fast.
     segments = list(RoadSegment.objects.all())
     if not segments:
         return Response({'road_risk_segments': [], 'segment_count': 0})
-
-    approved_hazards = _get_approved_hazards()
     result = []
     for seg in segments:
         risk = calculate_segment_risk(seg, approved_hazards)
