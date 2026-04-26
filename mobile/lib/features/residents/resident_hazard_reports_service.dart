@@ -1,4 +1,5 @@
 import '../../core/config/api_config.dart';
+import '../../core/storage/storage_service.dart';
 import '../../core/utils/date_time_utils.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
@@ -10,6 +11,7 @@ class ResidentHazardReportsService {
   static const String currentUserId = 'current_user';
 
   final HazardService _hazardService = HazardService();
+  final StorageService _storageService = StorageService();
 
   /// Convert HazardReport to map format expected by map UI (lat, lng, type, status, id, reported_by, description, date_submitted, media).
   static Map<String, dynamic> _reportToMap(HazardReport r, {required bool isCurrentUser}) {
@@ -202,6 +204,29 @@ class ResidentHazardReportsService {
       if (r.id != null && verifiedIds.contains(r.id)) continue;
       out.add(_reportToMap(r, isCurrentUser: true));
     }
+
+    // Include locally-queued reports (saved offline, not yet uploaded).
+    // These show on the map immediately so the user knows their report is saved.
+    try {
+      final queued = await _storageService.getPendingReports();
+      for (final q in queued) {
+        out.add({
+          'id': q['id'] ?? 0,
+          'lat': (q['latitude'] as num? ?? 0).toDouble(),
+          'lng': (q['longitude'] as num? ?? 0).toDouble(),
+          'type': q['hazard_type'] ?? 'other',
+          'status': 'pending',
+          'reported_by': currentUserId,
+          'description': q['description'] ?? '',
+          'date_submitted': q['created_at'] ?? '',
+          'media': <Map<String, dynamic>>[],
+          'barangay': '',
+          'is_offline': true,
+          'client_submission_id': q['client_submission_id'],
+        });
+      }
+    } catch (_) {}
+
     return out;
   }
 

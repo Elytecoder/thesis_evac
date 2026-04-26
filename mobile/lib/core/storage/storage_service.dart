@@ -45,7 +45,7 @@ class StorageService {
     final box = Hive.box(StorageConfig.evacuationCentersBox);
     final data = box.get('all');
     if (data == null) return null;
-    return List<Map<String, dynamic>>.from(data);
+    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   // --- Baseline Hazards ---
@@ -62,7 +62,7 @@ class StorageService {
     final box = Hive.box(StorageConfig.baselineHazardsBox);
     final data = box.get('all');
     if (data == null) return null;
-    return List<Map<String, dynamic>>.from(data);
+    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   // --- Road Segments ---
@@ -79,7 +79,7 @@ class StorageService {
     final box = Hive.box(StorageConfig.roadSegmentsBox);
     final data = box.get('all');
     if (data == null) return null;
-    return List<Map<String, dynamic>>.from(data);
+    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   // --- User Data ---
@@ -127,7 +127,7 @@ class StorageService {
     final box = Hive.box(StorageConfig.pendingReportsBox);
     final data = box.get('queue');
     if (data == null) return [];
-    return List<Map<String, dynamic>>.from(data as List);
+    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   /// Remove all entries from the pending reports queue after a successful sync.
@@ -157,7 +157,7 @@ class StorageService {
     final box = Hive.box(StorageConfig.verifiedHazardsBox);
     final data = box.get('all');
     if (data == null) return null;
-    return List<Map<String, dynamic>>.from(data as List);
+    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   /// Get last sync time for a specific box.
@@ -201,7 +201,7 @@ class StorageService {
       }
     }
 
-    return List<Map<String, dynamic>>.from(routes);
+    return (routes as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   // --- Active Route Cache (keeps last route visible during connectivity outage) ---

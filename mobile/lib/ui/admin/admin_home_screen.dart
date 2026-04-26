@@ -41,6 +41,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Set<int> _knownPendingIds = {};
   bool _initialPollDone = false;
 
+  /// Total number of pending reports on the server (updated every poll).
+  /// Used for the bell badge so the count is always accurate, not just new arrivals.
+  int _totalPendingCount = 0;
+
   /// Queue of new reports waiting to be announced.
   final List<HazardReport> _notificationQueue = [];
 
@@ -84,8 +88,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           .map((r) => r.id!)
           .toSet();
 
+      // Always keep the total count up-to-date so the bell badge reflects
+      // all pending reports, not just those that arrived since the app started.
+      if (mounted) {
+        setState(() => _totalPendingCount = reports.length);
+      }
+
       if (!_initialPollDone) {
-        // First poll: just seed known IDs so we don't flash on startup.
+        // First poll: seed known IDs so we don't flash banners on startup.
         _knownPendingIds = currentIds;
         _initialPollDone = true;
         return;
@@ -142,9 +152,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   // ── Notification bell ──────────────────────────────────────────────────────
 
-  /// Total new-report badge count (active banner + queued).
-  int get _newReportCount =>
-      _notificationQueue.length + (_activeNotification != null ? 1 : 0);
+  /// Badge count: shows total pending reports so MDRRMO always sees the full
+  /// backlog, not just reports that arrived since the app was opened.
+  int get _badgeCount => _totalPendingCount;
 
   /// Bell icon widget with optional red badge.
   Widget _buildNotificationBell() {
@@ -161,7 +171,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             onPressed: _showNotificationPanel,
           ),
         ),
-        if (_newReportCount > 0)
+        if (_badgeCount > 0)
           Positioned(
             top: 10,
             right: 10,
@@ -171,13 +181,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 color: Colors.red,
                 shape: BoxShape.circle,
               ),
+              constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
               child: Text(
-                _newReportCount > 9 ? '9+' : '$_newReportCount',
+                _badgeCount > 99 ? '99+' : '$_badgeCount',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 9,
                   fontWeight: FontWeight.bold,
                 ),
+                textAlign: TextAlign.center,
               ),
             ),
           ),

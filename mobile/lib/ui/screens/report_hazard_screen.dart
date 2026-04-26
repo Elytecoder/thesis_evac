@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import '../../core/auth/session_storage.dart';
 import '../../core/config/api_config.dart';
 import '../../core/config/hazard_media_config.dart';
+import '../../core/services/connectivity_service.dart';
 import '../../features/hazards/hazard_media_helper.dart';
 import '../../features/hazards/hazard_service.dart';
 
@@ -266,6 +267,13 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     setState(() => _isSubmitting = true);
 
     try {
+      // When offline, skip the similar-reports API call and queue directly.
+      final isOnline = await ConnectivityService().isOnline;
+      if (!isOnline) {
+        await _performSubmission();
+        return;
+      }
+
       // STEP 1: Check for similar pending reports
       final similarReports = await _hazardService.checkSimilarReports(
         hazardType: _selectedHazardType,
@@ -822,6 +830,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       if (mounted) {
         Navigator.pop(context);
 
+        // Detect offline queue: userId is null but clientSubmissionId is set.
+        final bool wasQueued = submittedReport.userId == null &&
+            submittedReport.clientSubmissionId != null;
         final bool wasAutoRejected = submittedReport.autoRejected;
 
         showDialog(
@@ -830,12 +841,18 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
             title: Row(
               children: [
                 Icon(
-                  wasAutoRejected ? Icons.info_outline : Icons.check_circle,
-                  color: wasAutoRejected ? Colors.orange : Colors.green,
+                  wasQueued
+                      ? Icons.cloud_off
+                      : (wasAutoRejected ? Icons.info_outline : Icons.check_circle),
+                  color: wasQueued
+                      ? Colors.deepOrange
+                      : (wasAutoRejected ? Colors.orange : Colors.green),
                   size: 28,
                 ),
                 const SizedBox(width: 12),
-                Text(wasAutoRejected ? 'Report Not Submitted' : 'Report Submitted'),
+                Text(wasQueued
+                    ? 'Saved Offline'
+                    : (wasAutoRejected ? 'Report Not Submitted' : 'Report Submitted')),
               ],
             ),
             content: Column(
@@ -843,22 +860,26 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  wasAutoRejected
-                      ? 'Your report could not be submitted'
-                      : 'Report submitted successfully',
+                  wasQueued
+                      ? 'Report saved offline. It will sync when internet is available.'
+                      : (wasAutoRejected
+                          ? 'Your report could not be submitted'
+                          : 'Report submitted successfully'),
                   style: const TextStyle(
                       fontSize: 17, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  wasAutoRejected
-                      ? (submittedReport.adminComment?.isNotEmpty == true
-                          ? submittedReport.adminComment!
-                          : 'You appear to be too far from the reported hazard location. Please move closer and try again.')
-                      : 'Your hazard report has been received.',
+                  wasQueued
+                      ? 'Your report has been saved to your device and will be uploaded automatically once you reconnect.'
+                      : (wasAutoRejected
+                          ? (submittedReport.adminComment?.isNotEmpty == true
+                              ? submittedReport.adminComment!
+                              : 'You appear to be too far from the reported hazard location. Please move closer and try again.')
+                          : 'Your hazard report has been received.'),
                   style: const TextStyle(fontSize: 15),
                 ),
-                if (!wasAutoRejected && (_selectedImage != null || _selectedVideo != null)) ...[
+                if (!wasQueued && !wasAutoRejected && (_selectedImage != null || _selectedVideo != null)) ...[
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -884,33 +905,41 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: wasAutoRejected
-                        ? Colors.orange[50]
-                        : Colors.blue[50],
+                    color: wasQueued
+                        ? Colors.deepOrange[50]
+                        : (wasAutoRejected ? Colors.orange[50] : Colors.blue[50]),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Row(
                     children: [
                       Icon(
-                        wasAutoRejected
-                            ? Icons.warning_amber_outlined
-                            : Icons.info_outline,
-                        color: wasAutoRejected
-                            ? Colors.orange[700]
-                            : Colors.blue[700],
+                        wasQueued
+                            ? Icons.sync
+                            : (wasAutoRejected
+                                ? Icons.warning_amber_outlined
+                                : Icons.info_outline),
+                        color: wasQueued
+                            ? Colors.deepOrange[700]
+                            : (wasAutoRejected
+                                ? Colors.orange[700]
+                                : Colors.blue[700]),
                         size: 20,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          wasAutoRejected
-                              ? 'Make sure you are physically near the hazard before reporting.'
-                              : 'The MDRRMO will review and verify your report.',
+                          wasQueued
+                              ? 'Your report marker is now visible on the map as pending sync.'
+                              : (wasAutoRejected
+                                  ? 'Make sure you are physically near the hazard before reporting.'
+                                  : 'The MDRRMO will review and verify your report.'),
                           style: TextStyle(
                             fontSize: 13,
-                            color: wasAutoRejected
-                                ? Colors.orange[900]
-                                : Colors.blue[900],
+                            color: wasQueued
+                                ? Colors.deepOrange[900]
+                                : (wasAutoRejected
+                                    ? Colors.orange[900]
+                                    : Colors.blue[900]),
                           ),
                         ),
                       ),

@@ -607,10 +607,70 @@ class _MapScreenState extends State<MapScreen>
   /// only public, non-identifying safety information.
   void _viewHazardReport(Map<String, dynamic> report) {
     final isPending = report['status'] == 'pending';
+    final isOffline = report['is_offline'] == true;
     final isCurrentUserReport = report['reported_by'] == ResidentHazardReportsService.currentUserId;
     final rawType = (report['type'] as String? ?? '').trim();
     final displayType = _formatHazardType(rawType);
     final barangay = (report['barangay'] as String? ?? '').trim();
+
+    // Offline-queued report: show "pending sync" info
+    if (isOffline) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.cloud_off, color: Colors.deepOrange, size: 28),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('Pending Sync')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Hazard Type: $displayType',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'This report was saved offline and will be automatically uploaded when you reconnect to the internet.',
+                style: TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.deepOrange[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.sync, color: Colors.deepOrange[700], size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Waiting for internet connection to sync.',
+                        style: TextStyle(fontSize: 13, color: Colors.deepOrange[900]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
     if (!isCurrentUserReport) {
       // Other resident's report — show safe public view only
@@ -1233,6 +1293,7 @@ class _MapScreenState extends State<MapScreen>
                         ..._hazardReports.map(
                           (report) {
                             final isPending = report['status'] == 'pending';
+                            final isOffline = report['is_offline'] == true;
                             final confirmationCount = report['confirmation_count'] as int? ?? 0;
                             final hasHighConfirmations = confirmationCount >= 3;
                             final isHighlighted =
@@ -1283,7 +1344,9 @@ class _MapScreenState extends State<MapScreen>
                                       decoration: BoxDecoration(
                                         color: isHighlighted
                                             ? Colors.orange[700]
-                                            : (isPending ? Colors.yellow[700] : Colors.red[600]),
+                                            : isOffline
+                                                ? Colors.deepOrange[400]
+                                                : (isPending ? Colors.yellow[700] : Colors.red[600]),
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color: isHighlighted
@@ -1303,7 +1366,9 @@ class _MapScreenState extends State<MapScreen>
                                         ],
                                       ),
                                       child: Icon(
-                                        isHighlighted ? Icons.warning_amber_rounded : Icons.warning,
+                                        isOffline
+                                            ? Icons.cloud_upload
+                                            : (isHighlighted ? Icons.warning_amber_rounded : Icons.warning),
                                         color: Colors.white,
                                         size: 24,
                                       ),
