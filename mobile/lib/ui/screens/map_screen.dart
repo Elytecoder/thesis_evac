@@ -8,7 +8,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/config/api_config.dart';
+import '../../core/auth/session_storage.dart';
 import '../../core/map/cached_tile_provider.dart';
+import '../../core/network/api_client.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/sync_service.dart';
 import '../../models/evacuation_center.dart';
@@ -80,6 +82,10 @@ class _MapScreenState extends State<MapScreen>
   // Hazard reports
   List<Map<String, dynamic>> _hazardReports = [];
   int _unreadNotificationsCount = 0;
+
+  // Road Risk Layer: toggle + segment data loaded with route calculation.
+  bool _showRoadRiskLayer = false;
+  List<app_route.RoadRiskSegment> _roadRiskSegments = [];
 
   // Notification highlight: which report is currently highlighted on the map
   String? _highlightedReportId;
@@ -275,6 +281,39 @@ class _MapScreenState extends State<MapScreen>
       });
     } catch (e) {
       print('Error loading notification count: $e');
+    }
+  }
+
+  /// Toggle the Road Risk Layer.  Fetches segment data on first enable.
+  void _toggleRoadRiskLayer() {
+    final newValue = !_showRoadRiskLayer;
+    setState(() => _showRoadRiskLayer = newValue);
+    if (newValue && _roadRiskSegments.isEmpty) {
+      _loadRoadRiskLayer();
+    }
+  }
+
+  Future<void> _loadRoadRiskLayer() async {
+    try {
+      final apiClient = ApiClient();
+      final session = SessionStorage();
+      final token = await session.getToken();
+      if (token != null) {
+        apiClient.setAuthToken(token);
+      }
+      final response = await apiClient.get(ApiConfig.roadRiskLayerEndpoint);
+      final data = response.data as Map<String, dynamic>;
+      final raw = data['road_risk_segments'] as List<dynamic>?;
+      if (raw != null && mounted) {
+        setState(() {
+          _roadRiskSegments = raw
+              .map((e) => app_route.RoadRiskSegment.fromJson(
+                  Map<String, dynamic>.from(e as Map)))
+              .toList();
+        });
+      }
+    } catch (e) {
+      print('Failed to load road risk layer: $e');
     }
   }
 
@@ -885,6 +924,30 @@ class _MapScreenState extends State<MapScreen>
                       },
                     ),
                     
+                    // Road Risk Layer — thin coloured overlay showing estimated
+                    // road safety based on verified hazards and historical patterns.
+                    if (_showRoadRiskLayer && _roadRiskSegments.isNotEmpty)
+                      PolylineLayer(
+                        polylines: _roadRiskSegments.map((seg) {
+                          final Color c;
+                          if (seg.risk < 0.30) {
+                            c = Colors.green.withOpacity(0.55);
+                          } else if (seg.risk < 0.65) {
+                            c = Colors.orange.withOpacity(0.60);
+                          } else {
+                            c = Colors.red.withOpacity(0.65);
+                          }
+                          return Polyline(
+                            points: [
+                              LatLng(seg.startLat, seg.startLng),
+                              LatLng(seg.endLat,   seg.endLng),
+                            ],
+                            color: c,
+                            strokeWidth: 6.0,
+                          );
+                        }).toList(),
+                      ),
+
                     // Draw active route if selected
                     if (_activeRoute != null)
                       PolylineLayer(
@@ -1541,6 +1604,26 @@ class _MapScreenState extends State<MapScreen>
                   ),
 
                 // Compass/recenter button — repositions with panel height.
+                // Road Risk Layer toggle FAB
+                Positioned(
+                  bottom: _showBottomSheet
+                      ? _panelHeight + 80
+                      : (_activeRoute != null ? 204 : 144),
+                  right: 16,
+                  child: FloatingActionButton.small(
+                    heroTag: 'riskLayer',
+                    onPressed: _toggleRoadRiskLayer,
+                    backgroundColor: _showRoadRiskLayer
+                        ? Colors.orange.shade700
+                        : Colors.white,
+                    tooltip: 'Road Risk Layer',
+                    child: Icon(
+                      Icons.layers_rounded,
+                      color: _showRoadRiskLayer ? Colors.white : Colors.grey[700],
+                    ),
+                  ),
+                ),
+
                 // If GPS has not resolved yet, tapping retries the location
                 // request instead of centering on the Bulan placeholder.
                 Positioned(

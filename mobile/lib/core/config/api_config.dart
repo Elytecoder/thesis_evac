@@ -84,6 +84,7 @@ class ApiConfig {
   
   /// Route calculation
   static const String calculateRouteEndpoint = '/calculate-route/';
+  static const String roadRiskLayerEndpoint  = '/road-risk-layer/';
   
   /// Bootstrap sync
   static const String bootstrapSyncEndpoint = '/bootstrap-sync/';

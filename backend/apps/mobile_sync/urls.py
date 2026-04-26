@@ -35,6 +35,7 @@ urlpatterns = [
     
     # Routing
     path('calculate-route/', views.calculate_route, name='calculate_route'),
+    path('road-risk-layer/', views.road_risk_layer, name='road_risk_layer'),
     path('check-road-data/', views.check_road_data, name='check_road_data'),
 
     # FCM push notification token registration

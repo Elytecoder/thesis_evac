@@ -1115,6 +1115,46 @@ def check_road_data(request):
     })
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def road_risk_layer(request):
+    """
+    GET /api/road-risk-layer/
+    Returns all road segments with their current effective risk score for the
+    Road Risk Layer overlay in the mobile app.
+
+    Computes effective_risk = base × 0.20 (no live hazards) or
+    (base × 0.30) + (dynamic × 0.70) (live hazards present) for every segment,
+    then returns only segments with effective_risk > 0.05 to keep payload lean.
+    """
+    from apps.routing.models import RoadSegment
+    from apps.mobile_sync.services.route_service import (
+        _ensure_segment_risk_scores,
+        calculate_segment_risk,
+        _get_approved_hazards,
+    )
+    _ensure_segment_risk_scores()
+    segments = list(RoadSegment.objects.all())
+    if not segments:
+        return Response({'road_risk_segments': [], 'segment_count': 0})
+
+    approved_hazards = _get_approved_hazards()
+    result = []
+    for seg in segments:
+        risk = calculate_segment_risk(seg, approved_hazards)
+        if risk > 0.05:
+            result.append({
+                's': [float(seg.start_lat), float(seg.start_lng)],
+                'e': [float(seg.end_lat),   float(seg.end_lng)],
+                'r': round(risk, 3),
+            })
+
+    return Response({
+        'road_risk_segments': result,
+        'segment_count': len(segments),
+    })
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def update_fcm_token(request):

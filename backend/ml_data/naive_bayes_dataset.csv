@@ -200,3 +200,52 @@ storm_surge,magbihis na kayo umaga na po,0
 fallen_electric_post,happy birthday to you today,0
 other,nothing to report here everything fine,0
 flooded_road,I am just testing this reporting application,0
+flooded_road,"parang baha na dito may tubig na nangingita sa gitna ng daan",1
+flooded_road,"may tubig sa daan hindi sigurado kung kaya pa pero mukhang malalim na",1
+flooded_road,"hindi malinaw pero may baha ata malapit sa barangay hall tubig na lumabas",1
+flooded_road,"partial flooding unclear depth but water visibly rising cant see pavement",1
+flooded_road,"baha na ata dito yung tubig nagfloflood na sa kalsada",1
+landslide,"possible guho dito may lupa sa gilid ng bundok mukhang gumalaw na sila",1
+landslide,"hindi sigurado pero mukhang may guho may lupa na bumagsak sa daan",1
+landslide,"looks like a small landslide not sure how much lupa but blocking part of road",1
+fallen_tree,"half fallen tree still attached to root but blocking half of road cannot pass",1
+fallen_tree,"malaking sanga nahulog sa daan hindi sure kung buong puno pero nakaharang",1
+fallen_tree,"tree partially down after strong wind blocking one lane need to clear",1
+road_damage,"cracked road mukhang malala hindi ko sure gaano kalala pero may malalim na bitik",1
+road_damage,"sira ata ang kalsada may malaking butas kailangan siguro mag-ingat daan",1
+road_damage,"road looks damaged not sure how bad but vehicles are swerving to avoid",1
+road_blocked,"harang ang daan may naglagay ng bagay hindi sure kung kailan matatanggal",1
+bridge_damage,"tulay mukhang hindi na ligtas nag-iilag na mga sasakyan hindi alam kung gaano kasira",1
+fallen_electric_post,"poste nag-iilaw pa pero paalog-alog na parang malapit na mahulog",1
+storm_surge,"mataas na alon galing dagat papunta sa kalsada possible storm surge hindi sigurado",1
+other,"may debris sa daan hindi malinaw kung ano source pero malaki at nakaharang talaga",1
+other,"may accident debris near kanto area vehicles slowing down road unclear pero hazardous",1
+other,"obstruction on road unclear type vehicles cannot pass freely needs checking asap",1
+other,"flood debris mixed with bato blocking road near barangay 5 unclear kung gaano",1
+other,"unclear obstruction on road malaki enough to stop all vehicles may gulong bumagsak",1
+other,"unidentified hazard blocking road possible fallen structure or overturned vehicle",1
+other,"may bagay na naharang sa daan hindi ko alam kung ano pero malaki at delikado",1
+other,"debris and rubble on road origin unknown impassable for all types of vehicles",1
+flooded_road,"parang baha ata dito",0
+flooded_road,"may tubig pero kaya pa dumaan",0
+flooded_road,"baka baha pero hindi ako sigurado",0
+flooded_road,"baka kailangan lang ng drainage cleaning",0
+flooded_road,"mukhang baha pero ok naman siguro",0
+landslide,"maybe landslide? not sure needs checking",0
+landslide,"baka guho siguro pero hindi ako nakarating doon",0
+fallen_tree,"may puno dito pero ok naman makadaan",0
+fallen_tree,"may sanga lang hindi naman malaki",0
+road_damage,"slightly damaged but still passable",0
+road_damage,"may konting sira pero ok naman dumaan",0
+road_blocked,"not sure if road is blocked baka may naandoon lang",0
+road_blocked,"baka harang siguro hindi ko nacheck",0
+bridge_damage,"tulay ok naman siguro basta mag-ingat lang",0
+bridge_damage,"hindi ko sure kung sira na ang tulay o hindi",0
+storm_surge,"baka storm surge siguro hindi ko sure",0
+fallen_electric_post,"baka may nahulog na poste hindi ko nakita mismo",0
+other,"parang may problema sa daan pero hindi ko sure",0
+other,"not sure if this is a hazard please check nalang",0
+other,"may bagay daw doon sabi ng kapitbahay hindi ko nakita",0
+other,"icheck niyo lang may nagsabi may bagay doon",0
+other,"possible hazard di ko sure",0
+other,"something maybe wrong not sure",0

@@ -45,6 +45,35 @@ class AlternativeCenter {
   }
 }
 
+/// Compact road segment with its estimated risk for the Road Risk Layer overlay.
+class RoadRiskSegment {
+  final double startLat;
+  final double startLng;
+  final double endLat;
+  final double endLng;
+  final double risk; // 0.0–1.0
+
+  RoadRiskSegment({
+    required this.startLat,
+    required this.startLng,
+    required this.endLat,
+    required this.endLng,
+    required this.risk,
+  });
+
+  factory RoadRiskSegment.fromJson(Map<String, dynamic> json) {
+    final s = json['s'] as List;
+    final e = json['e'] as List;
+    return RoadRiskSegment(
+      startLat: (s[0] as num).toDouble(),
+      startLng: (s[1] as num).toDouble(),
+      endLat: (e[0] as num).toDouble(),
+      endLng: (e[1] as num).toDouble(),
+      risk: (json['r'] as num? ?? 0).toDouble(),
+    );
+  }
+}
+
 /// Result of route calculation including safety layer (no_safe_route, alternatives, etc.).
 class RouteCalculationResult {
   final List<Route> routes;
@@ -52,6 +81,7 @@ class RouteCalculationResult {
   final String? message;
   final String? recommendedAction;
   final List<AlternativeCenter> alternativeCenters;
+  final List<RoadRiskSegment> roadRiskSegments;
 
   RouteCalculationResult({
     required this.routes,
@@ -59,6 +89,7 @@ class RouteCalculationResult {
     this.message,
     this.recommendedAction,
     this.alternativeCenters = const [],
+    this.roadRiskSegments = const [],
   });
 }
 
@@ -114,6 +145,8 @@ class Route {
   final List<RouteHazard> hazardsAlongRoute;
   /// "High Risk" or "Safer Route" (from backend risk evaluation layer).
   final String riskLabel;
+  /// Plain-English explanation of what affects this route's risk.
+  final String explanation;
   /// True when total_risk > 0.9 (possibly blocked).
   final bool possiblyBlocked;
   /// Hazards contributing to this route's risk (for transparency).
@@ -127,6 +160,7 @@ class Route {
     required this.riskLevel,
     this.hazardsAlongRoute = const [],
     this.riskLabel = 'Safer Route',
+    this.explanation = '',
     this.possiblyBlocked = false,
     this.contributingFactors = const [],
   });
@@ -153,6 +187,7 @@ class Route {
       riskLevel: RiskLevel.fromString(json['risk_level'] as String? ?? 'Yellow'),
       hazardsAlongRoute: hazards,
       riskLabel: (json['risk_label'] as String?) ?? 'Safer Route',
+      explanation: (json['explanation'] as String?) ?? '',
       possiblyBlocked: (json['possibly_blocked'] as bool?) ?? false,
       contributingFactors: contrib,
     );

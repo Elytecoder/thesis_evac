@@ -23,6 +23,7 @@ TO REPLACE WITH REAL MDRRMO DATA:
 """
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, List, Dict
 
@@ -50,12 +51,15 @@ _HAZARD_KEYWORDS = [
 def _keyword_match_score(description: str) -> float:
     """
     Return 0.0–1.0 based on hazard keyword presence in description.
-    Saturates at 3 keyword hits → 1.0. Used only for 'other' type boost.
+    Saturates at 3 distinct keyword hits → 1.0.
+    Uses word-level tokenization to prevent substring double-counting
+    (e.g. 'blocked' should not also match 'block').
+    Used only for 'other' type boost.
     """
     if not description:
         return 0.0
-    desc_lower = description.lower()
-    matches = sum(1 for kw in _HAZARD_KEYWORDS if kw in desc_lower)
+    words = set(re.sub(r'[^a-z\s]', ' ', description.lower()).split())
+    matches = sum(1 for kw in _HAZARD_KEYWORDS if kw in words)
     return min(1.0, matches / 3.0)
 
 

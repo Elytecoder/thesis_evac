@@ -64,9 +64,37 @@
     {"hazard_type": "other", "description_length": 70, "valid": true},
     {"hazard_type": "other", "description_length": 55, "valid": true},
     {"hazard_type": "other", "description_length": 40, "valid": true},
+    {"hazard_type": "other", "description_length": 90, "valid": true},
+    {"hazard_type": "other", "description_length": 82, "valid": true},
+    {"hazard_type": "other", "description_length": 75, "valid": true},
+    {"hazard_type": "other", "description_length": 48, "valid": true},
+    {"hazard_type": "other", "description_length": 38, "valid": true},
     {"hazard_type": "other", "description_length": 8,  "valid": false},
     {"hazard_type": "other", "description_length": 6,  "valid": false},
-    {"hazard_type": "other", "description_length": 3,  "valid": false}
+    {"hazard_type": "other", "description_length": 3,  "valid": false},
+    {"hazard_type": "other", "description_length": 22, "valid": false},
+    {"hazard_type": "other", "description_length": 18, "valid": false},
+    {"hazard_type": "other", "description_length": 25, "valid": false},
+
+    {"hazard_type": "flooded_road", "description_length": 58, "valid": true},
+    {"hazard_type": "flooded_road", "description_length": 42, "valid": true},
+    {"hazard_type": "flooded_road", "description_length": 15, "valid": false},
+    {"hazard_type": "flooded_road", "description_length": 19, "valid": false},
+
+    {"hazard_type": "landslide", "description_length": 72, "valid": true},
+    {"hazard_type": "landslide", "description_length": 38, "valid": true},
+    {"hazard_type": "landslide", "description_length": 16, "valid": false},
+    {"hazard_type": "landslide", "description_length": 20, "valid": false},
+
+    {"hazard_type": "fallen_tree", "description_length": 65, "valid": true},
+    {"hazard_type": "fallen_tree", "description_length": 44, "valid": true},
+    {"hazard_type": "fallen_tree", "description_length": 13, "valid": false},
+    {"hazard_type": "fallen_tree", "description_length": 17, "valid": false},
+
+    {"hazard_type": "road_damage", "description_length": 68, "valid": true},
+    {"hazard_type": "road_damage", "description_length": 36, "valid": true},
+    {"hazard_type": "road_damage", "description_length": 14, "valid": false},
+    {"hazard_type": "road_damage", "description_length": 21, "valid": false}
   ],
   "road_risk_training": [
     {"segment_id": 1, "nearby_hazard_count": 2, "avg_severity": 0.7, "risk_score": 0.75},

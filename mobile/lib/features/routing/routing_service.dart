@@ -163,7 +163,12 @@ class RoutingService {
       final List<AlternativeCenter> alternativeCenters = altRaw is List
           ? (altRaw as List).map((e) => AlternativeCenter.fromJson(Map<String, dynamic>.from(e as Map))).toList()
           : [];
-      
+
+      final rrsRaw = data['road_risk_segments'];
+      final List<RoadRiskSegment> roadRiskSegments = rrsRaw is List
+          ? (rrsRaw as List).map((e) => RoadRiskSegment.fromJson(Map<String, dynamic>.from(e as Map))).toList()
+          : [];
+
       // Cache routes for offline use
       await _cacheRoutes(routeKey, routes);
       
@@ -173,6 +178,7 @@ class RoutingService {
         message: message,
         recommendedAction: recommendedAction,
         alternativeCenters: alternativeCenters,
+        roadRiskSegments: roadRiskSegments,
       );
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {

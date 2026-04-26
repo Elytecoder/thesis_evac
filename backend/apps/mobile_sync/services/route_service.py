@@ -74,9 +74,22 @@ PATH_HAZARD_PROXIMITY_METERS = 300
 # Caps for dynamic risk accumulation before normalization
 HAZARD_RISK_CAP = 1.0
 PATH_HAZARD_RISK_CAP = 1.0
-# Weights for normalized effective risk formula: (base × BASE_WEIGHT) + (dynamic × DYNAMIC_WEIGHT)
-BASE_RISK_WEIGHT = 0.6
-DYNAMIC_RISK_WEIGHT = 0.4
+# ── Routing risk weight formula ─────────────────────────────────────────────
+# When NO live approved hazards are near a segment, RF baseline is kept very
+# low (0.20) so historical/synthetic model scores don't cause phantom detours
+# on roads that look clear on the map.
+#
+# When live approved hazards DO exist nearby, the dynamic signal dominates
+# (0.70) and RF provides mild contextual background (0.30).
+#
+# Old fixed formula:  effective_risk = (base × 0.6) + (dynamic × 0.4)
+# New conditional:
+#   no hazards:  effective_risk = base × NO_HAZARD_RF_WEIGHT        (0.20)
+#   has hazards: effective_risk = (base × WITH_HAZARD_RF_WEIGHT)
+#                               + (dynamic × WITH_HAZARD_DYNAMIC_WEIGHT)
+NO_HAZARD_RF_WEIGHT      = 0.20   # RF alone: mild historical caution only
+WITH_HAZARD_RF_WEIGHT    = 0.30   # RF with live hazards: background context
+WITH_HAZARD_DYNAMIC_WEIGHT = 0.70 # Live verified hazards dominate routing
 # Number of intervals to interpolate from start to end for geographic hazard check.
 # range(n+1) produces n+1 actual points (indices 0..n), so this yields 81 sample points.
 GEO_PATH_INTERPOLATION_POINTS = 80
@@ -251,7 +264,14 @@ def calculate_segment_risk(segment, hazards) -> float:
     """
     Effective risk for a road segment combining base (Random Forest) and dynamic (approved hazards).
 
-    Formula:  effective_risk = (base × 0.6) + (dynamic × 0.4)   clamped to [0, 1]
+    Conditional formula:
+      No live approved hazards near this segment:
+          effective_risk = base × 0.20
+          (RF provides only mild historical caution — no phantom detours)
+
+      Live approved hazards exist nearby:
+          effective_risk = (base × 0.30) + (dynamic × 0.70)
+          (Verified hazards dominate; RF provides background context)
 
     Dynamic risk uses GRADUATED proximity (not binary radius):
       • True perpendicular distance from each hazard to the segment centerline.
@@ -297,7 +317,12 @@ def calculate_segment_risk(segment, hazards) -> float:
         dynamic += impact
 
     dynamic = min(dynamic, HAZARD_RISK_CAP)
-    return min(1.0, (base * BASE_RISK_WEIGHT) + (dynamic * DYNAMIC_RISK_WEIGHT))
+    if dynamic > 0:
+        # Live verified hazards present — they drive the risk score; RF is background context.
+        return min(1.0, (base * WITH_HAZARD_RF_WEIGHT) + (dynamic * WITH_HAZARD_DYNAMIC_WEIGHT))
+    else:
+        # No live approved hazards near this segment — RF alone: keep low to prevent phantom detours.
+        return base * NO_HAZARD_RF_WEIGHT
 
 
 def _recency_factor(hazard) -> float:
@@ -651,9 +676,14 @@ def _build_route_explanation(hazards_along_route: list, total_risk: float) -> st
     ]
 
     if not hazards_along_route:
-        if total_risk < 0.3:
+        if total_risk < 0.15:
             return 'No hazards detected along this route. This appears to be a safe path.'
-        return 'Route appears safe. No verified hazards detected nearby.'
+        # Moderate risk with no visible hazards — driven by RF historical baseline only.
+        # Use user-friendly wording: do NOT mention "Random Forest" or model names.
+        return (
+            'This route avoids roads with historically higher risk. '
+            'No verified hazards have been reported in this area currently.'
+        )
 
     # Count by type
     type_counts: dict = {}
@@ -871,4 +901,16 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         'recommended_action': recommended_action,
         'alternative_centers': alternative_centers,
         'segment_count': segment_count,
+        # Road Risk Layer data: compact segment list so Flutter can draw a coloured
+        # road-risk overlay without a separate API call.  Only includes segments that
+        # have a non-trivial effective_risk (> 0.05) to keep payload small.
+        'road_risk_segments': [
+            {
+                's': [float(seg.start_lat), float(seg.start_lng)],
+                'e': [float(seg.end_lat),   float(seg.end_lng)],
+                'r': round(getattr(seg, 'effective_risk', 0.0), 3),
+            }
+            for seg in segments
+            if getattr(seg, 'effective_risk', 0.0) > 0.05
+        ],
     }
