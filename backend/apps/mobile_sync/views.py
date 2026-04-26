@@ -24,6 +24,8 @@ from apps.hazards.serializers import (
     HazardReportCreateSerializer,
     HazardReportSerializer,
     PendingReportSerializer,
+    PublicHazardSerializer,
+    SimilarReportPublicSerializer,
 )
 from apps.routing.models import RouteLog
 from apps.routing.serializers import CalculateRouteRequestSerializer
@@ -637,9 +639,10 @@ def verified_hazards(request):
     """
     GET /api/verified-hazards/
     Returns all approved hazard reports for map display.
+    Only public, non-identifying fields are returned (PublicHazardSerializer).
     """
     qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED, is_deleted=False).select_related('user')
-    serializer = HazardReportSerializer(qs, many=True)
+    serializer = PublicHazardSerializer(qs, many=True)
     return Response(serializer.data)
 
 
@@ -704,11 +707,11 @@ def check_similar_reports(request):
         )
 
         if distance <= radius_meters:
-            report_data = HazardReportSerializer(report).data
+            report_data = SimilarReportPublicSerializer(report).data
             report_data['distance_meters'] = round(distance, 2)
             report_data['confirmation_count'] = report.confirmation_count
             report_data['has_user_confirmed'] = report.has_user_confirmed(request.user)
-            # Let the client know whether this report is confirmable (pending only).
+            # Let the client know whether this report is already verified.
             report_data['is_approved'] = (report.status == HazardReport.Status.APPROVED)
             similar_reports.append(report_data)
 
@@ -747,10 +750,10 @@ def confirm_hazard_report(request):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    # Only allow confirming pending reports
-    if report.status != HazardReport.Status.PENDING:
+    # Only allow confirming active (pending or approved) reports — not deleted/rejected ones
+    if report.is_deleted or report.status == HazardReport.Status.REJECTED:
         return Response(
-            {'error': 'Can only confirm pending reports'},
+            {'error': 'Cannot confirm a deleted or rejected report'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -774,43 +777,41 @@ def confirm_hazard_report(request):
     # Read count once, outside try/except so it is always defined for the
     # log and response message below even if score re-calculation fails.
     confirmation_count = report.confirmation_count
-    try:
-        # Re-run validation with updated confirmation count
-        from apps.validation.services.consensus import ConsensusScoringService
-        from apps.validation.services.rule_scoring import consensus_rule_score, combine_validation_scores
-        
-        consensus = ConsensusScoringService()
-        nearby = consensus.count_nearby_reports(
-            float(report.latitude), float(report.longitude),
-            HazardReport.objects.exclude(id=report.id).filter(is_deleted=False),
-            exclude_report_id=report.id,
-            time_window_hours=1,
-            hazard_type=report.hazard_type,
-        )
-        
-        # Update consensus score with new confirmation count
-        consensus_score_val = consensus_rule_score(nearby, confirmation_count)
-        
-        # Recalculate final score
-        final_score = combine_validation_scores(
-            report.naive_bayes_score or 0.5,
-            report.distance_weight or 0.5,
-            consensus_score_val
-        )
-        
-        # Update report scores
-        report.consensus_score = consensus_score_val
-        report.final_validation_score = final_score
-        
-        # Update breakdown — use consistent keys matching process_new_report
-        if report.validation_breakdown:
-            report.validation_breakdown['confirmation_count'] = confirmation_count
-            report.validation_breakdown['consensus_score'] = round(consensus_score_val, 4)
-            report.validation_breakdown['final_validation_score'] = round(final_score, 4)
-        
-        report.save(update_fields=['consensus_score', 'final_validation_score', 'validation_breakdown'])
-    except Exception as e:
-        print(f"Warning: Could not recalculate scores: {e}")
+
+    # Only recalculate AI scores for PENDING reports. APPROVED reports have
+    # already been reviewed by MDRRMO — updating their score would be meaningless.
+    if report.status == HazardReport.Status.PENDING:
+        try:
+            from apps.validation.services.consensus import ConsensusScoringService
+            from apps.validation.services.rule_scoring import consensus_rule_score, combine_validation_scores
+
+            consensus = ConsensusScoringService()
+            nearby = consensus.count_nearby_reports(
+                float(report.latitude), float(report.longitude),
+                HazardReport.objects.exclude(id=report.id).filter(is_deleted=False),
+                exclude_report_id=report.id,
+                time_window_hours=1,
+                hazard_type=report.hazard_type,
+            )
+
+            consensus_score_val = consensus_rule_score(nearby, confirmation_count)
+            final_score = combine_validation_scores(
+                report.naive_bayes_score or 0.5,
+                report.distance_weight or 0.5,
+                consensus_score_val
+            )
+
+            report.consensus_score = consensus_score_val
+            report.final_validation_score = final_score
+
+            if report.validation_breakdown:
+                report.validation_breakdown['confirmation_count'] = confirmation_count
+                report.validation_breakdown['consensus_score'] = round(consensus_score_val, 4)
+                report.validation_breakdown['final_validation_score'] = round(final_score, 4)
+
+            report.save(update_fields=['consensus_score', 'final_validation_score', 'validation_breakdown'])
+        except Exception as e:
+            print(f"Warning: Could not recalculate scores: {e}")
     
     # Log the confirmation
     from apps.system_logs.models import SystemLog

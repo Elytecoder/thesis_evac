@@ -590,12 +590,37 @@ class _MapScreenState extends State<MapScreen>
     );
   }
   
-  /// View hazard report details
+  /// Convert raw snake_case hazard type to a human-readable label.
+  /// e.g. "fallen_electric_post" → "Fallen Electric Post"
+  static String _formatHazardType(String raw) {
+    if (raw.trim().isEmpty) return 'Unknown Hazard';
+    return raw
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
+        .join(' ');
+  }
+
+  /// View hazard report details — privacy-aware.
+  /// Own pending reports show full details; other residents' reports show
+  /// only public, non-identifying safety information.
   void _viewHazardReport(Map<String, dynamic> report) {
     final isPending = report['status'] == 'pending';
     final isCurrentUserReport = report['reported_by'] == ResidentHazardReportsService.currentUserId;
+    final rawType = (report['type'] as String? ?? '').trim();
+    final displayType = _formatHazardType(rawType);
+    final barangay = (report['barangay'] as String? ?? '').trim();
+
+    if (!isCurrentUserReport) {
+      // Other resident's report — show safe public view only
+      _showPublicHazardView(displayType, barangay, isPending);
+      return;
+    }
+
+    // Own report — show full personal details
     final hasMedia = report['media'] != null && (report['media'] as List).isNotEmpty;
-    
+
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -618,7 +643,7 @@ class _MapScreenState extends State<MapScreen>
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        'Hazard Report',
+                        'My Hazard Report',
                         style: const TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -632,7 +657,7 @@ class _MapScreenState extends State<MapScreen>
                   ],
                 ),
                 const SizedBox(height: 16),
-                
+
                 // Status Badge
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -664,17 +689,19 @@ class _MapScreenState extends State<MapScreen>
                   ),
                 ),
                 const SizedBox(height: 16),
-                
-                // Report Details
-                _buildDetailRow(Icons.dangerous, 'Hazard Type', report['type']),
-                _buildDetailRow(Icons.description, 'Description', report['description']),
+
+                // Full report details (own report only)
+                _buildDetailRow(Icons.dangerous, 'Hazard Type', displayType),
+                if ((report['description'] as String? ?? '').isNotEmpty)
+                  _buildDetailRow(Icons.description, 'Description', report['description']),
                 _buildDetailRow(
-                  Icons.location_on, 
-                  'Location', 
-                  '${report['lat'].toStringAsFixed(4)}, ${report['lng'].toStringAsFixed(4)}'
+                  Icons.location_on,
+                  'Location',
+                  '${(report['lat'] as double).toStringAsFixed(4)}, ${(report['lng'] as double).toStringAsFixed(4)}',
                 ),
-                _buildDetailRow(Icons.access_time, 'Reported', report['date_submitted']),
-                
+                if ((report['date_submitted'] as String? ?? '').isNotEmpty)
+                  _buildDetailRow(Icons.access_time, 'Reported', report['date_submitted']),
+
                 // Media Attachments (if any)
                 if (hasMedia) ...[
                   const SizedBox(height: 16),
@@ -694,11 +721,11 @@ class _MapScreenState extends State<MapScreen>
                   const SizedBox(height: 8),
                   _buildMediaGallery(report['media']),
                 ],
-                
+
                 const SizedBox(height: 24),
-                
-                // Delete button (only for pending reports by current user)
-                if (isPending && isCurrentUserReport)
+
+                // Delete button (only for own pending reports)
+                if (isPending)
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
@@ -717,6 +744,153 @@ class _MapScreenState extends State<MapScreen>
                   ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Public-safe view for another resident's hazard report.
+  /// Shows only: formatted hazard type, barangay, status badge, safety message.
+  void _showPublicHazardView(String displayType, String barangay, bool isPending) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isPending ? Colors.orange[50] : Colors.red[50],
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.warning_amber_rounded,
+                      color: isPending ? Colors.orange[700] : Colors.red[700],
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Hazard Alert',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Status badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isPending ? Colors.orange[100] : Colors.green[100],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: isPending ? Colors.orange : Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      isPending ? 'Pending Verification' : 'Verified',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isPending ? Colors.orange[800] : Colors.green[800],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Hazard type
+              _buildDetailRow(Icons.dangerous, 'Hazard Type', displayType),
+
+              // Barangay (general area — safe to show)
+              if (barangay.isNotEmpty)
+                _buildDetailRow(Icons.location_city, 'Area', barangay),
+
+              const SizedBox(height: 20),
+
+              // Safety message
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isPending ? Colors.orange[50] : Colors.green[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isPending ? Colors.orange[200]! : Colors.green[200]!,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 20,
+                      color: isPending ? Colors.orange[700] : Colors.green[700],
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        isPending
+                            ? 'A hazard has been reported in this area and is awaiting review. Please proceed with caution.'
+                            : 'Verified hazard reported in this area. Please proceed with caution.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isPending ? Colors.orange[900] : Colors.green[900],
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Close button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isPending ? Colors.orange[700] : Colors.green[700],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Got it', style: TextStyle(fontSize: 16)),
+                ),
+              ),
+            ],
           ),
         ),
       ),

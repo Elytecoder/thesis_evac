@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// Modal dialog shown when similar hazard reports are found.
-/// 
-/// Allows user to either:
-/// - Confirm an existing report (recommended)
-/// - Submit a new report anyway
+/// Modal dialog shown when a similar hazard report already exists nearby.
+///
+/// Shows only public, non-identifying information:
+/// - Formatted hazard type (e.g. "Fallen Electric Post")
+/// - Approximate distance
+/// - Status (Pending Verification / Verified)
+/// - Confirmation count
+///
+/// Does NOT expose: description, reporter identity, media, AI scores, timestamps.
 class HazardConfirmationDialog extends StatelessWidget {
   final List<Map<String, dynamic>> similarReports;
   final VoidCallback onSubmitNew;
@@ -17,21 +21,40 @@ class HazardConfirmationDialog extends StatelessWidget {
     required this.onConfirmExisting,
   }) : super(key: key);
 
+  /// Convert raw snake_case hazard type to a human-readable label.
+  static String _formatType(String raw) {
+    if (raw.trim().isEmpty) return 'Unknown Hazard';
+    return raw
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .map((w) => '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
+        .join(' ');
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Find the most confirmed report
-    final mostConfirmed = similarReports.reduce((a, b) {
+    // Prioritise already-approved (verified) reports; then most-confirmed pending ones.
+    final mostRelevant = similarReports.reduce((a, b) {
+      final aApproved = a['is_approved'] as bool? ?? false;
+      final bApproved = b['is_approved'] as bool? ?? false;
+      if (aApproved && !bApproved) return a;
+      if (!aApproved && bApproved) return b;
       final aCount = a['confirmation_count'] as int? ?? 0;
       final bCount = b['confirmation_count'] as int? ?? 0;
       return aCount > bCount ? a : b;
     });
 
-    final reportId = (mostConfirmed['id'] as num?)?.toInt() ?? 0;
-    final hazardType = mostConfirmed['hazard_type'] as String? ?? 'Unknown';
-    final description = mostConfirmed['description'] as String? ?? '';
-    final distance = mostConfirmed['distance_meters'] as num? ?? 0;
-    final confirmationCount = mostConfirmed['confirmation_count'] as int? ?? 0;
-    final hasUserConfirmed = mostConfirmed['has_user_confirmed'] as bool? ?? false;
+    final reportId = (mostRelevant['id'] as num?)?.toInt() ?? 0;
+    final rawType = mostRelevant['hazard_type'] as String? ?? '';
+    final displayType = _formatType(rawType);
+    final distance = mostRelevant['distance_meters'] as num? ?? 0;
+    final confirmationCount = mostRelevant['confirmation_count'] as int? ?? 0;
+    final hasUserConfirmed = mostRelevant['has_user_confirmed'] as bool? ?? false;
+    final isApproved = mostRelevant['is_approved'] as bool? ?? false;
+
+    final statusLabel = isApproved ? 'Verified' : 'Pending Verification';
+    final statusColor = isApproved ? Colors.green : Colors.orange;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -42,7 +65,7 @@ class HazardConfirmationDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Warning icon
+            // Header
             Row(
               children: [
                 Container(
@@ -69,18 +92,20 @@ class HazardConfirmationDialog extends StatelessWidget {
                 ),
               ],
             ),
-            
+
             const SizedBox(height: 20),
-            
-            // Explanation
-            const Text(
-              'A similar hazard has already been reported nearby. Would you like to confirm it instead?',
-              style: TextStyle(fontSize: 16, height: 1.5),
+
+            // Explanation message
+            Text(
+              isApproved
+                  ? 'This hazard has already been verified nearby. Would you like to confirm it?'
+                  : 'A similar hazard has already been reported nearby. Would you like to confirm this hazard instead?',
+              style: const TextStyle(fontSize: 16, height: 1.5),
             ),
-            
+
             const SizedBox(height: 20),
-            
-            // Report preview card
+
+            // Public report summary card — no private details
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -99,7 +124,7 @@ class HazardConfirmationDialog extends StatelessWidget {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      hazardType,
+                      displayType,
                       style: TextStyle(
                         color: Colors.red.shade900,
                         fontWeight: FontWeight.bold,
@@ -107,23 +132,43 @@ class HazardConfirmationDialog extends StatelessWidget {
                       ),
                     ),
                   ),
-                  
-                  if (description.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      description,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade700,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                  
+
                   const SizedBox(height: 12),
-                  
-                  // Distance and confirmations
+
+                  // Status badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          statusLabel,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: statusColor.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // Distance + confirmations
                   Row(
                     children: [
                       Icon(Icons.location_on, size: 16, color: Colors.grey.shade600),
@@ -135,7 +180,6 @@ class HazardConfirmationDialog extends StatelessWidget {
                           color: Colors.grey.shade700,
                         ),
                       ),
-                      
                       if (confirmationCount > 0) ...[
                         const SizedBox(width: 16),
                         Icon(Icons.verified_user, size: 16, color: Colors.green.shade600),
@@ -154,7 +198,8 @@ class HazardConfirmationDialog extends StatelessWidget {
                 ],
               ),
             ),
-            
+
+            // Already confirmed notice
             if (hasUserConfirmed) ...[
               const SizedBox(height: 16),
               Container(
@@ -169,7 +214,7 @@ class HazardConfirmationDialog extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'You have already confirmed this hazard',
+                        'You have already confirmed this hazard.',
                         style: TextStyle(
                           fontSize: 13,
                           color: Colors.blue.shade900,
@@ -180,26 +225,26 @@ class HazardConfirmationDialog extends StatelessWidget {
                 ),
               ),
             ],
-            
+
             const SizedBox(height: 24),
-            
+
             // Action buttons
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Confirm button (recommended)
+                // Confirm button
                 ElevatedButton.icon(
                   onPressed: hasUserConfirmed
                       ? null
                       : () {
                           Navigator.pop(context);
-                          onConfirmExisting(reportId, mostConfirmed);
+                          onConfirmExisting(reportId, mostRelevant);
                         },
                   icon: const Icon(Icons.check_circle),
                   label: Text(
                     hasUserConfirmed
                         ? 'Already Confirmed'
-                        : 'Confirm Existing Hazard (Recommended)',
+                        : 'Confirm This Hazard (Recommended)',
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: hasUserConfirmed ? Colors.grey : Colors.green,
@@ -210,10 +255,10 @@ class HazardConfirmationDialog extends StatelessWidget {
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 12),
-                
-                // Submit new report button
+
+                // Submit new report anyway
                 OutlinedButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
@@ -230,16 +275,15 @@ class HazardConfirmationDialog extends StatelessWidget {
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 12),
-                
-                // Cancel button
+
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
+                  child: const Text('Cancel'),
                 ),
               ],
             ),

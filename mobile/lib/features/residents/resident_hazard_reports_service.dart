@@ -13,24 +13,43 @@ class ResidentHazardReportsService {
 
   /// Convert HazardReport to map format expected by map UI (lat, lng, type, status, id, reported_by, description, date_submitted, media).
   static Map<String, dynamic> _reportToMap(HazardReport r, {required bool isCurrentUser}) {
-    final media = <Map<String, dynamic>>[];
-    if (r.photoUrl != null && r.photoUrl!.isNotEmpty) {
-      media.add({'type': 'image', 'url': r.photoUrl!});
+    if (isCurrentUser) {
+      // Own report: include full details for the submitter's view
+      final media = <Map<String, dynamic>>[];
+      if (r.photoUrl != null && r.photoUrl!.isNotEmpty) {
+        media.add({'type': 'image', 'url': r.photoUrl!});
+      }
+      if (r.videoUrl != null && r.videoUrl!.isNotEmpty) {
+        media.add({'type': 'video', 'url': r.videoUrl!});
+      }
+      return {
+        'id': r.id,
+        'lat': r.latitude,
+        'lng': r.longitude,
+        'type': r.hazardType,
+        'status': r.status == HazardStatus.approved ? 'verified' : r.status.value,
+        'reported_by': currentUserId,
+        'description': r.description,
+        'date_submitted': r.createdAt != null ? formatManila(r.createdAt!) : '',
+        'media': media,
+        'barangay': r.reporterBarangay ?? '',
+      };
+    } else {
+      // Other resident's report: expose only public, non-identifying fields.
+      // Do NOT include description, media, reporter identity, or timestamps.
+      return {
+        'id': r.id,
+        'lat': r.latitude,
+        'lng': r.longitude,
+        'type': r.hazardType,
+        'status': r.status == HazardStatus.approved ? 'verified' : r.status.value,
+        'reported_by': '',
+        'description': '',
+        'date_submitted': '',
+        'media': <Map<String, dynamic>>[],
+        'barangay': r.reporterBarangay ?? '',
+      };
     }
-    if (r.videoUrl != null && r.videoUrl!.isNotEmpty) {
-      media.add({'type': 'video', 'url': r.videoUrl!});
-    }
-    return {
-      'id': r.id,
-      'lat': r.latitude,
-      'lng': r.longitude,
-      'type': r.hazardType,
-      'status': r.status == HazardStatus.approved ? 'verified' : r.status.value,
-      'reported_by': isCurrentUser ? currentUserId : (r.userId?.toString() ?? ''),
-      'description': r.description,
-      'date_submitted': r.createdAt != null ? formatManila(r.createdAt!) : '',
-      'media': media,
-    };
   }
 
   // Mock hazard reports data (used only when ApiConfig.useMockData is true)

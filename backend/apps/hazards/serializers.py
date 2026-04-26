@@ -138,6 +138,57 @@ class HazardReportSerializer(serializers.ModelSerializer):
         data['has_video'] = bool((instance.video_url or '').strip())
         return data
 
+class PublicHazardSerializer(serializers.ModelSerializer):
+    """
+    Minimal public view of an approved hazard for resident map display.
+    Only exposes safe, non-identifying information — no description, no reporter
+    identity, no AI scores, no timestamps.
+    """
+    confirmation_count = serializers.SerializerMethodField()
+    reporter_barangay = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HazardReport
+        fields = (
+            'id',
+            'hazard_type',
+            'latitude',
+            'longitude',
+            'status',
+            'confirmation_count',
+            'reporter_barangay',
+        )
+
+    def get_confirmation_count(self, obj):
+        return obj.confirmation_count
+
+    def get_reporter_barangay(self, obj):
+        return _reporter_barangay_for_report(obj)
+
+
+class SimilarReportPublicSerializer(serializers.ModelSerializer):
+    """
+    Minimal public view of a similar report for the confirmation modal.
+    Does NOT expose description, reporter identity, media, or AI scores.
+    Only provides enough data for a resident to decide whether to confirm.
+    """
+    confirmation_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HazardReport
+        fields = (
+            'id',
+            'hazard_type',
+            'latitude',
+            'longitude',
+            'status',
+            'confirmation_count',
+        )
+
+    def get_confirmation_count(self, obj):
+        return obj.confirmation_count
+
+
 class PendingReportSerializer(serializers.ModelSerializer):
     """For MDRRMO pending list. validation_breakdown used in Report Details → View Technical Details."""
 
