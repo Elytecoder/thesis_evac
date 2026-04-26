@@ -228,7 +228,7 @@ class _ReportMediaSectionState extends State<ReportMediaSection> {
       final endpoint = widget.isAdmin
           ? ApiConfig.adminReportMediaEndpoint(widget.report.id!)
           : ApiConfig.reportMediaEndpoint(widget.report.id!);
-      final resp = await apiClient.dio.get(endpoint);
+      final resp = await apiClient.get(endpoint);
       if (resp.statusCode == 200 && mounted) {
         setState(() {
           _photo = (resp.data['photo_url'] as String? ?? '').trim();
