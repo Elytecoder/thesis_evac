@@ -4,7 +4,7 @@
 **Version:** 4.0
 **Date:** April 17, 2026
 **Project:** Thesis — Evacuation Routing System for Bulan, Sorsogon
-**Test Lead:** [Name]
+**Test Lead:** [Name]  
 
 ---
 
@@ -220,8 +220,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-AUTH-001: User Registration (Resident)
 
-**Priority:** P1
-**Type:** Functional
+**Priority:** P1  
+**Type:** Functional  
 **Precondition:** App installed, on welcome screen
 
 | Step | Action | Expected Result |
@@ -239,16 +239,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 11 | Verify user logged in | User name displays in profile |
 
 **Expected:** Registration successful without phone number, user auto-logged in
-**Actual:** _____
-**Status:** ☐ Pass ☐ Fail ☐ Blocked
+**Actual:** _____  
+**Status:** ☐ Pass ☐ Fail ☐ Blocked  
 **Notes:** Phone number field was removed from registration. Backend accepts empty phone_number.
 
 ---
 
 ### TC-AUTH-002: User Registration — Duplicate Email
 
-**Priority:** P1
-**Type:** Functional (Negative)
+**Priority:** P1  
+**Type:** Functional (Negative)  
 **Precondition:** User with email "resident@test.com" already exists
 
 | Step | Action | Expected Result |
@@ -262,15 +262,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 7 | Wait for response | Error message: "Email already exists" |
 | 8 | Verify still on registration screen | Form still visible, fields retain values |
 
-**Expected:** Error message, registration blocked
-**Actual:** _____
-**Status:** ☐ Pass ☐ Fail ☐ Blocked
+**Expected:** Error message, registration blocked  
+**Actual:** _____  
+**Status:** ☐ Pass ☐ Fail ☐ Blocked  
 
 ---
 
 ### TC-AUTH-003: User Registration — Weak Password
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Functional (Negative)
 
 | Step | Action | Expected Result |
@@ -282,16 +282,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Tap "Register" button | Error: "Password must be at least 8 characters" |
 | 6 | Verify not registered | Registration blocked |
 
-**Expected:** Validation error, registration blocked
-**Actual:** _____
+**Expected:** Validation error, registration blocked  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AUTH-004: User Login — Valid Credentials
 
-**Priority:** P0
-**Type:** Functional
+**Priority:** P0  
+**Type:** Functional  
 **Precondition:** User "resident@test.com" exists
 
 | Step | Action | Expected Result |
@@ -304,15 +304,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Check navigation | Navigate to map screen |
 | 7 | Verify session | User logged in, profile accessible |
 
-**Expected:** Login successful, map screen displayed
-**Actual:** _____
+**Expected:** Login successful, map screen displayed  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AUTH-005: User Login — Invalid Password
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional (Negative)
 
 | Step | Action | Expected Result |
@@ -324,16 +324,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Wait for response | Error: "Invalid credentials" |
 | 6 | Verify not logged in | Still on login screen |
 
-**Expected:** Error message, login blocked
-**Actual:** _____
+**Expected:** Error message, login blocked  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AUTH-006: User Logout
 
-**Priority:** P1
-**Type:** Functional
+**Priority:** P1  
+**Type:** Functional  
 **Precondition:** User logged in
 
 | Step | Action | Expected Result |
@@ -346,16 +346,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify session cleared | Cannot access protected screens |
 | 7 | Check back button behavior | Cannot navigate back to map screen |
 
-**Expected:** Logout successful, session cleared
-**Actual:** _____
+**Expected:** Logout successful, session cleared  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AUTH-007: Admin Login — Role-Based Routing
 
-**Priority:** P1
-**Type:** Functional
+**Priority:** P1  
+**Type:** Functional  
 **Precondition:** MDRRMO user exists
 
 | Step | Action | Expected Result |
@@ -369,8 +369,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 7 | Verify UI | Bottom navigation with tabs visible |
 | 8 | Check tabs | Dashboard, Reports, Map Monitor, Centers, Analytics, Settings |
 
-**Expected:** Admin logged in, admin interface displayed
-**Actual:** _____
+**Expected:** Admin logged in, admin interface displayed  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -379,8 +379,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-CENTER-001: View Evacuation Centers Panel (Collapsible)
 
-**Priority:** P0
-**Type:** Functional
+**Priority:** P0  
+**Type:** Functional  
 **Precondition:** User logged in, at least 3 centers exist
 
 | Step | Action | Expected Result |
@@ -393,14 +393,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Scroll list | List scrollable if > 3 centers |
 
 **Expected:** All centers displayed correctly
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-CENTER-002: View Center Details
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -411,7 +411,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 4 | Verify routes calculated | Route options shown |
 
 **Expected:** Center correctly used for route calculation
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -430,14 +430,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Zoom in/out | Markers remain visible at appropriate zoom |
 
 **Expected:** All centers displayed as markers
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-CENTER-004: Offline Centers Access
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional (Offline)
 **Precondition:** Centers cached (accessed once online)
 
@@ -451,14 +451,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify "Offline" indicator | OfflineBanner widget visible at top |
 
 **Expected:** Centers accessible offline from cache
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-CENTER-005: Collapsible Panel Toggle
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 **Precondition:** User on map screen, panel visible and expanded
 
@@ -493,7 +493,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 4 | After route selected, check panel | Bottom sheet replaced by active navigation bar |
 
 **Expected:** Panel collapse state does not block center selection
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -502,8 +502,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-ROUTE-001: Calculate Route — Online (OSRM)
 
-**Priority:** P0
-**Type:** Functional
+**Priority:** P0  
+**Type:** Functional  
 **Precondition:** User logged in, internet available, GPS active
 
 | Step | Action | Expected Result |
@@ -516,15 +516,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify polyline on map | Route follows real roads |
 | 7 | Tap "Start Navigation" | Navigate to live navigation screen |
 
-**Expected:** Routes calculated via OSRM, displayed correctly
-**Actual:** _____
+**Expected:** Routes calculated via OSRM, displayed correctly  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ROUTE-002: Route Display — Risk Color Coding
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -534,15 +534,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 3 | Check risk classification | Green: safe, Orange: caution, Red: high risk |
 | 4 | Verify risk bar (if displayed) | Horizontal bar filled to risk % |
 
-**Expected:** Routes color-coded by risk level correctly
-**Actual:** _____
+**Expected:** Routes color-coded by risk level correctly  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ROUTE-003: Start Navigation
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -557,14 +557,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 8 | Tap "Continue Navigation" | Dialog closes, navigation resumes |
 
 **Expected:** Navigation screen displays correctly with all overlays
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ROUTE-004: Route Caching
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -576,16 +576,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Wait for response | Route displays from cache |
 | 6 | Check route accuracy | Same route as before |
 
-**Expected:** Route cached, accessible offline
-**Actual:** _____
+**Expected:** Route cached, accessible offline  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ROUTE-005: Route Calculation Failure (No Internet, No Cache)
 
-**Priority:** P1
-**Type:** Functional (Negative)
+**Priority:** P1  
+**Type:** Functional (Negative)  
 **Precondition:** First time requesting route, device offline
 
 | Step | Action | Expected Result |
@@ -597,16 +597,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Verify error text | Clear message about no internet connection |
 | 6 | Verify no routes shown | Empty state or error screen, no broken lines |
 
-**Expected:** Clear error message, no broken routes
-**Actual:** _____
+**Expected:** Clear error message, no broken routes  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ROUTE-006: Location Validation (Emulator Default)
 
-**Priority:** P1
-**Type:** Functional
+**Priority:** P1  
+**Type:** Functional  
 **Precondition:** Using Android emulator with default GPS (USA location)
 
 | Step | Action | Expected Result |
@@ -617,15 +617,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 4 | Request route to center | Route calculation starts |
 | 5 | Check route validity | Route follows roads in Bulan, not USA |
 
-**Expected:** App detects invalid location, uses Bulan default
-**Actual:** _____
+**Expected:** App detects invalid location, uses Bulan default  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ROUTE-007: Multiple Route Options
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -635,8 +635,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 3 | Verify safest route highlighted | Lowest risk marked clearly |
 | 4 | Tap "Start Navigation" on safest | Navigation begins |
 
-**Expected:** Multiple distinct routes with varying risk/distance
-**Actual:** _____
+**Expected:** Multiple distinct routes with varying risk/distance  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -645,8 +645,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-HAZARD-001: Submit Hazard Report — Complete
 
-**Priority:** P0
-**Type:** Functional
+**Priority:** P0  
+**Type:** Functional  
 **Precondition:** User logged in, online, location permission granted
 
 | Step | Action | Expected Result |
@@ -664,14 +664,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 11 | Check navigation | Return to map screen |
 
 **Expected:** Report submitted successfully, no layout overflow
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-HAZARD-002: Submit Report — Missing Required Fields
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional (Negative)
 
 | Step | Action | Expected Result |
@@ -683,15 +683,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Verify error messages | "Please select hazard type" and "Description must be at least 10 characters" |
 | 6 | Report not submitted | Still on form screen |
 
-**Expected:** Validation errors, submission blocked
-**Actual:** _____
+**Expected:** Validation errors, submission blocked  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-HAZARD-003: Submit Report — Offline Queue
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional (Offline)
 
 | Step | Action | Expected Result |
@@ -706,16 +706,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 8 | Wait or trigger sync | Auto-sync starts |
 | 9 | Verify report submitted | Removed from queue |
 
-**Expected:** Report queued offline, auto-synced when online
-**Actual:** _____
+**Expected:** Report queued offline, auto-synced when online  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-HAZARD-004: Report with Media Upload — Image
 
-**Priority:** P2
-**Type:** Functional
+**Priority:** P2  
+**Type:** Functional  
 **Precondition:** Camera/gallery permission granted
 
 | Step | Action | Expected Result |
@@ -730,7 +730,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 8 | Verify success | Report submitted with photo |
 
 **Expected:** Photo uploaded successfully; header row does not overflow on small screens
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -758,7 +758,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-HAZARD-006: Hazard Type Selection — All Types
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -792,7 +792,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify "Delete Report" button visible | Only for own pending reports |
 
 **Expected:** Own pending reports visible as yellow markers; deletable
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -801,8 +801,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-ADMIN-001: Dashboard Statistics Display
 
-**Priority:** P1
-**Type:** Functional
+**Priority:** P1  
+**Type:** Functional  
 **Precondition:** MDRRMO user logged in
 
 | Step | Action | Expected Result |
@@ -818,7 +818,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 9 | Check card design | Icon, label, count, colored border |
 
 **Expected:** All statistics displayed correctly; High Risk Roads reflects real road segment data
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -846,7 +846,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-ADMIN-003: View Reports List
 
-**Priority:** P0
+**Priority:** P0  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -860,14 +860,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 7 | Verify no barangay filter | No barangay dropdown in filter row |
 
 **Expected:** All reports listed; barangay filter absent; filtering by status only
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ADMIN-004: Filter Reports by Status
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -880,15 +880,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Select "All" | All reports shown again |
 
 **Expected:** Status filter works; no barangay filter present
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ADMIN-005: Approve Hazard Report
 
-**Priority:** P0
-**Type:** Functional
+**Priority:** P0  
+**Type:** Functional  
 **Precondition:** At least 1 pending report exists
 
 | Step | Action | Expected Result |
@@ -905,15 +905,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 10 | Check status update | Badge changes to "Approved" (Green) |
 
 **Expected:** Report approved; threshold debug text absent; status updated
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ADMIN-006: Reject Hazard Report
 
-**Priority:** P1
-**Type:** Functional
+**Priority:** P1  
+**Type:** Functional  
 **Precondition:** At least 1 pending report exists
 
 | Step | Action | Expected Result |
@@ -926,8 +926,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Wait for response | Success: "Report rejected" |
 | 7 | Check status update | Badge changes to "Rejected" (Red) |
 
-**Expected:** Report rejected with comment, status updated
-**Actual:** _____
+**Expected:** Report rejected with comment, status updated  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -980,7 +980,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-ADMIN-009: Map Monitor — Layer Toggles
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -996,14 +996,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 9 | Verify state persists | Toggles remember state when bottom sheet reopened |
 
 **Expected:** Layer toggles work; Risk Overlay toggle absent; no non-functional controls
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ADMIN-010: Add Evacuation Center
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -1023,7 +1023,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 13 | Check resident app | New center visible to residents |
 
 **Expected:** Center added; no barangay filter present
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1056,7 +1056,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-ADMIN-012: Edit Evacuation Center
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -1070,8 +1070,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 7 | Wait for response | Success: "Center updated" |
 | 8 | Verify changes | Updated info displayed in list |
 
-**Expected:** Center updated successfully
-**Actual:** _____
+**Expected:** Center updated successfully  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1117,7 +1117,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-ADMIN-015: Analytics — Most Dangerous Barangays
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -1129,15 +1129,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Verify sorting | Sorted by risk score (highest first) |
 | 6 | Check risk scores | Values between 0.0 and 1.0 |
 
-**Expected:** Analytics data displayed correctly
-**Actual:** _____
+**Expected:** Analytics data displayed correctly  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-ADMIN-016: Admin Logout
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional
 
 | Step | Action | Expected Result |
@@ -1151,7 +1151,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 7 | Wait for logout | Navigate to welcome screen |
 | 8 | Verify session cleared | Cannot access admin screens |
 
-**Expected:** Admin logout successful
+**Expected:** Admin logout successful  
 **Actual:** _____
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
@@ -1176,7 +1176,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 9 | Verify report is NOT in map markers | No marker on admin map for deleted report |
 
 **Expected:** Soft delete removes report from all operational queries; is_deleted=True in DB; report inaccessible via API
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1185,8 +1185,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-AI-001: Naive Bayes — Valid Report (High Confidence)
 
-**Priority:** P1
-**Type:** Functional (Algorithm)
+**Priority:** P1  
+**Type:** Functional (Algorithm)  
 **Precondition:** Model trained with data
 
 | Step | Action | Test Input | Expected Output |
@@ -1196,14 +1196,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 3 | Verify classification | Check logs | Classified as likely valid |
 
 **Expected:** NB score >= 0.70, classified as valid
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AI-002: Naive Bayes — Invalid Report (Low Confidence)
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional (Algorithm)
 
 | Step | Action | Test Input | Expected Output |
@@ -1213,15 +1213,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 3 | Verify status | Check report status | "Pending" for manual review |
 
 **Expected:** Low NB score, report requires manual review
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AI-003: Consensus Scoring — Multiple Reports
 
-**Priority:** P1
-**Type:** Functional (Algorithm)
+**Priority:** P1  
+**Type:** Functional (Algorithm)  
 **Precondition:** No existing reports at test location
 
 | Step | Action | Expected Result |
@@ -1234,15 +1234,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify increased confidence | Score approaches 1.0 with more reports |
 
 **Expected:** Consensus boosts confidence for nearby corroborating reports
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AI-004: Random Forest — Road Risk Prediction
 
-**Priority:** P1
-**Type:** Functional (Algorithm)
+**Priority:** P1  
+**Type:** Functional (Algorithm)  
 **Precondition:** Model trained, road segments exist
 
 | Step | Action | Test Input | Expected Output |
@@ -1252,15 +1252,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 3 | Test low-risk segment | `{"nearby_hazard_count": 0, "avg_severity": 0.1}` | Risk score: 0.0–0.3 (Green) |
 
 **Expected:** RF predicts high risk for high-hazard segments, low risk otherwise
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AI-005: Modified Dijkstra — Safest Route
 
-**Priority:** P0
-**Type:** Functional (Algorithm)
+**Priority:** P0  
+**Type:** Functional (Algorithm)  
 **Precondition:** Road network with varying risk scores
 
 | Step | Action | Expected Result |
@@ -1271,16 +1271,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 4 | Verify route selection | Route B chosen (lower weight despite longer distance) |
 | 5 | Check risk level | Route B classified as "Green" |
 
-**Expected:** Algorithm selects safer route despite longer distance
-**Actual:** _____
+**Expected:** Algorithm selects safer route despite longer distance  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-AI-006: AI Model Retraining
 
-**Priority:** P2
-**Type:** Functional
+**Priority:** P2  
+**Type:** Functional  
 **Precondition:** Admin logged in
 
 | Step | Action | Expected Result |
@@ -1292,8 +1292,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Wait for retraining | Success message |
 | 6 | Verify new predictions | Use retrained models for subsequent reports |
 
-**Expected:** Models retrained successfully
-**Actual:** _____
+**Expected:** Models retrained successfully  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1360,8 +1360,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-OFFLINE-001: App Launch Offline
 
-**Priority:** P1
-**Type:** Functional (Offline)
+**Priority:** P1  
+**Type:** Functional (Offline)  
 **Precondition:** Data cached from previous online session
 
 | Step | Action | Expected Result |
@@ -1373,15 +1373,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Navigate to map | Map displays with cached tiles |
 | 6 | Check evacuation centers | Centers loaded from cache |
 
-**Expected:** App functions offline with cached data
-**Actual:** _____
+**Expected:** App functions offline with cached data  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-OFFLINE-002: Offline Hazard Report Queue
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Functional (Offline)
 
 | Step | Action | Expected Result |
@@ -1396,16 +1396,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 8 | Wait for completion | All queued reports sent |
 | 9 | Check queue | Empty (reports delivered) |
 
-**Expected:** Reports queued offline, auto-synced online
-**Actual:** _____
+**Expected:** Reports queued offline, auto-synced online  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-OFFLINE-003: Offline Route Access (Cached)
 
-**Priority:** P1
-**Type:** Functional (Offline)
+**Priority:** P1  
+**Type:** Functional (Offline)  
 **Precondition:** Route calculated online previously
 
 | Step | Action | Expected Result |
@@ -1417,16 +1417,16 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Verify route loads | Route displayed from cache |
 | 6 | Verify route accuracy | Same route as before |
 
-**Expected:** Cached route accessible offline
-**Actual:** _____
+**Expected:** Cached route accessible offline  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-OFFLINE-004: Offline Route Request (No Cache)
 
-**Priority:** P1
-**Type:** Functional (Offline/Negative)
+**Priority:** P1  
+**Type:** Functional (Offline/Negative)  
 **Precondition:** First time requesting route, offline
 
 | Step | Action | Expected Result |
@@ -1439,15 +1439,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify error text | Clear message indicating no internet |
 | 7 | Check no broken route displayed | No partial polyline shown |
 
-**Expected:** Clear error, no broken routes
-**Actual:** _____
+**Expected:** Clear error, no broken routes  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-OFFLINE-005: Intermittent Connectivity
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Functional (Network)
 
 | Step | Action | Expected Result |
@@ -1460,7 +1460,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify app recovers | Continued use possible |
 
 **Expected:** App handles connectivity changes gracefully with visual indicator
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1469,7 +1469,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-PERF-001: App Launch Time
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Performance
 
 | Metric | Requirement | Measurement Method |
@@ -1485,15 +1485,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 4. Stop when map screen fully loaded
 5. Repeat 5 times, average results
 
-**Expected:** Average < 2 seconds
-**Actual:** _____
+**Expected:** Average < 2 seconds  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-PERF-002: Map Load Time
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Performance
 
 | Step | Action | Expected Time |
@@ -1504,15 +1504,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 4 | Verify markers | Evacuation centers displayed |
 | 5 | Verify bottom panel | Evacuation center list loaded |
 
-**Expected:** < 3 seconds
-**Actual:** _____
+**Expected:** < 3 seconds  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-PERF-003: Route Calculation Time (OSRM)
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Performance
 
 | Scenario | Expected Time |
@@ -1521,15 +1521,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | Medium route (2–5 km) | < 5 seconds |
 | Long route (> 5 km) | < 7 seconds |
 
-**Expected:** Within time limits above
-**Actual:** _____
+**Expected:** Within time limits above  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-PERF-004: API Response Time
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Performance
 
 | Endpoint | Expected Response Time |
@@ -1541,15 +1541,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | PUT /hazards/{id}/approve/ | < 1 second |
 
 **Test Method:** Postman with timer
-**Expected:** All endpoints within limits
-**Actual:** _____
+**Expected:** All endpoints within limits  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-PERF-005: Live Navigation Memory Usage
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Performance
 
 | Scenario | Maximum RAM |
@@ -1561,7 +1561,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 **Test Method:** Android Profiler during navigation session
 **Expected:** No memory leak; stable over 30 minutes
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1569,7 +1569,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 ### TC-PERF-006: GPS Update Frequency During Navigation
 
 **Priority:** P1
-**Type:** Performance
+**Type:** Performance  
 
 | Step | Action | Expected Result |
 |------|--------|-----------------|
@@ -1580,14 +1580,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Check bearing update | Map rotates as heading changes |
 
 **Expected:** GPS updates every ≤ 2 seconds; smooth marker animation
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-PERF-007: Battery Consumption During Navigation
 
-**Priority:** P2
+**Priority:** P2  
 **Type:** Performance
 **Precondition:** Fully charged device
 
@@ -1597,8 +1597,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | Idle (app open, map displayed) | 1 hour | 3% |
 | Background (app paused) | 1 hour | 1% |
 
-**Expected:** Within limits above
-**Actual:** _____
+**Expected:** Within limits above  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1607,7 +1607,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-SEC-001: Password Hashing
 
-**Priority:** P0
+**Priority:** P0  
 **Type:** Security
 
 | Step | Action | Expected Result |
@@ -1619,15 +1619,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Verify no plain text | "testpass123" NOT visible in DB |
 | 6 | Register another user with same password | Different hash generated (unique salt) |
 
-**Expected:** Passwords securely hashed with PBKDF2
-**Actual:** _____
+**Expected:** Passwords securely hashed with PBKDF2  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-SEC-002: JWT Token Security
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Security
 
 | Step | Action | Expected Result |
@@ -1639,15 +1639,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Try API call with expired token | 401 Unauthorized |
 | 6 | Modify token payload | Signature verification fails, 401 error |
 
-**Expected:** JWT secure, expires correctly
-**Actual:** _____
+**Expected:** JWT secure, expires correctly  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-SEC-003: Role-Based Authorization
 
-**Priority:** P0
+**Priority:** P0  
 **Type:** Security
 
 | Step | Action | Expected Result |
@@ -1659,15 +1659,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Access same endpoint | 200 OK, data returned |
 | 6 | Verify Resident can access own endpoints | /evacuation-centers/, /hazards/ work |
 
-**Expected:** RBAC enforced, residents cannot access admin endpoints
-**Actual:** _____
+**Expected:** RBAC enforced, residents cannot access admin endpoints  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-SEC-004: SQL Injection Prevention
 
-**Priority:** P0
+**Priority:** P0  
 **Type:** Security
 
 | Step | Action | Expected Result |
@@ -1678,14 +1678,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 4 | Try injection in login: email=`admin' OR '1'='1` | Login fails |
 
 **Expected:** SQL injection blocked by Django ORM
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-SEC-005: File Upload Validation
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Security
 
 | Step | Action | Expected Result |
@@ -1698,14 +1698,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Verify filename sanitization | Special characters removed |
 
 **Expected:** Only image/video files accepted within size limits
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-SEC-006: Data Privacy — Reporter Anonymization
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Security/Privacy
 
 | Step | Action | Expected Result |
@@ -1717,8 +1717,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Login as MDRRMO | Admin user |
 | 6 | View same report | Full reporter info visible to admin |
 
-**Expected:** Reporter identity hidden from other residents
-**Actual:** _____
+**Expected:** Reporter identity hidden from other residents  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -1727,7 +1727,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-INT-001: OSRM API Integration
 
-**Priority:** P0
+**Priority:** P0  
 **Type:** Integration
 
 | Step | Action | Expected Result |
@@ -1741,14 +1741,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 7 | Check step maneuvers | All OSRM maneuver types mapped to readable instructions |
 
 **Expected:** OSRM integration works; all maneuver types handled
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-INT-002: OpenStreetMap Tiles
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Integration
 
 | Step | Action | Expected Result |
@@ -1758,15 +1758,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 3 | Zoom in | Higher zoom level tiles load |
 | 4 | Pan map | New tiles load for new area |
 
-**Expected:** OSM tiles load and display correctly
-**Actual:** _____
+**Expected:** OSM tiles load and display correctly  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-INT-003: GPS Location Service
 
-**Priority:** P0
+**Priority:** P0  
 **Type:** Integration
 
 | Step | Action | Expected Result |
@@ -1778,15 +1778,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 5 | Check accuracy | Accuracy < 50 meters |
 | 6 | Display on map | User location marker at correct position |
 
-**Expected:** GPS integration works, location accurate
-**Actual:** _____
+**Expected:** GPS integration works, location accurate  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-INT-004: Backend API Integration (Full Flow)
 
-**Priority:** P0
+**Priority:** P0  
 **Type:** Integration
 
 | Step | Action | Expected Result |
@@ -1801,14 +1801,14 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 8 | Verify status updated | Status changed to "approved" |
 
 **Expected:** Full mobile-backend integration works; phone_number optional
-**Actual:** _____
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-INT-005: AI Algorithms Integration Pipeline
 
-**Priority:** P1
+**Priority:** P1  
 **Type:** Integration
 
 | Step | Action | Expected Result |
@@ -1821,8 +1821,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 | 6 | Route calculation requested | Modified Dijkstra uses updated risk scores |
 | 7 | Verify route avoids high-risk roads | Safest route selected |
 
-**Expected:** All 4 algorithms work together correctly
-**Actual:** _____
+**Expected:** All 4 algorithms work together correctly  
+**Actual:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -2529,8 +2529,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-UAT-001: End-to-End Evacuation Scenario
 
-**Priority:** P0
-**Type:** UAT
+**Priority:** P0  
+**Type:** UAT  
 **Tester:** Resident user (real person)
 
 **Scenario:** Resident needs to evacuate during flooding
@@ -2555,15 +2555,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 - ✓ Destination banner always visible
 - ✓ Collapsible panel does not obstruct map
 
-**Actual User Feedback:** _____
+**Actual User Feedback:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-UAT-002: Hazard Reporting by Resident
 
-**Priority:** P1
-**Type:** UAT
+**Priority:** P1  
+**Type:** UAT  
 **Tester:** Resident user
 
 **Scenario:** Resident encounters flooding and reports it
@@ -2587,15 +2587,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 - ✓ Photo upload works
 - ✓ Pending marker visible immediately after submission
 
-**Actual User Feedback:** _____
+**Actual User Feedback:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-UAT-003: MDRRMO Report Management
 
-**Priority:** P0
-**Type:** UAT
+**Priority:** P0  
+**Type:** UAT  
 **Tester:** MDRRMO personnel
 
 **Scenario:** MDRRMO reviews incoming hazard reports
@@ -2621,15 +2621,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 - ✓ Restore requires no reason entry
 - ✓ Delete center works with confirmation
 
-**Actual User Feedback:** _____
+**Actual User Feedback:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-UAT-004: Evacuation Center Management
 
-**Priority:** P1
-**Type:** UAT
+**Priority:** P1  
+**Type:** UAT  
 **Tester:** MDRRMO personnel
 
 **Scenario:** MDRRMO adds and deletes evacuation centers
@@ -2650,7 +2650,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 - ✓ Deletion takes < 30 seconds with confirmation
 - ✓ Changes reflect immediately for residents
 
-**Actual User Feedback:** _____
+**Actual User Feedback:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
@@ -2689,8 +2689,8 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 
 ### TC-UAT-006: Offline Usage During Emergency
 
-**Priority:** P1
-**Type:** UAT
+**Priority:** P1  
+**Type:** UAT  
 **Tester:** Resident user
 
 **Scenario:** Limited connectivity, user needs route
@@ -2711,15 +2711,15 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 - ✓ OfflineBanner clearly communicates offline state
 - ✓ Auto-sync works when back online
 
-**Actual User Feedback:** _____
+**Actual User Feedback:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---
 
 ### TC-UAT-007: Overall User Satisfaction
 
-**Priority:** P1
-**Type:** UAT
+**Priority:** P1  
+**Type:** UAT  
 **Tester:** Multiple users (5 residents, 2 MDRRMO)
 
 **Survey Questions:**
@@ -2739,7 +2739,7 @@ This document provides comprehensive test cases for the AI-Powered Mobile Evacua
 - ✓ No critical usability issues reported
 - ✓ 80%+ users would recommend
 
-**Actual Results:** _____
+**Actual Results:** _____  
 **Status:** ☐ Pass ☐ Fail ☐ Blocked
 
 ---

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/services/connectivity_service.dart';
 import '../../features/admin/mdrrmo_dashboard_service.dart';
 
 /// Dashboard Screen - Overview of system statistics and recent activity.
@@ -44,15 +45,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _checkConnectivity() {
-    // Simulate connectivity check
-    // In production, use connectivity_plus package
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() {
-          _isOnline = true; // Assume online for now
-        });
-      }
+  Future<void> _checkConnectivity() async {
+    final online = await ConnectivityService().isOnline;
+    if (mounted) setState(() => _isOnline = online);
+    ConnectivityService().onConnectionChange.listen((online) {
+      if (mounted) setState(() => _isOnline = online);
     });
   }
 
@@ -118,7 +115,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           count: _stats?['total_reports'] ?? 0,
                           icon: Icons.report,
                           color: const Color(0xFF3B82F6), // Blue
-                          trend: '↗ +12 this week',
+                          trend: 'Tap to view all',
                           onTap: () => _navigateToReports(statusFilter: null),
                         ),
                         _buildClickableSummaryCard(
@@ -126,7 +123,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           count: _stats?['pending_reports'] ?? 0,
                           icon: Icons.pending_actions,
                           color: const Color(0xFFF59E0B), // Orange (Medium Priority)
-                          trend: 'Needs attention',
+                          trend: (_stats?['pending_reports'] ?? 0) > 0 ? 'Awaiting review' : 'All clear',
                           onTap: () => _navigateToReports(statusFilter: 'pending'),
                         ),
                         _buildClickableSummaryCard(
@@ -134,7 +131,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           count: _stats?['verified_hazards'] ?? 0,
                           icon: Icons.verified,
                           color: const Color(0xFF10B981), // Green (Verified/Resolved)
-                          trend: 'Active monitoring',
+                          trend: (_stats?['verified_hazards'] ?? 0) > 0 ? 'Active on map' : 'No active hazards',
                           onTap: () => _navigateToReports(statusFilter: 'approved'),
                         ),
                         _buildClickableSummaryCard(
@@ -142,7 +139,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           count: _stats?['high_risk_roads'] ?? 0,
                           icon: Icons.warning_amber,
                           color: const Color(0xFFEF4444), // Red (High Priority)
-                          trend: 'Critical attention',
+                          trend: (_stats?['high_risk_roads'] ?? 0) > 0 ? 'Tap to view on map' : 'No high-risk roads',
                           onTap: () => _navigateToMap(),
                         ),
                         _buildClickableSummaryCard(
@@ -150,7 +147,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           count: _stats?['total_evacuation_centers'] ?? 0,
                           icon: Icons.location_city,
                           color: const Color(0xFF8B5CF6), // Purple
-                          trend: 'View all centers',
+                          trend: 'Tap to manage',
                           onTap: () => _navigateToEvacuationCenters(),
                         ),
                         _buildClickableSummaryCard(
@@ -158,7 +155,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           count: _stats?['non_operational_centers'] ?? 0,
                           icon: Icons.cancel,
                           color: _getNonOperationalColor(_stats?['non_operational_centers'] ?? 0),
-                          trend: 'Deactivated',
+                          trend: (_stats?['non_operational_centers'] ?? 0) > 0 ? 'Needs restoration' : 'All operational',
                           onTap: () => _navigateToEvacuationCenters(filterNonOperational: true),
                         ),
                       ],

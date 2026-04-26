@@ -35,6 +35,7 @@ class ResidentNotificationsService {
       if (meta['latitude'] != null) lat = double.tryParse(meta['latitude'].toString());
       if (meta['longitude'] != null) lng = double.tryParse(meta['longitude'].toString());
     }
+    final reason = meta?['reason']?.toString();
     return {
       'id': n.id.toString(),
       'message': n.message,
@@ -45,6 +46,7 @@ class ResidentNotificationsService {
       'report_type': reportType,
       if (lat != null) 'latitude': lat,
       if (lng != null) 'longitude': lng,
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
     };
   }
 

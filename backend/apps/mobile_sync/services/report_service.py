@@ -142,7 +142,7 @@ def process_new_report(
         distance_weight = 0.0
 
     # Step 2: Consensus — count nearby reports of the SAME hazard_type that
-    # are PENDING or APPROVED, within 100 m, submitted in the last hour.
+    # are PENDING or APPROVED, within 150 m, submitted in the last hour.
     consensus = ConsensusScoringService()
     nearby = consensus.count_nearby_reports(
         float(report.latitude), float(report.longitude),

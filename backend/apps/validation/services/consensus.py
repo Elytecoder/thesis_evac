@@ -10,7 +10,7 @@ Consensus rules:
   at the same location are unrelated events).
 - Only PENDING or APPROVED reports are counted (REJECTED reports are excluded
   as they were deemed invalid by MDRRMO or auto-rejected by the system).
-- Reports must be within CONSENSUS_RADIUS_METERS (100 m) to be considered
+- Reports must be within CONSENSUS_RADIUS_METERS (150 m) to be considered
   part of the same incident area.
 """
 from decimal import Decimal

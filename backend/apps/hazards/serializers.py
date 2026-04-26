@@ -93,6 +93,7 @@ class HazardReportSerializer(serializers.ModelSerializer):
             'photo_url',
             'video_url',
             'status',
+            'auto_rejected',
             'naive_bayes_score',
             'consensus_score',
             'distance_weight',
@@ -103,7 +104,7 @@ class HazardReportSerializer(serializers.ModelSerializer):
             'reporter_display_id',
             'display_report_id',
             'reporter_barangay',
-            'confirmation_count',  # Added
+            'confirmation_count',
         )
 
     def get_reporter_full_name(self, obj):

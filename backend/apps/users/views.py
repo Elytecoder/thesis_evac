@@ -113,6 +113,18 @@ def send_verification_code(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Rate-limit: max 3 OTP requests per 5-minute window per email
+        from django.utils import timezone as _tz
+        window_start = _tz.now() - _tz.timedelta(minutes=5)
+        recent_count = EmailVerificationCode.objects.filter(
+            email=email, created_at__gte=window_start
+        ).count()
+        if recent_count >= 3:
+            return Response(
+                {'error': 'Too many verification requests. Please wait a few minutes and try again.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         verification = EmailVerificationCode.create_verification(email)
 
         # ── Send the verification email ────────────────────────────────────
@@ -587,7 +599,7 @@ def reset_password(request):
     Token.objects.filter(user=user).delete()
 
     SystemLog.log_action(
-        action=SystemLog.Action.USER_LOGIN,
+        action=SystemLog.Action.USER_PASSWORD_RESET,
         module=SystemLog.Module.AUTHENTICATION,
         user=user,
         description=f'Password reset completed for: {user.email}',

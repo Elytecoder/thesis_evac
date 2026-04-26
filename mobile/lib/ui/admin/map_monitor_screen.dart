@@ -91,7 +91,16 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to load map data. Pull down to retry.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -116,7 +125,7 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
         });
 
         // Zoom to highest-risk segment if any
-        final highRisk = segs.where((s) => s.risk >= 0.65).toList();
+        final highRisk = segs.where((s) => s.risk >= 0.70).toList();
         if (highRisk.isNotEmpty) {
           final h = highRisk.first;
           _mapController.move(
@@ -128,7 +137,16 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
         setState(() => _riskLayerLoading = false);
       }
     } catch (e) {
-      if (mounted) setState(() => _riskLayerLoading = false);
+      if (mounted) {
+        setState(() => _riskLayerLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not load road risk data. Try again.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -141,13 +159,13 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
   }
 
   Color _riskColor(double risk) {
-    if (risk >= 0.65) return Colors.red.withOpacity(0.75);
+    if (risk >= 0.70) return Colors.red.withOpacity(0.75);
     if (risk >= 0.30) return Colors.orange.withOpacity(0.70);
     return Colors.green.withOpacity(0.55);
   }
 
   String _riskLabel(double risk) {
-    if (risk >= 0.65) return 'High Risk';
+    if (risk >= 0.70) return 'High Risk';
     if (risk >= 0.30) return 'Moderate Risk';
     return 'Low Risk';
   }
@@ -263,7 +281,7 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
   }
 
   List<Widget> _buildNoHighRiskBanner() {
-    final anyHighRisk = _riskSegments.any((s) => s.risk >= 0.65);
+    final anyHighRisk = _riskSegments.any((s) => s.risk >= 0.70);
     if (anyHighRisk) return [];
     return [
       Positioned(

@@ -209,6 +209,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   
   /// Show rejection details dialog
   void _showRejectionDetailsDialog(Map<String, dynamic> notification) {
+    final reason = notification['reason']?.toString() ?? '';
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -224,7 +225,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              notification['report_type'],
+              notification['report_type']?.toString() ?? 'Hazard Report',
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -232,7 +233,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
             const SizedBox(height: 16),
             _buildInfoRow(Icons.warning_amber, 'Status', 'Rejected'),
-            _buildInfoRow(Icons.calendar_today, 'Date', notification['date']),
+            _buildInfoRow(Icons.calendar_today, 'Date', notification['date']?.toString() ?? ''),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(12),
@@ -241,16 +242,30 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(Icons.info_outline, color: Colors.red[700], size: 20),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      'Your report was rejected after verification by MDRRMO.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.red[900],
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Your report was reviewed and rejected by MDRRMO.',
+                          style: TextStyle(fontSize: 13, color: Colors.red[900]),
+                        ),
+                        if (reason.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Reason: $reason',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.red[800],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],

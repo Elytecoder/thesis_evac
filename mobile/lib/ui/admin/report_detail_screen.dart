@@ -131,8 +131,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         );
 
         if (mounted) {
+          final messenger = ScaffoldMessenger.of(context);
           Navigator.pop(context, true); // Return true to indicate update
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             const SnackBar(
               content: Text('Report approved successfully'),
               backgroundColor: Colors.green,
@@ -171,8 +172,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         );
 
         if (mounted) {
+          final messenger = ScaffoldMessenger.of(context);
           Navigator.pop(context, true); // Return true to indicate update
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             const SnackBar(
               content: Text('Report rejected'),
               backgroundColor: Colors.red,

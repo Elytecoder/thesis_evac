@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../features/authentication/auth_service.dart';
@@ -19,10 +21,25 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
   final List<TextEditingController> _controllers =
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  final List<FocusNode> _keyListenerNodes = List.generate(6, (_) => FocusNode());
 
   bool _isVerifying = false;
   bool _isResending = false;
   String? _errorMessage;
+
+  // ── OTP expiry countdown (10 min) ────────────────────────────────────────
+  int _expirySecondsLeft = 10 * 60;
+  Timer? _expiryTimer;
+
+  // ── Resend cooldown (60 s) ────────────────────────────────────────────────
+  int _resendCooldownLeft = 0;
+  Timer? _resendCooldownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startExpiryTimer();
+  }
 
   @override
   void dispose() {
@@ -32,8 +49,57 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
     for (final f in _focusNodes) {
       f.dispose();
     }
+    for (final f in _keyListenerNodes) {
+      f.dispose();
+    }
+    _expiryTimer?.cancel();
+    _resendCooldownTimer?.cancel();
     super.dispose();
   }
+
+  // ── Timer helpers ──────────────────────────────────────────────────────────
+
+  void _startExpiryTimer() {
+    _expiryTimer?.cancel();
+    setState(() => _expirySecondsLeft = 10 * 60);
+    _expiryTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        if (_expirySecondsLeft > 0) {
+          _expirySecondsLeft--;
+        } else {
+          _expiryTimer?.cancel();
+        }
+      });
+    });
+  }
+
+  void _startResendCooldown() {
+    _resendCooldownTimer?.cancel();
+    setState(() => _resendCooldownLeft = 60);
+    _resendCooldownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        if (_resendCooldownLeft > 0) {
+          _resendCooldownLeft--;
+        } else {
+          _resendCooldownTimer?.cancel();
+        }
+      });
+    });
+  }
+
+  bool get _codeExpired => _expirySecondsLeft == 0;
+  bool get _canResend => _resendCooldownLeft == 0;
+
+  String get _expiryLabel {
+    if (_codeExpired) return 'Code expired — request a new one';
+    final m = _expirySecondsLeft ~/ 60;
+    final s = _expirySecondsLeft % 60;
+    return 'Code expires in ${m}m ${s.toString().padLeft(2, '0')}s';
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   String get _enteredCode => _controllers.map((c) => c.text).join();
 
@@ -44,7 +110,7 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
       _focusNodes[index + 1].requestFocus();
     }
     setState(() => _errorMessage = null);
-    if (_isCodeComplete) {
+    if (_isCodeComplete && !_codeExpired) {
       _handleVerify();
     }
   }
@@ -60,6 +126,10 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
 
   Future<void> _handleVerify() async {
     if (!_isCodeComplete || _isVerifying) return;
+    if (_codeExpired) {
+      setState(() => _errorMessage = 'The code has expired. Please request a new one.');
+      return;
+    }
     setState(() {
       _isVerifying = true;
       _errorMessage = null;
@@ -81,7 +151,6 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
       if (!mounted) return;
       setState(() {
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        // Clear digits on failure so user can retry
         for (final c in _controllers) {
           c.clear();
         }
@@ -93,16 +162,18 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
   }
 
   Future<void> _handleResend() async {
+    if (!_canResend || _isResending || _isVerifying) return;
     setState(() => _isResending = true);
     try {
       await _authService.forgotPassword(widget.email);
       if (!mounted) return;
-      // Clear old code
       for (final c in _controllers) {
         c.clear();
       }
       _focusNodes[0].requestFocus();
       setState(() => _errorMessage = null);
+      _startExpiryTimer();
+      _startResendCooldown();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('A new reset code has been sent to your email.'),
@@ -129,7 +200,7 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
     return SizedBox(
       width: 44,
       child: KeyboardListener(
-        focusNode: FocusNode(),
+        focusNode: _keyListenerNodes[index],
         onKeyEvent: (e) => _onKeyDown(index, e),
         child: TextFormField(
           controller: _controllers[index],
@@ -160,7 +231,7 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                 : Colors.grey[50],
           ),
           onChanged: (v) => _onDigitChanged(index, v),
-          enabled: !_isVerifying,
+          enabled: !_isVerifying && !_codeExpired,
         ),
       ),
     );
@@ -235,6 +306,57 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              // Expiry countdown banner
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                margin: const EdgeInsets.only(bottom: 16),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: _codeExpired
+                                      ? Colors.red[50]
+                                      : (_expirySecondsLeft < 60
+                                          ? Colors.orange[50]
+                                          : Colors.blue[50]),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _codeExpired
+                                        ? Colors.red[300]!
+                                        : (_expirySecondsLeft < 60
+                                            ? Colors.orange[300]!
+                                            : Colors.blue[200]!),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _codeExpired
+                                          ? Icons.timer_off
+                                          : Icons.timer,
+                                      size: 16,
+                                      color: _codeExpired
+                                          ? Colors.red[700]
+                                          : (_expirySecondsLeft < 60
+                                              ? Colors.orange[700]
+                                              : Colors.blue[700]),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _expiryLabel,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: _codeExpired
+                                            ? Colors.red[700]
+                                            : (_expirySecondsLeft < 60
+                                                ? Colors.orange[700]
+                                                : Colors.blue[700]),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
                               // OTP digit row
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -272,13 +394,16 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                               ],
                               const SizedBox(height: 20),
                               ElevatedButton(
-                                onPressed: (_isCodeComplete && !_isVerifying)
+                                onPressed: (_isCodeComplete &&
+                                        !_isVerifying &&
+                                        !_codeExpired)
                                     ? _handleVerify
                                     : null,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.blue[700],
                                   foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
@@ -312,19 +437,26 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                                     ),
                                   ),
                                   TextButton(
-                                    onPressed: (_isResending || _isVerifying)
-                                        ? null
-                                        : _handleResend,
+                                    onPressed: (_canResend &&
+                                            !_isResending &&
+                                            !_isVerifying)
+                                        ? _handleResend
+                                        : null,
                                     child: _isResending
                                         ? const SizedBox(
                                             height: 14,
                                             width: 14,
-                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2),
                                           )
                                         : Text(
-                                            'Resend',
+                                            _resendCooldownLeft > 0
+                                                ? 'Resend in ${_resendCooldownLeft}s'
+                                                : 'Resend',
                                             style: TextStyle(
-                                              color: Colors.blue[700],
+                                              color: _canResend
+                                                  ? Colors.blue[700]
+                                                  : Colors.grey,
                                               fontWeight: FontWeight.bold,
                                               fontSize: 13,
                                             ),
@@ -333,14 +465,6 @@ class _VerifyResetCodeScreenState extends State<VerifyResetCodeScreen> {
                                 ],
                               ),
                             ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'The code expires in 10 minutes.',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.65),
-                            fontSize: 13,
                           ),
                         ),
                       ],

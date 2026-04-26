@@ -21,6 +21,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   final AuthService _authService = AuthService();
   final EmergencyContactsService _contactsService = EmergencyContactsService();
   final NotificationService _notifService = NotificationService();
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _contactsSectionKey = GlobalKey();
 
   Map<String, dynamic>? _userProfile;
   List<EmergencyContact> _emergencyContacts = [];
@@ -35,6 +37,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   // ── Data loading ───────────────────────────────────────────────────────────
@@ -124,9 +132,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     bool obscureNew = true;
     bool obscureConfirm = true;
 
+    final scaffoldCtx = context;
+
     await showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
+      builder: (dialogCtx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -177,7 +187,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogCtx),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -203,15 +213,20 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   _showSnack('Passwords do not match.', Colors.red);
                   return;
                 }
-                Navigator.pop(context);
                 try {
                   await _authService.changePassword(
                     oldPassword: currentCtrl.text,
                     newPassword: newCtrl.text,
                     newPasswordConfirm: confirmCtrl.text,
                   );
-                  if (mounted) {
-                    _showSnack('Password changed successfully.', Colors.green);
+                  if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                  if (scaffoldCtx.mounted) {
+                    ScaffoldMessenger.of(scaffoldCtx).showSnackBar(
+                      const SnackBar(
+                        content: Text('Password changed successfully.'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
                   }
                 } catch (e) {
                   if (mounted) _showSnack(e.toString(), Colors.red);
@@ -578,6 +593,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         elevation: 0,
       ),
       body: SingleChildScrollView(
+        controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -669,7 +685,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
             const SizedBox(height: 24),
 
             // ── Emergency Contacts section ─────────────────────────────────
-            _buildEmergencyContactsSection(),
+            _buildEmergencyContactsSection(key: _contactsSectionKey),
 
             const SizedBox(height: 24),
 
@@ -903,8 +919,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         ),
       );
 
-  Widget _buildEmergencyContactsSection() {
-    return Column(
+  Widget _buildEmergencyContactsSection({Key? key}) {
+    return Column(key: key,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -1036,12 +1052,13 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     );
   }
 
-  // Placeholder so the "Emergency Contacts" quick-link feels responsive.
-  // In a real multi-screen setup this would scroll to the contacts section.
-  void _scrollToContacts() => _showSnack(
-        'Scroll down to manage Emergency Contacts.',
-        Colors.blue,
-      );
+  void _scrollToContacts() {
+    final ctx = _contactsSectionKey.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(ctx,
+          duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
+    }
+  }
 
   Color _colorForType(String type) {
     switch (type.toLowerCase()) {

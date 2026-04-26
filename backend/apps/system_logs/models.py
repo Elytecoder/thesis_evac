@@ -23,6 +23,7 @@ class SystemLog(models.Model):
         USER_SUSPENDED = 'user_suspended', 'User Suspended'
         USER_ACTIVATED = 'user_activated', 'User Activated'
         USER_DELETED = 'user_deleted', 'User Deleted'
+        USER_PASSWORD_RESET = 'user_password_reset', 'User Password Reset'
         
         # Report actions
         REPORT_SUBMITTED = 'report_submitted', 'Report Submitted'

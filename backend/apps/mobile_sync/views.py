@@ -312,7 +312,7 @@ def mdrrmo_high_risk_roads(request):
                     nearest_dist = d
                     nearest = h
 
-            level = 'high' if risk >= 0.65 else 'moderate'
+            level = 'high' if risk >= 0.70 else 'moderate'
             entry = {
                 'id': seg.id,
                 'start_lat': float(seg.start_lat),

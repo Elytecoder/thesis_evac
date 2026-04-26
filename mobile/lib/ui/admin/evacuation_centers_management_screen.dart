@@ -79,7 +79,16 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to load evacuation centers. Pull down to retry.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -401,7 +410,7 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
             _buildInfoRow(Icons.location_on, 'Barangay', center.barangay ?? 'Zone ${center.id}'),
             _buildInfoRow(Icons.home, 'Address', center.fullAddress),
             _buildInfoRow(Icons.gps_fixed, 'Coordinates', '${center.latitude.toStringAsFixed(4)}, ${center.longitude.toStringAsFixed(4)}'),
-            _buildInfoRow(Icons.phone, 'Contact', center.contactNumber ?? '0917-123-45${center.id}7'),
+            _buildInfoRow(Icons.phone, 'Contact', center.contactNumber?.isNotEmpty == true ? center.contactNumber! : 'Not available'),
             
             const SizedBox(height: 12),
             
