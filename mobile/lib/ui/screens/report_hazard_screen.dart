@@ -300,231 +300,274 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
     }
   }
 
-  /// Show confirmation dialog when similar reports are detected
-  Future<void> _showConfirmationDialog(List<Map<String, dynamic>> similarReports) async {
+  /// Show confirmation dialog when similar reports are detected within 150 m.
+  Future<void> _showConfirmationDialog(
+      List<Map<String, dynamic>> similarReports) async {
+    // Sort: approved first, then by most confirmations.
+    final sorted = List<Map<String, dynamic>>.from(similarReports)
+      ..sort((a, b) {
+        final aApproved = a['is_approved'] as bool? ?? false;
+        final bApproved = b['is_approved'] as bool? ?? false;
+        if (aApproved != bApproved) return aApproved ? -1 : 1;
+        final aCount = a['confirmation_count'] as int? ?? 0;
+        final bCount = b['confirmation_count'] as int? ?? 0;
+        return bCount.compareTo(aCount);
+      });
+
+    final best = sorted.first;
+    final reportId = (best['id'] as num?)?.toInt() ?? 0;
+    final rawType = best['hazard_type'] as String? ?? 'Unknown';
+    final hazardLabel = _hazardTypes.firstWhere(
+      (h) => h['value'] == rawType,
+      orElse: () => {'label': rawType},
+    )['label'] as String;
+    final description = best['description'] as String? ?? '';
+    final distanceM = (best['distance_meters'] as num? ?? 0).round();
+    final confirmationCount = best['confirmation_count'] as int? ?? 0;
+    final hasUserConfirmed = best['has_user_confirmed'] as bool? ?? false;
+    final isApproved = best['is_approved'] as bool? ?? false;
+
+    final String statusLabel;
+    final Color statusBg;
+    final Color statusFg;
+    if (isApproved) {
+      statusLabel = '✓ Verified by MDRRMO';
+      statusBg = Colors.green.shade100;
+      statusFg = Colors.green.shade800;
+    } else {
+      statusLabel = '⏳ Pending Review';
+      statusBg = Colors.amber.shade100;
+      statusFg = Colors.amber.shade900;
+    }
+
     return showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        // Show approved reports first (already verified), then by confirmation count.
-        final sorted = List<Map<String, dynamic>>.from(similarReports)
-          ..sort((a, b) {
-            final aApproved = a['is_approved'] as bool? ?? false;
-            final bApproved = b['is_approved'] as bool? ?? false;
-            if (aApproved != bApproved) return aApproved ? -1 : 1;
-            final aCount = a['confirmation_count'] as int? ?? 0;
-            final bCount = b['confirmation_count'] as int? ?? 0;
-            return bCount.compareTo(aCount);
-          });
-
-        final best = sorted.first;
-        final reportId = (best['id'] as num?)?.toInt() ?? 0;
-        final rawType = best['hazard_type'] as String? ?? 'Unknown';
-        // Map snake_case type to readable label.
-        final hazardLabel = _hazardTypes
-            .firstWhere(
-              (h) => h['value'] == rawType,
-              orElse: () => {'label': rawType},
-            )['label'] as String;
-        final description = best['description'] as String? ?? '';
-        final distance = best['distance_meters'] as num? ?? 0;
-        final confirmationCount = best['confirmation_count'] as int? ?? 0;
-        final hasUserConfirmed = best['has_user_confirmed'] as bool? ?? false;
-        final isApproved = best['is_approved'] as bool? ?? false;
-
-        // Friendly title tailored to the hazard type.
-        final dialogTitle = 'A $hazardLabel was reported nearby';
-        final dialogBody = isApproved
-            ? 'This hazard has already been verified by MDRRMO and is currently active. '
-              'Submit a new report only if this is a different or worsening occurrence.'
-            : 'A similar $hazardLabel report (within 150 m) is awaiting MDRRMO review. '
-              'Confirming it instead of creating a new one helps MDRRMO prioritize faster.';
-
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header icon + title
-                  Row(
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ── Coloured header banner ──────────────────────────────
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+                  decoration: BoxDecoration(
+                    color: isApproved
+                        ? Colors.green.shade700
+                        : Colors.orange.shade700,
+                    borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(20)),
+                  ),
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: isApproved
-                              ? Colors.green.shade100
-                              : Colors.orange.shade100,
+                          color: Colors.white.withAlpha(51),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          isApproved ? Icons.verified : Icons.warning_rounded,
-                          color: isApproved ? Colors.green.shade700 : Colors.orange,
-                          size: 28,
+                          isApproved
+                              ? Icons.verified_rounded
+                              : Icons.report_problem_rounded,
+                          color: Colors.white,
+                          size: 26,
                         ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
-                        child: Text(
-                          dialogTitle,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Hazard Already Reported Nearby',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'A $hazardLabel was found $distanceM m from your location.',
+                              style: TextStyle(
+                                color: Colors.white.withAlpha(230),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
+                ),
 
-                  const SizedBox(height: 16),
-
-                  Text(
-                    dialogBody,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.5,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Report preview card
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Hazard type + status badges
-                        Row(
+                // ── Body ────────────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Existing report card
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade100,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                hazardLabel,
-                                style: TextStyle(
-                                  color: Colors.red.shade900,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
+                            // Type + status chips
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                _chip(
+                                  hazardLabel,
+                                  Colors.red.shade100,
+                                  Colors.red.shade900,
+                                  Icons.warning_amber_rounded,
                                 ),
-                              ),
+                                _chip(
+                                  statusLabel,
+                                  statusBg,
+                                  statusFg,
+                                  null,
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: isApproved
-                                    ? Colors.green.shade100
-                                    : Colors.amber.shade100,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                isApproved ? 'Verified ✓' : 'Pending Review',
+                            if (description.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                description,
                                 style: TextStyle(
-                                  color: isApproved
-                                      ? Colors.green.shade900
-                                      : Colors.amber.shade900,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                  fontStyle: FontStyle.italic,
                                 ),
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
                               ),
+                            ],
+                            const SizedBox(height: 10),
+                            // Distance + confirmations row
+                            Row(
+                              children: [
+                                Icon(Icons.place_outlined,
+                                    size: 15,
+                                    color: Colors.grey.shade500),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '$distanceM m away',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Icon(Icons.people_outline,
+                                    size: 15,
+                                    color: confirmationCount > 0
+                                        ? Colors.blue.shade500
+                                        : Colors.grey.shade400),
+                                const SizedBox(width: 4),
+                                Text(
+                                  confirmationCount == 0
+                                      ? 'No confirmations yet'
+                                      : '$confirmationCount ${confirmationCount == 1 ? 'confirmation' : 'confirmations'}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: confirmationCount > 0
+                                        ? Colors.blue.shade700
+                                        : Colors.grey.shade500,
+                                    fontWeight: confirmationCount > 0
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
+                      ),
 
-                        if (description.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            description,
-                            style: TextStyle(
-                                fontSize: 13, color: Colors.grey.shade700),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                      const SizedBox(height: 14),
+
+                      // Already-confirmed notice (shown for both pending + approved)
+                      if (hasUserConfirmed)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border:
+                                Border.all(color: Colors.blue.shade200),
                           ),
-                        ],
-
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Icon(Icons.location_on,
-                                size: 14, color: Colors.grey.shade600),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${distance.round()} m away',
-                              style: TextStyle(
-                                  fontSize: 12, color: Colors.grey.shade700),
-                            ),
-                            if (confirmationCount > 0) ...[
-                              const SizedBox(width: 14),
-                              Icon(Icons.people,
-                                  size: 14, color: Colors.blue.shade600),
-                              const SizedBox(width: 4),
-                              Text(
-                                '$confirmationCount ${confirmationCount == 1 ? 'confirmation' : 'confirmations'}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.blue.shade700,
-                                  fontWeight: FontWeight.w600,
+                          child: Row(
+                            children: [
+                              Icon(Icons.check_circle_outline,
+                                  color: Colors.blue.shade700, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'You already confirmed this hazard. Thank you for helping validate it.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.blue.shade900,
+                                  ),
                                 ),
                               ),
                             ],
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Already confirmed notice
-                  if (hasUserConfirmed && !isApproved) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline,
-                              color: Colors.blue.shade700, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'You have already confirmed this report.',
-                              style: TextStyle(
-                                  fontSize: 13, color: Colors.blue.shade900),
-                            ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ],
+                        )
+                      else
+                        // Explain why confirming is the right choice
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border:
+                                Border.all(color: Colors.green.shade200),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.tips_and_updates_outlined,
+                                  color: Colors.green.shade700, size: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Confirming this report tells MDRRMO that you also see this hazard. '
+                                  'It improves accuracy and speeds up the response — no duplicate needed.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.green.shade900,
+                                    height: 1.45,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
 
-                  const SizedBox(height: 20),
+                      const SizedBox(height: 20),
 
-                  // Action buttons
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Primary action: confirm (pending only) or info (approved)
-                      if (!isApproved)
-                        ElevatedButton.icon(
+                      // ── Action buttons ────────────────────────────────
+                      // PRIMARY: Confirm existing
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
                           onPressed: hasUserConfirmed
                               ? null
                               : () async {
@@ -532,65 +575,130 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                                   await _confirmExistingReport(
                                       reportId, best);
                                 },
-                          icon: const Icon(Icons.check_circle),
+                          icon: Icon(
+                            hasUserConfirmed
+                                ? Icons.check_circle
+                                : Icons.thumb_up_alt_rounded,
+                          ),
                           label: Text(
                             hasUserConfirmed
                                 ? 'Already Confirmed'
-                                : 'Confirm This Hazard (Recommended)',
+                                : 'Confirm Existing Report',
+                            style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                hasUserConfirmed ? Colors.grey : Colors.green,
-                            foregroundColor: Colors.white,
+                            backgroundColor: hasUserConfirmed
+                                ? Colors.grey.shade300
+                                : Colors.green.shade600,
+                            foregroundColor: hasUserConfirmed
+                                ? Colors.grey.shade600
+                                : Colors.white,
                             padding:
                                 const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
+                            elevation: hasUserConfirmed ? 0 : 2,
                           ),
                         ),
+                      ),
 
                       const SizedBox(height: 10),
 
-                      // Submit new anyway
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          Navigator.pop(context);
-                          await _performSubmission();
-                        },
-                        icon: const Icon(Icons.add_circle_outline),
-                        label: const Text('Submit New Report Anyway'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.orange.shade700,
-                          side: BorderSide(color: Colors.orange.shade300),
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                      // SECONDARY: Submit new report anyway (with disclaimer)
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await _performSubmission();
+                          },
+                          icon: Icon(Icons.add_circle_outline,
+                              color: Colors.orange.shade700),
+                          label: const Text(
+                            'Submit New Report Anyway',
+                            style: TextStyle(fontSize: 14),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.orange.shade700,
+                            side: BorderSide(color: Colors.orange.shade300),
+                            padding:
+                                const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 5, left: 4),
+                        child: Text(
+                          'Only use this if this is a different hazard or a new occurrence.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
                       ),
 
-                      const SizedBox(height: 8),
-
+                      // CANCEL
                       TextButton(
                         onPressed: () => Navigator.pop(context),
                         style: TextButton.styleFrom(
-                            padding:
-                                const EdgeInsets.symmetric(vertical: 12)),
-                        child: const Text('Cancel'),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(fontSize: 14),
+                        ),
                       ),
+
+                      const SizedBox(height: 4),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  /// Confirm an existing hazard report
-  Future<void> _confirmExistingReport(int reportId, Map<String, dynamic> reportData) async {
+  /// Small labelled chip used inside the confirmation dialog card.
+  Widget _chip(
+      String label, Color bg, Color fg, IconData? icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: fg),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Confirm an existing hazard report and show a thank-you message.
+  Future<void> _confirmExistingReport(
+      int reportId, Map<String, dynamic> reportData) async {
     setState(() => _isSubmitting = true);
 
     try {
@@ -599,34 +707,52 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       if (mounted) {
         Navigator.pop(context); // Close report screen
 
-        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white),
+                const Icon(Icons.check_circle_rounded,
+                    color: Colors.white, size: 22),
                 const SizedBox(width: 12),
                 const Expanded(
-                  child: Text(
-                    'Hazard confirmed! Your confirmation strengthens this report.',
-                    style: TextStyle(color: Colors.white),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Confirmation Submitted',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Thank you. Your confirmation was added to the existing report.',
+                        style:
+                            TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 5),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
     } catch (e) {
-      print('Error confirming hazard: $e');
       if (mounted) {
         setState(() => _isSubmitting = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to confirm hazard: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            content: Text(
+                'Could not confirm hazard. Please try again.'),
+            backgroundColor: Colors.red.shade600,
           ),
         );
       }
