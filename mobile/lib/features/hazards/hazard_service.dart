@@ -713,8 +713,8 @@ class HazardService {
           .whereType<HazardReport>()
           .toList();
 
-      // Cache for offline use
-      await _storageService.saveVerifiedHazards(
+      // Cache for offline use — fire-and-forget so the caller is not blocked.
+      _storageService.saveVerifiedHazards(
         hazards.map((h) => h.toJson()).toList(),
       );
       return hazards;

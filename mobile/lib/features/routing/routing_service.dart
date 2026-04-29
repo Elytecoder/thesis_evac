@@ -157,7 +157,6 @@ class RoutingService {
       final routes = routesJson.map((json) => Route.fromJson(json)).toList();
 
       final noSafeRoute = (data['no_safe_route'] as bool?) ?? false;
-      final onlyOnePracticalRoute = (data['only_one_practical_route'] as bool?) ?? false;
       final message = data['message'] as String?;
       final recommendedAction = data['recommended_action'] as String?;
       final altRaw = data['alternative_centers'];
@@ -176,7 +175,6 @@ class RoutingService {
       return RouteCalculationResult(
         routes: routes,
         noSafeRoute: noSafeRoute,
-        onlyOnePracticalRoute: onlyOnePracticalRoute,
         message: message,
         recommendedAction: recommendedAction,
         alternativeCenters: alternativeCenters,
@@ -360,6 +358,18 @@ class RoutingService {
         riskLevel: RiskLevel.green,
       ),
     ];
+  }
+
+  /// Returns evacuation centers from Hive cache without any network call.
+  /// Returns null if nothing is cached yet (first run).
+  Future<List<EvacuationCenter>?> getCachedCenters() async {
+    try {
+      final cached = await _storageService.getEvacuationCenters();
+      if (cached == null || cached.isEmpty) return null;
+      return cached.map((json) => EvacuationCenter.fromJson(json)).toList();
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Get evacuation center by ID.
