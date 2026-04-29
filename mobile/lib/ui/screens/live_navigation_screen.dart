@@ -194,6 +194,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         if (mounted) setState(() => _currentBearing = heading);
       });
 
+      // Seed the first visible location quickly so marker/recenter use a fresh
+      // fix even before the continuous stream emits.
+      final firstFix = await _gpsService.getCurrentLocation();
+      if (firstFix != null && mounted) {
+        _userLocation = firstFix;
+        _displayLocation = firstFix;
+        _updateCurrentStep(firstFix);
+        _mapController.move(firstFix, 17.0);
+      }
+
       setState(() {
         _isLoading = false;
       });
@@ -1306,10 +1316,24 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
 
   /// Re-center map on user and resume follow mode
   void _recenterOnUser() {
-    if (_userLocation != null) {
+    if (_userLocation != null && mounted) {
       setState(() => _followUserLocation = true);
       _mapController.move(_userLocation!, 17.0);
+      return;
     }
+
+    _gpsService.getCurrentLocation().then((live) {
+      if (!mounted || live == null) {
+        _showError('Current location unavailable. Please enable GPS and retry.');
+        return;
+      }
+      setState(() {
+        _followUserLocation = true;
+        _userLocation = live;
+        _displayLocation = live;
+      });
+      _mapController.move(live, 17.0);
+    });
   }
 
   /// Build full-screen map (user can pan/scroll; re-center via FAB)

@@ -50,6 +50,7 @@ class _MapScreenState extends State<MapScreen>
   StreamSubscription<bool>? _reconnectSub;
   StreamSubscription<void>? _syncRefreshSub;
   Timer? _pollTimer;
+  StreamSubscription<Position>? _positionSubscription;
 
   // Default to Bulan, Sorsogon so the map renders instantly.
   // Updated to the real GPS fix as soon as it arrives.
@@ -63,6 +64,7 @@ class _MapScreenState extends State<MapScreen>
   // True only while the initial GPS fix is still pending (shows a small
   // location-locating indicator instead of blocking the whole map).
   bool _gpsLocating = true;
+  static const Duration _lastKnownMaxAge = Duration(minutes: 2);
   List<EvacuationCenter> _evacuationCenters = [];
   
   // Selected center and routes
@@ -196,6 +198,7 @@ class _MapScreenState extends State<MapScreen>
     WidgetsBinding.instance.removeObserver(this);
     _reconnectSub?.cancel();
     _syncRefreshSub?.cancel();
+    _positionSubscription?.cancel();
     _pollTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
@@ -326,13 +329,28 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Future<void> _initializeMap() async {
-    // ── STEP 1: Instant pre-position from cache ──────────────────────────────
-    // getLastKnownPosition() reads the OS location cache (< 50 ms on Android).
+    // ── STEP 0: Ensure location services are actually ON ─────────────────────
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (!mounted) return;
+      setState(() {
+        _gpsLocating = false;
+        _gpsFailed = true;
+      });
+      return;
+    }
+
+    // ── STEP 1: Optional pre-position from recent cache ─────────────────────
+    // We only trust last-known if it is recent enough; stale cached positions
+    // are ignored to prevent showing the marker at the wrong place.
     // Not supported on web — skip it there to avoid errors.
     if (!kIsWeb) {
       try {
         final lastKnown = await Geolocator.getLastKnownPosition();
-        if (lastKnown != null && mounted) {
+        final ts = lastKnown?.timestamp;
+        final isFresh =
+            ts != null && DateTime.now().difference(ts) <= _lastKnownMaxAge;
+        if (lastKnown != null && isFresh && mounted) {
           _pulseController.stop();
           setState(() {
             _userLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
@@ -396,7 +414,10 @@ class _MapScreenState extends State<MapScreen>
       });
     }
 
-    // ── STEP 4: Honour notification deep-link focus ──────────────────────────
+    // ── STEP 4: Start continuous GPS updates so marker stays accurate ───────
+    _startLocationStream();
+
+    // ── STEP 5: Honour notification deep-link focus ──────────────────────────
     if (mounted) {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool('map_should_focus') == true) {
@@ -408,8 +429,21 @@ class _MapScreenState extends State<MapScreen>
   /// Re-run the GPS acquisition (called from the orange retry pill / FAB).
   Future<void> _retryLocate() async {
     if (_gpsLocating) return; // already in progress
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (!mounted) return;
+      setState(() {
+        _gpsLocating = false;
+        _gpsFailed = true;
+      });
+      return;
+    }
+
     if (!mounted) return;
-    setState(() { _gpsLocating = true; _gpsFailed = false; });
+    setState(() {
+      _gpsLocating = true;
+      _gpsFailed = false;
+    });
     _pulseController.repeat(reverse: true);
 
     final timeout =
@@ -429,9 +463,74 @@ class _MapScreenState extends State<MapScreen>
         });
         _mapController.move(_userLocation, 16.0);
       }
+      _startLocationStream();
     } catch (_) {
-      if (mounted) setState(() { _gpsLocating = false; _gpsFailed = true; });
+      if (mounted) {
+        setState(() {
+          _gpsLocating = false;
+          _gpsFailed = true;
+        });
+      }
     }
+  }
+
+  Future<void> _recenterToCurrentLocation() async {
+    if (!_locationIsReal) {
+      await _retryLocate();
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+      ).timeout(const Duration(seconds: 6));
+      if (!mounted) return;
+
+      final live = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _userLocation = live;
+        _locationIsReal = true;
+        _gpsFailed = false;
+      });
+      _mapController.move(live, 16.0);
+    } catch (_) {
+      // Fall back to the latest stream-provided location if one-shot fix fails.
+      if (_locationIsReal) {
+        _mapController.move(_userLocation, 16.0);
+      } else {
+        await _retryLocate();
+      }
+    }
+  }
+
+  void _startLocationStream() {
+    _positionSubscription?.cancel();
+
+    const locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 5,
+    );
+
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen(
+      (position) {
+        if (!mounted) return;
+        setState(() {
+          _userLocation = LatLng(position.latitude, position.longitude);
+          _locationIsReal = true;
+          _gpsLocating = false;
+          _gpsFailed = false;
+        });
+      },
+      onError: (_) {
+        if (!mounted) return;
+        setState(() {
+          _gpsLocating = false;
+          _gpsFailed = !_locationIsReal;
+        });
+      },
+    );
   }
 
   void _showPermissionDeniedDialog() {
@@ -467,6 +566,17 @@ class _MapScreenState extends State<MapScreen>
 
   /// Handle evacuation center selection - Show routes
   Future<void> _onSelectCenter(EvacuationCenter center) async {
+    if (!_locationIsReal) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Waiting for current GPS fix. Please try again.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      _retryLocate();
+      return;
+    }
+
     if (_isOpeningRoutes) return;
     setState(() {
       _isOpeningRoutes = true;
@@ -1893,9 +2003,7 @@ class _MapScreenState extends State<MapScreen>
                   right: 16,
                   child: FloatingActionButton(
                     heroTag: 'recenter',
-                    onPressed: _locationIsReal
-                        ? () => _mapController.move(_userLocation, 16.0)
-                        : _retryLocate,
+                    onPressed: _recenterToCurrentLocation,
                     backgroundColor: Colors.white,
                     child: Icon(
                       _locationIsReal
