@@ -92,6 +92,7 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
           _centers = centers;
           _isLoading = false;
         });
+        _refreshRoadRiskLayerIfVisible();
       }
     } catch (e) {
       if (mounted) {
@@ -156,7 +157,13 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
   void _toggleRoadRiskLayer() {
     final newVal = !_showRoadRiskLayer;
     setState(() => _showRoadRiskLayer = newVal);
-    if (newVal && _riskSegments.isEmpty) {
+    if (newVal) {
+      _loadRoadRiskLayer();
+    }
+  }
+
+  void _refreshRoadRiskLayerIfVisible() {
+    if (_showRoadRiskLayer) {
       _loadRoadRiskLayer();
     }
   }

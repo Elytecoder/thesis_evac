@@ -95,22 +95,24 @@ PATH_DEFAULT_INFLUENCE_RADIUS = 60
 # Each type contributes a different increment to dynamic risk per nearby hazard.
 # road_blocked is highest because it physically blocks passage.
 HAZARD_TYPE_RISK_WEIGHT: dict = {
-    'flooded_road':              0.3,
-    'flood':                     0.3,
-    'fallen_tree':               0.2,
-    'road_damage':               0.3,
-    'fallen_electric_post':      0.4,
-    'fallen_electric_post_wires': 0.4,
-    'road_blocked':              0.7,   # also triggers full-block logic below
-    'bridge_damage':             0.5,
-    'storm_surge':               0.5,
-    'landslide':                 0.5,
-    'other':                     0.2,
+    'flooded_road':              0.45,
+    'flood':                     0.45,
+    'fallen_tree':               0.55,
+    'road_damage':               0.45,
+    'fallen_electric_post':      0.70,
+    'fallen_electric_post_wires': 0.75,
+    'road_blocked':              1.00,   # also triggers full-block logic below
+    'bridge_damage':             0.80,
+    'storm_surge':               0.70,
+    'landslide':                 0.70,
+    'other':                     0.35,
 }
-DEFAULT_HAZARD_RISK_WEIGHT = 0.2   # fallback for unknown types
+DEFAULT_HAZARD_RISK_WEIGHT = 0.35   # fallback for unknown types
 
 # ── Improvement 3: Road-block hazard types that force segment risk to 1.0 ──
 BLOCKING_HAZARD_TYPES = {'road_blocked', 'road_block'}
+ON_SEGMENT_BONUS_MULTIPLIER = 1.35
+MIN_APPROVED_HAZARD_IMPACT = 0.65
 
 
 def _hazard_type_weight(hazard_type: str) -> float:
@@ -139,7 +141,14 @@ def _hazard_routing_impact(hazard) -> float:
     """
     f = getattr(hazard, 'final_validation_score', None)
     if f is not None:
-        return max(0.0, min(1.0, _float(f)))
+        base = max(0.0, min(1.0, _float(f)))
+        # MDRRMO-approved hazards are verified by human review. Even if the
+        # original AI score was low (e.g., short description), route risk
+        # should not be suppressed below a practical minimum.
+        status_val = str(getattr(hazard, 'status', '') or '').lower()
+        if status_val == str(HazardReport.Status.APPROVED):
+            return max(base, MIN_APPROVED_HAZARD_IMPACT)
+        return base
     nb = getattr(hazard, 'naive_bayes_score', None)
     dw = getattr(hazard, 'distance_weight', None)
     cs = getattr(hazard, 'consensus_score', None)
@@ -250,7 +259,7 @@ def _hazard_segment_impact(
 
     # On-segment bonus: hazard projects directly onto this road stretch
     if on_segment:
-        decay = min(1.0, decay * 1.2)
+        decay *= ON_SEGMENT_BONUS_MULTIPLIER
 
     type_weight = _hazard_type_weight(ht)
     severity    = _hazard_routing_impact(hazard)

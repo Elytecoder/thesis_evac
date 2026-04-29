@@ -135,6 +135,7 @@ class _MapScreenState extends State<MapScreen>
       _loadHazardReports(),
       _loadNotificationCount(),
     ]);
+    _refreshRoadRiskLayerIfVisible();
   }
 
   /// Reload live data when connectivity is restored so the map stays current.
@@ -143,6 +144,7 @@ class _MapScreenState extends State<MapScreen>
       if (isOnline && mounted) {
         _loadEvacuationCenters();
         _loadHazardReports();
+        _refreshRoadRiskLayerIfVisible();
       }
     });
   }
@@ -154,6 +156,7 @@ class _MapScreenState extends State<MapScreen>
       if (mounted) {
         _loadHazardReports();
         _loadEvacuationCenters();
+        _refreshRoadRiskLayerIfVisible();
       }
     });
   }
@@ -215,6 +218,7 @@ class _MapScreenState extends State<MapScreen>
       if (mounted) {
         _loadHazardReports();
         _loadEvacuationCenters();
+        _refreshRoadRiskLayerIfVisible();
       }
     });
   }
@@ -227,6 +231,7 @@ class _MapScreenState extends State<MapScreen>
       _loadHazardReports();
       _loadEvacuationCenters();
       _loadNotificationCount();
+      _refreshRoadRiskLayerIfVisible();
       _startPolling();
     } else if (state == AppLifecycleState.paused) {
       _pollTimer?.cancel();
@@ -303,7 +308,13 @@ class _MapScreenState extends State<MapScreen>
   void _toggleRoadRiskLayer() {
     final newValue = !_showRoadRiskLayer;
     setState(() => _showRoadRiskLayer = newValue);
-    if (newValue && _roadRiskSegments.isEmpty) {
+    if (newValue) {
+      _loadRoadRiskLayer();
+    }
+  }
+
+  void _refreshRoadRiskLayerIfVisible() {
+    if (_showRoadRiskLayer) {
       _loadRoadRiskLayer();
     }
   }
