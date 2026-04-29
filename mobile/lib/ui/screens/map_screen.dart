@@ -65,6 +65,9 @@ class _MapScreenState extends State<MapScreen>
   // location-locating indicator instead of blocking the whole map).
   bool _gpsLocating = true;
   static const Duration _lastKnownMaxAge = Duration(minutes: 2);
+  bool _lowGpsPrecision = false;
+  double? _lastGpsAccuracyMeters;
+  static const double _lowPrecisionThresholdMeters = 50.0;
   List<EvacuationCenter> _evacuationCenters = [];
   
   // Selected center and routes
@@ -401,6 +404,7 @@ class _MapScreenState extends State<MapScreen>
           _locationIsReal = true;
           _gpsLocating = false;
           _gpsFailed = false;
+          _applyGpsQuality(position.accuracy);
         });
         _mapController.move(_userLocation, 16.0);
       }
@@ -460,6 +464,7 @@ class _MapScreenState extends State<MapScreen>
           _locationIsReal = true;
           _gpsLocating = false;
           _gpsFailed = false;
+          _applyGpsQuality(position.accuracy);
         });
         _mapController.move(_userLocation, 16.0);
       }
@@ -491,6 +496,7 @@ class _MapScreenState extends State<MapScreen>
         _userLocation = live;
         _locationIsReal = true;
         _gpsFailed = false;
+        _applyGpsQuality(position.accuracy);
       });
       _mapController.move(live, 16.0);
     } catch (_) {
@@ -521,6 +527,7 @@ class _MapScreenState extends State<MapScreen>
           _locationIsReal = true;
           _gpsLocating = false;
           _gpsFailed = false;
+          _applyGpsQuality(position.accuracy);
         });
       },
       onError: (_) {
@@ -531,6 +538,11 @@ class _MapScreenState extends State<MapScreen>
         });
       },
     );
+  }
+
+  void _applyGpsQuality(double accuracyMeters) {
+    _lastGpsAccuracyMeters = accuracyMeters;
+    _lowGpsPrecision = accuracyMeters > _lowPrecisionThresholdMeters;
   }
 
   void _showPermissionDeniedDialog() {
@@ -2071,6 +2083,40 @@ class _MapScreenState extends State<MapScreen>
                                 ),
                               ),
                             ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                if (_locationIsReal && _lowGpsPrecision && !_gpsLocating)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 96,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade700,
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          'Low GPS precision (~${_lastGpsAccuracyMeters?.toStringAsFixed(0) ?? "?"}m). Enable precise location.',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),

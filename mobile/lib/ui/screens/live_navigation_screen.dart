@@ -75,9 +75,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   // ── Streams ──────────────────────────────────────────────────────────────
   StreamSubscription<LatLng>? _locationSubscription;
   StreamSubscription<double>? _headingSubscription;
+  StreamSubscription<double>? _accuracySubscription;
 
   // ── Distance tracking ────────────────────────────────────────────────────
   double _distanceToNextStep = 0.0;
+  bool _lowGpsPrecision = false;
+  double? _lastGpsAccuracyMeters;
+  static const double _lowPrecisionThresholdMeters = 50.0;
 
   // ── Animation controllers ────────────────────────────────────────────────
   late AnimationController _pulseController;
@@ -192,6 +196,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
       // Listen to heading updates for real-time arrow rotation
       _headingSubscription = _gpsService.headingStream.listen((heading) {
         if (mounted) setState(() => _currentBearing = heading);
+      });
+
+      _accuracySubscription = _gpsService.accuracyStream.listen((accuracy) {
+        if (!mounted) return;
+        setState(() {
+          _lastGpsAccuracyMeters = accuracy;
+          _lowGpsPrecision = accuracy > _lowPrecisionThresholdMeters;
+        });
       });
 
       // Seed the first visible location quickly so marker/recenter use a fresh
@@ -1010,6 +1022,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void dispose() {
     _locationSubscription?.cancel();
     _headingSubscription?.cancel();
+    _accuracySubscription?.cancel();
     _cameraUpdateTimer?.cancel();
     _pulseController.dispose();
     _positionController.dispose();
@@ -1103,6 +1116,45 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
             // Rerouting indicator — _buildReroutingIndicator() returns a
             // Positioned directly, so it must be a direct Stack child.
             if (_isRerouting) _buildReroutingIndicator(),
+
+            if (_lowGpsPrecision)
+              Positioned(
+                top: 100,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: Center(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade700,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        'Low GPS precision (~${_lastGpsAccuracyMeters?.toStringAsFixed(0) ?? "?"}m). Enable precise location.',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
 
             // Destination info banner — always visible at bottom
             Positioned(

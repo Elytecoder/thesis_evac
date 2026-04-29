@@ -22,6 +22,8 @@ class GPSTrackingService {
       StreamController<LatLng>.broadcast();
   final StreamController<double> _headingController =
       StreamController<double>.broadcast();
+  final StreamController<double> _accuracyController =
+      StreamController<double>.broadcast();
 
   /// Stream of user locations (throttled).
   Stream<LatLng> get locationStream => _locationController.stream;
@@ -29,6 +31,7 @@ class GPSTrackingService {
   /// Stream of fused heading in degrees [0, 360).
   /// Magnetometer-driven at rest; blends GPS course bearing when moving.
   Stream<double> get headingStream => _headingController.stream;
+  Stream<double> get accuracyStream => _accuracyController.stream;
 
   LatLng? _lastLocation;
   LatLng? get lastLocation => _lastLocation;
@@ -169,6 +172,7 @@ class GPSTrackingService {
         }
         _lastEmittedAt = now;
         _locationController.add(location);
+        _accuracyController.add(position.accuracy);
 
         print(
           '📍 GPS: ${position.latitude.toStringAsFixed(5)}, '
@@ -301,5 +305,6 @@ class GPSTrackingService {
     stopTracking();
     _locationController.close();
     _headingController.close();
+    _accuracyController.close();
   }
 }
