@@ -452,7 +452,7 @@ def _compute_segment_rf_features(segment, approved_hazards: list) -> dict:
     return counts
 
 
-def recompute_all_segment_risks():
+def recompute_all_segment_risks(force: bool = True):
     """
     Force-recompute predicted_risk_score for every road segment using the RF model.
 
@@ -462,7 +462,7 @@ def recompute_all_segment_risks():
     # Using synthetic training data (temporary)
     # Replace with MDRRMO historical data when available
     """
-    _ensure_segment_risk_scores(force=True)
+    _ensure_segment_risk_scores(force=force)
 
 
 def _ensure_segment_risk_scores(force: bool = False):
