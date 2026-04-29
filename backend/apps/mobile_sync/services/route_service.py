@@ -909,24 +909,6 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
             seen_path_keys.add(key)
             routes.append(r)
 
-    # ── Second-layer practical distance filter ────────────────────────────────
-    # Dijkstra already filters inside dijkstra_k_routes, but shortest_routes is
-    # added separately and needs its own check against the combined minimum.
-    _PRACTICAL_RATIO = 1.5
-    if routes:
-        min_dist_m = min(r.get('total_distance') or 0.0 for r in routes)
-        if min_dist_m > 0:
-            max_dist_m = min_dist_m * _PRACTICAL_RATIO
-            before_count = len(routes)
-            routes = [r for r in routes if (r.get('total_distance') or 0.0) <= max_dist_m]
-            rejected = before_count - len(routes)
-            if rejected:
-                print(
-                    f'[ROUTE_FILTER] Removed {rejected} impractical route(s): '
-                    f'min_dist={min_dist_m:.0f}m, limit={max_dist_m:.0f}m '
-                    f'({_PRACTICAL_RATIO}× ratio)'
-                )
-
     start_lat_f = float(start_lat)
     start_lng_f = float(start_lng)
 
@@ -988,21 +970,6 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         r['contributing_factors'] = _build_contributing_factors(hazards_on_route)
         r['explanation'] = _build_route_explanation(hazards_on_route, tr)
 
-    # ── Per-route diagnostic log ────────────────────────────────────────────
-    print(f'[ROUTE_AUDIT] {len(routes)} practical route(s) returned for ec_id={ec.id}')
-    for idx, r in enumerate(routes):
-        print(
-            f'[ROUTE_AUDIT] route_index={idx} '
-            f'total_distance={r.get("total_distance", 0):.0f}m '
-            f'total_risk={r.get("total_risk", 0):.4f} '
-            f'risk_level={r.get("risk_level", "?")} '
-            f'nodes={len(r.get("path_keys", []))} '
-            f'hazards_on_route={len(r.get("hazards_along_route") or [])} '
-            f'weight={r.get("weight", 0):.1f}'
-        )
-
-    only_one_practical_route = len(routes) == 1
-
     high_risk_routes = [r for r in routes if _float(r.get('total_risk')) >= HIGH_RISK_THRESHOLD]
     if not routes:
         no_safe_route = True
@@ -1014,7 +981,7 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         recommended_action = 'Try another evacuation center or wait for conditions to improve.'
     else:
         no_safe_route = False
-        message = 'Only one practical safe route found.' if only_one_practical_route else None
+        message = None
         recommended_action = None
     alternative_centers = []
     if no_safe_route and include_alternative_centers:
@@ -1027,7 +994,6 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         'evacuation_center_name': ec.name,
         'routes': routes,
         'no_safe_route': no_safe_route,
-        'only_one_practical_route': only_one_practical_route,
         'message': message,
         'recommended_action': recommended_action,
         'alternative_centers': alternative_centers,

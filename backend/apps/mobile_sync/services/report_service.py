@@ -277,6 +277,7 @@ def process_new_report(
         'description_category': desc_bucket,
         # Consensus details
         'nearby_count': nearby,
+        'nearby_raw_reports': support.nearby_raw_reports,
         'nearby_unique_user_count': support.nearby_unique_user_count,
         'nearby_cluster_count': support.nearby_cluster_count,
         'nearby_category': nearby_category,

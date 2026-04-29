@@ -30,7 +30,6 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
   List<app_route.Route>? _routes;
   bool _isLoading = true;
   bool _noSafeRouteModalDismissed = false;
-  bool _onlyOnePracticalRoute = false;
 
   // Prevents double-tap: tracks which route card is currently being opened.
   int? _openingRouteIndex;
@@ -87,7 +86,6 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
         setState(() {
           _routes = result.routes;
           _isLoading = false;
-          _onlyOnePracticalRoute = result.onlyOnePracticalRoute;
         });
         if (result.noSafeRoute && !_noSafeRouteModalDismissed) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _showNoSafeRouteModal(result));
@@ -350,32 +348,6 @@ class _RoutesSelectionScreenState extends State<RoutesSelectionScreen>
                     ],
                   ),
                 ),
-
-                if (_onlyOnePracticalRoute) ...[
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.blue[50],
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.blue.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline, size: 18, color: Colors.blue[700]),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Only one practical safe route found. Alternative routes were too long and have been hidden.',
-                              style: TextStyle(fontSize: 12, color: Colors.blue[900]),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
 
                 const SizedBox(height: 16),
 

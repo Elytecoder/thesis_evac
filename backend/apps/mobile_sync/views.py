@@ -9,7 +9,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
+import logging
 import threading
+
+_log = logging.getLogger(__name__)
 
 from apps.hazards import hazard_media
 from core.permissions.mdrrmo import IsMDRRMO
@@ -626,24 +629,29 @@ def mdrrmo_approve_report(request):
     
     if action == 'approve':
         report.status = HazardReport.Status.APPROVED
-        
-        # Create notification for resident
-        Notification.create_notification(
-            user=report.user,
-            notification_type=Notification.Type.REPORT_APPROVED,
-            title='Report Approved',
-            message=f'Your hazard report about {report.hazard_type} has been approved by MDRRMO.',
-            related_object_type='HazardReport',
-            related_object_id=report.id,
-            metadata={
-                'hazard_type': report.hazard_type,
-                'latitude': str(report.latitude),
-                'longitude': str(report.longitude),
-            }
-        )
-        # Push to resident device
+        if admin_comment:
+            report.admin_comment = admin_comment
+        report.save()
+
+        # Notify resident — non-critical; approval is already committed above.
+        try:
+            Notification.create_notification(
+                user=report.user,
+                notification_type=Notification.Type.REPORT_APPROVED,
+                title='Report Approved',
+                message=f'Your hazard report about {report.hazard_type} has been approved by MDRRMO.',
+                related_object_type='HazardReport',
+                related_object_id=report.id,
+                metadata={
+                    'hazard_type': report.hazard_type,
+                    'latitude': str(report.latitude),
+                    'longitude': str(report.longitude),
+                }
+            )
+        except Exception as _exc:
+            _log.warning('Could not create approval notification for report %s: %s', report.id, _exc)  # noqa: E501
+
         if report.user.fcm_token:
-            hazard_label = report.hazard_type.replace('_', ' ').title()
             fcm_service.send_push(
                 token=report.user.fcm_token,
                 title='Report Approved',
@@ -655,24 +663,28 @@ def mdrrmo_approve_report(request):
                 },
             )
     else:
+        if admin_comment:
+            report.admin_comment = admin_comment
         report.mark_rejected()
-        
-        # Create notification for resident
-        Notification.create_notification(
-            user=report.user,
-            notification_type=Notification.Type.REPORT_REJECTED,
-            title='Report Rejected',
-            message=f'Your hazard report about {report.hazard_type} was rejected after verification.',
-            related_object_type='HazardReport',
-            related_object_id=report.id,
-            metadata={
-                'hazard_type': report.hazard_type,
-                'reason': admin_comment if admin_comment else 'Did not meet validation criteria',
-            }
-        )
-        # Push to resident device
+
+        # Notify resident — non-critical; rejection is already committed above.
+        try:
+            Notification.create_notification(
+                user=report.user,
+                notification_type=Notification.Type.REPORT_REJECTED,
+                title='Report Rejected',
+                message=f'Your hazard report about {report.hazard_type} was rejected after verification.',
+                related_object_type='HazardReport',
+                related_object_id=report.id,
+                metadata={
+                    'hazard_type': report.hazard_type,
+                    'reason': admin_comment if admin_comment else 'Did not meet validation criteria',
+                }
+            )
+        except Exception as _exc:
+            _log.warning('Could not create rejection notification for report %s: %s', report.id, _exc)  # noqa: E501
+
         if report.user.fcm_token:
-            hazard_label = report.hazard_type.replace('_', ' ').title()
             fcm_service.send_push(
                 token=report.user.fcm_token,
                 title='Report Rejected',
@@ -683,11 +695,6 @@ def mdrrmo_approve_report(request):
                     'report_id': str(report.id),
                 },
             )
-    
-    if admin_comment:
-        report.admin_comment = admin_comment
-    
-    report.save()
 
     # Synchronously refresh segment risks BEFORE returning the response so
     # the very next route request sees up-to-date risk scores (zero stale window).

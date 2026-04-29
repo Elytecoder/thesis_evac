@@ -42,50 +42,14 @@ class RiskAwareRoutingService {
         .map((p) => LatLng(p.latitude, p.longitude))
         .toList();
 
-    if (polyline.isEmpty) {
-      throw Exception('Backend route polyline is empty');
-    }
-
-    print('📍 Building navigation from backend route with ${polyline.length} points');
-
     // Try OSRM turn instructions (start → destination, road-snapped).
     List<NavigationStep> steps;
     try {
-      print('⏳ Fetching OSRM turn instructions...');
       steps = await _getOsrmStepsOnly(polyline.first, destination);
-      print('✅ OSRM turn instructions obtained (${steps.length} steps) for backend route');
+      print('✅ OSRM turn instructions obtained for backend route');
     } catch (e) {
-      print('⚠️ OSRM steps unavailable ($e) — generating from polyline bearing');
-      try {
-        steps = _generateStepsFromPolyline(polyline);
-        print('✅ Generated ${steps.length} steps from polyline bearing analysis');
-      } catch (fallbackError) {
-        print('❌ Polyline bearing analysis failed: $fallbackError');
-        // Last resort: create a simple start-end step
-        steps = [
-          NavigationStep(
-            instruction: 'Head towards evacuation center',
-            maneuver: 'straight',
-            distanceToNext: 0,
-            latitude: polyline.first.latitude,
-            longitude: polyline.first.longitude,
-            stepIndex: 0,
-          ),
-          NavigationStep(
-            instruction: 'Arrive at evacuation center',
-            maneuver: 'arrive',
-            distanceToNext: 0,
-            latitude: polyline.last.latitude,
-            longitude: polyline.last.longitude,
-            stepIndex: 1,
-          ),
-        ];
-        print('⚠️ Using minimal fallback steps (2 steps)');
-      }
-    }
-
-    if (steps.isEmpty) {
-      throw Exception('Failed to generate any navigation steps');
+      print('⚠️ OSRM steps unavailable — generating from polyline bearing: $e');
+      steps = _generateStepsFromPolyline(polyline);
     }
 
     final segments = _buildSegmentsFromBackendRoute(backendRoute, polyline);
@@ -96,7 +60,7 @@ class RiskAwareRoutingService {
         ? (backendRoute.totalDistance / 1.4).round()
         : 0;
 
-    final navigationRoute = NavigationRoute(
+    return NavigationRoute(
       polyline: polyline,
       segments: segments,
       steps: steps,
@@ -105,9 +69,6 @@ class RiskAwareRoutingService {
       overallRiskLevel: overallRiskLevel,
       estimatedTimeSeconds: estimatedSeconds,
     );
-
-    print('✅ NavigationRoute created: ${navigationRoute.polyline.length} polyline points, ${navigationRoute.steps.length} steps');
-    return navigationRoute;
   }
 
   // ── OSRM: turn instructions only (no route geometry used) ────────────────
@@ -123,43 +84,26 @@ class RiskAwareRoutingService {
         '${destination.longitude},${destination.latitude}'
         '?alternatives=false&geometries=geojson&overview=false&steps=true';
 
-    print('🌐 OSRM request: $url');
+    final response = await http.get(Uri.parse(url)).timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => throw Exception('OSRM request timed out'),
+    );
 
-    try {
-      final response = await http.get(Uri.parse(url)).timeout(
-        const Duration(seconds: 15),
-        onTimeout: () => throw Exception('OSRM request timed out after 15s'),
-      );
-
-      print('📡 OSRM response status: ${response.statusCode}');
-
-      if (response.statusCode != 200) {
-        throw Exception('OSRM API error: HTTP ${response.statusCode}');
-      }
-      
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      print('🔍 OSRM response code: ${data['code']}');
-      
-      if (data['code'] != 'Ok') {
-        throw Exception('OSRM routing failed: ${data['code']}');
-      }
-
-      final routesList = data['routes'] as List?;
-      if (routesList == null || routesList.isEmpty) {
-        throw Exception('OSRM returned no routes');
-      }
-      
-      final route = routesList[0];
-      final legs = route['legs'] as List;
-      print('📊 OSRM legs: ${legs.length}');
-      
-      final steps = _parseOsrmLegsToSteps(legs);
-      print('✅ Parsed ${steps.length} steps from OSRM');
-      return steps;
-    } catch (e) {
-      print('❌ OSRM error: $e');
-      rethrow;
+    if (response.statusCode != 200) {
+      throw Exception('OSRM API error: ${response.statusCode}');
     }
+    final data = json.decode(response.body) as Map<String, dynamic>;
+    if (data['code'] != 'Ok') {
+      throw Exception('OSRM routing failed: ${data['code']}');
+    }
+
+    final routesList = data['routes'] as List?;
+    if (routesList == null || routesList.isEmpty) {
+      throw Exception('OSRM returned no routes');
+    }
+    final route = routesList[0];
+    final legs = route['legs'] as List;
+    return _parseOsrmLegsToSteps(legs);
   }
 
   /// Parse OSRM legs into [NavigationStep] list (shared by both code paths).

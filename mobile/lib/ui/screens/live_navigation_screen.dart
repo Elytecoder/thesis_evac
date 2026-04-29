@@ -206,12 +206,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         });
       });
 
-      // Reveal the map FIRST so FlutterMap is rendered and MapController is
-      // attached before any _mapController.move() call.
-      setState(() {
-        _isLoading = false;
-      });
-
       // Seed the first visible location quickly so marker/recenter use a fresh
       // fix even before the continuous stream emits.
       final firstFix = await _gpsService.getCurrentLocation();
@@ -222,13 +216,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _mapController.move(firstFix, 17.0);
       }
 
+      setState(() {
+        _isLoading = false;
+      });
+
       _navigationStartTime = DateTime.now();
 
       // Start smooth camera updates
       _startCameraUpdates();
     } catch (e) {
       debugPrint('Navigation initialization failed: $e');
-      if (mounted) setState(() => _isLoading = false);
       _showError('Failed to start navigation: $e');
     }
   }
