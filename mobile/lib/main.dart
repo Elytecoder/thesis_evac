@@ -1,5 +1,6 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'core/app_keys.dart';
 import 'core/network/api_client.dart';
@@ -16,19 +17,32 @@ import 'ui/screens/welcome_screen.dart';
 /// 1. Welcome Screen (app features + Login/Register button)
 /// 2. Login or Register Screen
 /// 3. Map Screen (after successful auth)
+bool _firebaseEnabled = false;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Hive for offline storage
   await StorageService.initialize();
 
-  // Initialize Firebase (required before any firebase_messaging calls).
-  // If google-services.json is missing, this throws at startup — that is the
-  // intended failure mode so the developer knows the file needs to be added.
-  await Firebase.initializeApp();
+  // Initialize Firebase for push notifications.
+  // Web requires explicit FirebaseOptions; if missing, run the app without push
+  // instead of crashing to a white screen.
+  try {
+    await Firebase.initializeApp();
+    _firebaseEnabled = true;
+  } catch (e) {
+    _firebaseEnabled = false;
+    debugPrint('Firebase init skipped: $e');
+    if (!kIsWeb) {
+      rethrow;
+    }
+  }
 
-  // Register the background message handler BEFORE calling requestPermission.
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  // Background handler is only relevant for non-web platforms.
+  if (_firebaseEnabled && !kIsWeb) {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  }
 
   // Start listening for connectivity changes so queued reports are automatically
   // synced when the device comes back online.
@@ -69,7 +83,9 @@ class _EvacuationAppState extends State<EvacuationApp> {
     // Initialize push notifications after the first frame so the navigator
     // key is attached and navigation from notification taps works correctly.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationService.initialize();
+      if (_firebaseEnabled) {
+        NotificationService.initialize();
+      }
     });
   }
 

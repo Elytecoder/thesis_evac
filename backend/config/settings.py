@@ -177,6 +177,12 @@ else:
         for o in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
         if o.strip()
     ]
+    # Allow local Flutter web dev servers in production testing
+    # (e.g. http://localhost:59512, http://127.0.0.1:12345).
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^https?://localhost(:\d+)?$",
+        r"^https?://127\.0\.0\.1(:\d+)?$",
+    ]
 
 CORS_ALLOW_CREDENTIALS = True
 
