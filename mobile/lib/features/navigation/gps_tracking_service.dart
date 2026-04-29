@@ -50,6 +50,15 @@ class GPSTrackingService {
   /// Latest GPS course bearing (direction of travel), degrees.
   double? _gpsCourseBearing;
 
+  /// Bearing derived from consecutive GPS position fixes.
+  /// Computed whenever the device moves >= [_minBearingDistM] between two fixes.
+  /// Hardware-independent — works on all devices regardless of compass quality.
+  double? _gpsPosBearing;
+  LatLng? _prevGpsLocation;
+
+  /// Minimum movement (m) between GPS fixes to compute a reliable position bearing.
+  static const double _minBearingDistM = 3.0;
+
   /// Smoothed heading value currently emitted to the UI.
   double? _smoothedHeading;
 
@@ -160,6 +169,23 @@ class GPSTrackingService {
           _gpsCourseBearing = position.heading;
         }
 
+        // Compute bearing from consecutive GPS positions (hardware-independent).
+        // Only update when device has moved enough to get a reliable direction.
+        if (_prevGpsLocation != null) {
+          final dist = Geolocator.distanceBetween(
+            _prevGpsLocation!.latitude, _prevGpsLocation!.longitude,
+            position.latitude, position.longitude,
+          );
+          if (dist >= _minBearingDistM) {
+            final raw = Geolocator.bearingBetween(
+              _prevGpsLocation!.latitude, _prevGpsLocation!.longitude,
+              position.latitude, position.longitude,
+            );
+            _gpsPosBearing = (raw % 360 + 360) % 360;
+          }
+        }
+        _prevGpsLocation = location;
+
         // Re-compute fused heading whenever GPS fires (catches movement starts).
         _updateFusedHeading();
 
@@ -188,30 +214,43 @@ class GPSTrackingService {
 
   /// Compute the fused heading and emit it if it changed enough.
   ///
-  /// Fusion logic:
-  ///   - At rest (speed < threshold)  →  pure compass heading.
-  ///   - While moving (speed ≥ threshold) →  blend compass (70%) + GPS course (30%).
-  ///     GPS course is more reliable at higher speeds; compass gives instant
-  ///     response to phone rotations.
+  /// Fusion priority (GPS-primary — works even when compass is unreliable):
+  ///   1. Moving (speed ≥ threshold):
+  ///      a. Position bearing (prev→curr GPS fix) — most reliable, hardware-independent.
+  ///      b. Blend with GPS course bearing (chipset Doppler) and compass supplement.
+  ///   2. Stationary: compass if available, else hold last known bearing.
   void _updateFusedHeading() {
     double? raw;
 
-    if (_compassHeading != null) {
-      if (_gpsSpeed >= _gpsBlendThresholdMs && _gpsCourseBearing != null) {
-        // Blend: weighted circular average.
+    final isMoving = _gpsSpeed >= _gpsBlendThresholdMs;
+
+    if (isMoving) {
+      // Best GPS-based bearing: prefer position-derived, fall back to chipset course.
+      final gpsBearing = _gpsPosBearing ?? _gpsCourseBearing;
+
+      if (gpsBearing != null && _compassHeading != null) {
+        // GPS primary (0.85) + compass supplement (0.15).
         raw = _circularWeightedAverage(
+          gpsBearing,
           _compassHeading!,
-          _gpsCourseBearing!,
-          weightA: 0.7, // compass weight
-          weightB: 0.3, // GPS course weight
+          weightA: 0.85,
+          weightB: 0.15,
         );
-      } else {
-        // Stationary or no GPS course: pure compass.
+      } else if (gpsBearing != null) {
+        // No compass (or unreliable): pure GPS bearing.
+        raw = gpsBearing;
+      } else if (_compassHeading != null) {
+        // No GPS bearing yet: fall back to compass.
         raw = _compassHeading!;
       }
-    } else if (_gpsCourseBearing != null && _gpsSpeed >= _gpsBlendThresholdMs) {
-      // No compass available: fall back to GPS course when moving.
-      raw = _gpsCourseBearing!;
+    } else {
+      // Stationary: compass if available; otherwise hold last bearing (don't emit).
+      if (_compassHeading != null) {
+        raw = _compassHeading!;
+      } else if (_gpsPosBearing != null) {
+        // Keep the last travel direction visible when stopped.
+        raw = _gpsPosBearing!;
+      }
     }
 
     if (raw == null) return;

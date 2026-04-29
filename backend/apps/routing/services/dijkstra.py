@@ -133,7 +133,13 @@ class ModifiedDijkstraService:
 
     # Penalty added to each edge of a previously used path so next run prefers different edges.
     # Applied only at query time via edge_penalty dict; graph/segments are never mutated → no reset needed.
-    PENALTY_VALUE = 500.0
+    # Value = 50 (10 % of risk_multiplier=500): a penalised edge costs roughly 2× its distance,
+    # not 11×.  This creates genuine route diversification without forcing extreme detours.
+    PENALTY_VALUE = 50.0
+
+    # Alternative routes are rejected if their total_distance exceeds this ratio × the first
+    # (shortest-distance) route.  Keeps Route 2 / 3 geographically practical.
+    MAX_ROUTE_DISTANCE_RATIO = 1.5
 
     def dijkstra_k_routes(
         self,
@@ -171,6 +177,28 @@ class ModifiedDijkstraService:
             for e in self._path_edges(best['path_keys']):
                 edge_penalty[e] = self.PENALTY_VALUE
         # 5) No reset needed: graph was never mutated; edge_penalty is local to this call.
+
+        # 7) PRACTICAL ROUTE FILTER: drop alternatives whose total_distance exceeds
+        #    MAX_ROUTE_DISTANCE_RATIO × the first route's distance.  Prevents Dijkstra
+        #    from surfacing extreme detours caused by heavy edge penalties.
+        if routes:
+            baseline_dist = routes[0]['total_distance']
+            max_allowed = baseline_dist * self.MAX_ROUTE_DISTANCE_RATIO
+            filtered = [routes[0]]  # always keep the first (shortest-cost) route
+            for r in routes[1:]:
+                if r['total_distance'] <= max_allowed:
+                    filtered.append(r)
+                else:
+                    import sys
+                    print(
+                        f'[DIJKSTRA] Rejected route: dist={r["total_distance"]:.0f}m '
+                        f'> {self.MAX_ROUTE_DISTANCE_RATIO}× baseline {baseline_dist:.0f}m '
+                        f'({max_allowed:.0f}m limit). '
+                        f'Path nodes: {len(r["path_keys"])}.',
+                        file=sys.stderr,
+                    )
+            routes = filtered
+
         return routes
 
     def _risk_level(self, total_risk: float) -> str:

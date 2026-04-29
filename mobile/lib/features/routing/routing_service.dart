@@ -157,6 +157,7 @@ class RoutingService {
       final routes = routesJson.map((json) => Route.fromJson(json)).toList();
 
       final noSafeRoute = (data['no_safe_route'] as bool?) ?? false;
+      final onlyOnePracticalRoute = (data['only_one_practical_route'] as bool?) ?? false;
       final message = data['message'] as String?;
       final recommendedAction = data['recommended_action'] as String?;
       final altRaw = data['alternative_centers'];
@@ -175,6 +176,7 @@ class RoutingService {
       return RouteCalculationResult(
         routes: routes,
         noSafeRoute: noSafeRoute,
+        onlyOnePracticalRoute: onlyOnePracticalRoute,
         message: message,
         recommendedAction: recommendedAction,
         alternativeCenters: alternativeCenters,

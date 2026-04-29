@@ -228,6 +228,15 @@ class _MapScreenState extends State<MapScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
+      print('📱 App resumed, refreshing location and data...');
+      // If location is not real yet, try to get it again (user might have granted permission)
+      if (!_locationIsReal) {
+        print('⏳ No real location yet, retrying on resume...');
+        _retryLocate();
+      } else {
+        // Location already available, just refresh the data
+        _recenterToCurrentLocation();
+      }
       _loadHazardReports();
       _loadEvacuationCenters();
       _loadNotificationCount();
@@ -343,14 +352,18 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Future<void> _initializeMap() async {
+    print('🗺️  Initializing map location...');
+    
     // ── STEP 0: Ensure location services are actually ON ─────────────────────
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    print('📡 Location service enabled: $serviceEnabled');
     if (!serviceEnabled) {
       if (!mounted) return;
       setState(() {
         _gpsLocating = false;
         _gpsFailed = true;
       });
+      print('❌ Location service is disabled');
       return;
     }
 
@@ -361,10 +374,12 @@ class _MapScreenState extends State<MapScreen>
     if (!kIsWeb) {
       try {
         final lastKnown = await Geolocator.getLastKnownPosition();
+        print('📍 Last known position: ${lastKnown?.latitude}, ${lastKnown?.longitude}');
         final ts = lastKnown?.timestamp;
         final isFresh =
             ts != null && DateTime.now().difference(ts) <= _lastKnownMaxAge;
         if (lastKnown != null && isFresh && mounted) {
+          print('✅ Using fresh last-known position');
           _pulseController.stop();
           setState(() {
             _userLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
@@ -375,8 +390,9 @@ class _MapScreenState extends State<MapScreen>
             if (mounted) _mapController.move(_userLocation, 16.0);
           });
         }
-        _startLocationStream();
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️  Error getting last known position: $e');
+      }
     }
 
     // ── STEP 2: Permission check (native only) ───────────────────────────────
@@ -387,14 +403,20 @@ class _MapScreenState extends State<MapScreen>
     // "permission denied" before the user has even been asked.
     if (!kIsWeb) {
       LocationPermission permission = await Geolocator.checkPermission();
+      print('🔐 Location permission: $permission');
       if (permission == LocationPermission.denied) {
+        print('⏳ Requesting location permission...');
         permission = await Geolocator.requestPermission();
+        print('🔐 Permission result: $permission');
       }
       if (permission == LocationPermission.deniedForever ||
           permission == LocationPermission.denied) {
         if (!mounted) return;
+        print('❌ Location permission denied');
         setState(() => _gpsLocating = false);
         _showPermissionDeniedDialog();
+        // Still start the location stream in case permission is granted later
+        _startLocationStream();
         return;
       }
     }
@@ -405,10 +427,12 @@ class _MapScreenState extends State<MapScreen>
     final timeout =
         kIsWeb ? const Duration(seconds: 20) : const Duration(seconds: 8);
     try {
+      print('⏳ Fetching current GPS position (timeout: ${timeout.inSeconds}s)...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       ).timeout(timeout);
 
+      print('✅ Got current position: ${position.latitude}, ${position.longitude} (accuracy: ${position.accuracy}m)');
       if (mounted) {
         _pulseController.stop();
         setState(() {
@@ -418,13 +442,15 @@ class _MapScreenState extends State<MapScreen>
           _gpsFailed = false;
           _applyGpsQuality(position.accuracy);
         });
-        _mapController.move(_userLocation, 16.0);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _mapController.move(_userLocation, 16.0);
+        });
       }
-      _startLocationStream();
-    } catch (_) {
+    } catch (e) {
       // Timed out or failed. Only show the retry banner if we have no real
       // position at all — if last-known position already placed the marker,
       // just clear the locating indicator silently.
+      print('⚠️  Failed to get current position: $e');
       if (mounted) setState(() {
         _gpsLocating = false;
         _gpsFailed = !_locationIsReal;
@@ -432,9 +458,10 @@ class _MapScreenState extends State<MapScreen>
     }
 
     // ── STEP 4: Start continuous GPS updates so marker stays accurate ───────
+    print('📡 Starting location stream...');
     _startLocationStream();
 
-    // ── STEP 5: Honour notification deep-link focus ──────────────────────────
+    // ── STEP 5: Honour notification deep-link focus ──––––––––––––––––––––––
     if (mounted) {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool('map_should_focus') == true) {
@@ -447,6 +474,7 @@ class _MapScreenState extends State<MapScreen>
   Future<void> _retryLocate() async {
     if (_gpsLocating) return; // already in progress
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    print('📡 Retry locate - Location service enabled: $serviceEnabled');
     if (!serviceEnabled) {
       if (!mounted) return;
       setState(() {
@@ -466,10 +494,12 @@ class _MapScreenState extends State<MapScreen>
     final timeout =
         kIsWeb ? const Duration(seconds: 20) : const Duration(seconds: 8);
     try {
+      print('⏳ Retrying GPS position fetch...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       ).timeout(timeout);
 
+      print('✅ Retry successful: ${position.latitude}, ${position.longitude}');
       if (mounted) {
         _pulseController.stop();
         setState(() {
@@ -482,7 +512,8 @@ class _MapScreenState extends State<MapScreen>
         _mapController.move(_userLocation, 16.0);
       }
       _startLocationStream();
-    } catch (_) {
+    } catch (e) {
+      print('❌ Retry failed: $e');
       if (mounted) {
         setState(() {
           _gpsLocating = false;
@@ -494,17 +525,20 @@ class _MapScreenState extends State<MapScreen>
 
   Future<void> _recenterToCurrentLocation() async {
     if (!_locationIsReal) {
+      print('⚠️  No real location yet, retrying...');
       await _retryLocate();
       return;
     }
 
     try {
+      print('📍 Recentering to current location...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.bestForNavigation,
       ).timeout(const Duration(seconds: 6));
       if (!mounted) return;
 
       final live = LatLng(position.latitude, position.longitude);
+      print('✅ Recentered to: ${live.latitude}, ${live.longitude}');
       setState(() {
         _userLocation = live;
         _locationIsReal = true;
@@ -512,7 +546,8 @@ class _MapScreenState extends State<MapScreen>
         _applyGpsQuality(position.accuracy);
       });
       _mapController.move(live, 16.0);
-    } catch (_) {
+    } catch (e) {
+      print('⚠️  Recenter failed: $e');
       // Fall back to the latest stream-provided location if one-shot fix fails.
       if (_locationIsReal) {
         _mapController.move(_userLocation, 16.0);
@@ -530,27 +565,39 @@ class _MapScreenState extends State<MapScreen>
       distanceFilter: 5,
     );
 
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen(
-      (position) {
-        if (!mounted) return;
-        setState(() {
-          _userLocation = LatLng(position.latitude, position.longitude);
-          _locationIsReal = true;
-          _gpsLocating = false;
-          _gpsFailed = false;
-          _applyGpsQuality(position.accuracy);
-        });
-      },
-      onError: (_) {
-        if (!mounted) return;
-        setState(() {
-          _gpsLocating = false;
-          _gpsFailed = !_locationIsReal;
-        });
-      },
-    );
+    try {
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: locationSettings,
+      ).listen(
+        (position) {
+          if (!mounted) return;
+          print('📍 Location stream update: ${position.latitude}, ${position.longitude}');
+          setState(() {
+            _userLocation = LatLng(position.latitude, position.longitude);
+            _locationIsReal = true;
+            _gpsLocating = false;
+            _gpsFailed = false;
+            _applyGpsQuality(position.accuracy);
+          });
+        },
+        onError: (error) {
+          print('❌ Location stream error: $error');
+          if (!mounted) return;
+          setState(() {
+            _gpsLocating = false;
+            _gpsFailed = !_locationIsReal;
+          });
+        },
+        cancelOnError: false, // Continue listening even if there's an error
+      );
+    } catch (e) {
+      print('❌ Failed to start location stream: $e');
+      if (!mounted) return;
+      setState(() {
+        _gpsLocating = false;
+        _gpsFailed = !_locationIsReal;
+      });
+    }
   }
 
   void _applyGpsQuality(double accuracyMeters) {
@@ -561,20 +608,30 @@ class _MapScreenState extends State<MapScreen>
   void _showPermissionDeniedDialog() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Location Permission Required'),
         content: const Text(
-          'This app needs location permission to show your current position and calculate evacuation routes.',
+          'This app needs location permission to show your current position and calculate evacuation routes.\n\nPlease grant location access in your device settings.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: const Text('Later'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              Geolocator.openAppSettings();
+              print('🔓 Opening app settings...');
+              Geolocator.openAppSettings().then((_) {
+                print('📱 Returned from app settings, retrying location...');
+                // Retry location after user returns from settings
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  if (mounted) {
+                    _retryLocate();
+                  }
+                });
+              });
             },
             child: const Text('Open Settings'),
           ),

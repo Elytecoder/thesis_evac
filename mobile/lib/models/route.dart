@@ -78,6 +78,7 @@ class RoadRiskSegment {
 class RouteCalculationResult {
   final List<Route> routes;
   final bool noSafeRoute;
+  final bool onlyOnePracticalRoute;
   final String? message;
   final String? recommendedAction;
   final List<AlternativeCenter> alternativeCenters;
@@ -86,6 +87,7 @@ class RouteCalculationResult {
   RouteCalculationResult({
     required this.routes,
     this.noSafeRoute = false,
+    this.onlyOnePracticalRoute = false,
     this.message,
     this.recommendedAction,
     this.alternativeCenters = const [],
