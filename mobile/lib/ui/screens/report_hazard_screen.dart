@@ -275,12 +275,16 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       }
 
       // STEP 1: Check for similar pending reports
-      final similarReports = await _hazardService.checkSimilarReports(
+      final similarResult = await _hazardService.checkSimilarReportsWithMeta(
         hazardType: _selectedHazardType,
         latitude: widget.location.latitude,
         longitude: widget.location.longitude,
         radiusMeters: 150.0,
       );
+      final similarReports = (similarResult['similar_reports']
+              as List<Map<String, dynamic>>?) ??
+          <Map<String, dynamic>>[];
+      final timeWindowHours = similarResult['time_window_hours'] as int?;
 
       if (!mounted) return;
 
@@ -288,7 +292,10 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       if (similarReports.isNotEmpty) {
         setState(() => _isSubmitting = false);
         
-        await _showConfirmationDialog(similarReports);
+        await _showConfirmationDialog(
+          similarReports,
+          timeWindowHours: timeWindowHours,
+        );
         return; // Exit - dialog will handle next steps
       }
 
@@ -310,7 +317,9 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
 
   /// Show confirmation dialog when similar reports are detected within 150 m.
   Future<void> _showConfirmationDialog(
-      List<Map<String, dynamic>> similarReports) async {
+    List<Map<String, dynamic>> similarReports, {
+    int? timeWindowHours,
+  }) async {
     // Sort: approved first, then by most confirmations.
     final sorted = List<Map<String, dynamic>>.from(similarReports)
       ..sort((a, b) {
@@ -410,6 +419,16 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                                 fontSize: 13,
                               ),
                             ),
+                            if (timeWindowHours != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Matched reports from the last $timeWindowHours ${timeWindowHours == 1 ? 'hour' : 'hours'}.',
+                                style: TextStyle(
+                                  color: Colors.white.withAlpha(220),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -575,6 +594,30 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
                             ],
                           ),
                         ),
+
+                      if (timeWindowHours != null) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.schedule_outlined,
+                              size: 15,
+                              color: Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Similarity matching currently uses reports from the last '
+                                '$timeWindowHours ${timeWindowHours == 1 ? 'hour' : 'hours'}.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
 
                       const SizedBox(height: 20),
 

@@ -30,21 +30,21 @@ from core.utils.geo import haversine_meters
 HIGH_RISK_THRESHOLD = 0.7
 EXTREME_RISK_THRESHOLD = 0.9  # "Possibly Blocked" tag
 
-# ── Per-type influence radius (meters from road centerline) ──────────────────
-# Physical blockers have tight radii: they must be on/across the road to matter.
-# Spreading hazards (flood, storm_surge) have wide radii: water fills the area.
+# ── Per-type influence radius (meters from road centerline/route polyline) ───
+# Physical blockers have tight radii; spreading hazards are wider but still local
+# to the actual road/route (no broad area-wide hazard floor).
 HAZARD_INFLUENCE_RADIUS: dict = {
-    'road_blocked':               25,   # must physically block the road
-    'road_block':                 25,
-    'fallen_tree':                15,   # trunk across the road; small lateral spread
-    'road_damage':                20,   # surface damage is on the road
-    'bridge_damage':              30,   # bridge is a narrow point
-    'flood':                      80,   # water spreads laterally
-    'flooded_road':               80,
-    'storm_surge':               150,   # large-area inundation
-    'landslide':                  60,   # debris field can spread uphill/downhill
-    'fallen_electric_post':       20,   # post falls across road; wires trail farther
-    'fallen_electric_post_wires': 45,
+    'road_blocked':               35,   # direct blockage on/across road
+    'road_block':                 35,
+    'fallen_tree':                30,   # trunk/canopy affecting carriageway
+    'road_damage':                45,   # pothole/crack/deformation on roadway
+    'bridge_damage':              50,   # bridge approach and structure zone
+    'flood':                     120,   # flooding can spread near adjacent road area
+    'flooded_road':              120,
+    'storm_surge':               180,   # wider coastal flooding influence
+    'landslide':                 120,   # debris spread adjacent to route
+    'fallen_electric_post':       30,   # post and immediate wires footprint
+    'fallen_electric_post_wires': 50,   # wires can extend across lanes
     'other':                      40,
 }
 DEFAULT_INFLUENCE_RADIUS = 50
@@ -69,8 +69,6 @@ HAZARD_DECAY_PROFILE: dict = {
     'other':                      'moderate',
 }
 
-# For path-based check: hazards within this distance (m) of any path point count as "on route"
-PATH_HAZARD_PROXIMITY_METERS = 300
 # Caps for dynamic risk accumulation before normalization
 HAZARD_RISK_CAP = 1.0
 PATH_HAZARD_RISK_CAP = 1.0
@@ -90,9 +88,8 @@ PATH_HAZARD_RISK_CAP = 1.0
 NO_HAZARD_RF_WEIGHT      = 0.20   # RF alone: mild historical caution only
 WITH_HAZARD_RF_WEIGHT    = 0.30   # RF with live hazards: background context
 WITH_HAZARD_DYNAMIC_WEIGHT = 0.70 # Live verified hazards dominate routing
-# Number of intervals to interpolate from start to end for geographic hazard check.
-# range(n+1) produces n+1 actual points (indices 0..n), so this yields 81 sample points.
-GEO_PATH_INTERPOLATION_POINTS = 80
+# Conservative fallback for route-proximity checks when hazard type is unknown.
+PATH_DEFAULT_INFLUENCE_RADIUS = 60
 
 # ── Improvement 2: Hazard-type aware risk weights ──────────────────────────
 # Each type contributes a different increment to dynamic risk per nearby hazard.
@@ -513,47 +510,116 @@ def _get_approved_hazards():
     ))
 
 
-def _geographic_path_for_hazard_check(start_lat: float, start_lng: float, end_lat: float, end_lng: float):
-    """
-    Build a list of points along the line from start to end (user to evacuation center).
-    Used for hazard risk so verified reports in the user's area count even when the
-    road graph is in a different region (e.g. mock graph in Manila, user in Bulan).
-    """
-    points = []
-    n = max(2, GEO_PATH_INTERPOLATION_POINTS)
-    for i in range(n + 1):
-        t = i / n
-        lat = start_lat + t * (end_lat - start_lat)
-        lng = start_lng + t * (end_lng - start_lng)
-        points.append([lat, lng])
-    return points
+def _path_radius_for_hazard(hazard_type: str) -> float:
+    """Per-hazard route proximity radius; avoids a single broad global radius."""
+    ht = (hazard_type or '').lower().replace(' ', '_')
+    return float(HAZARD_INFLUENCE_RADIUS.get(ht, PATH_DEFAULT_INFLUENCE_RADIUS))
 
 
-def _path_based_hazard_risk(path_points, hazards) -> float:
+def _distance_to_route_polyline_m(path_points, hazard_lat: float, hazard_lng: float) -> tuple[float, float]:
     """
-    Risk from approved hazards near the route path (not only segment endpoints).
-    Ensures routes that pass near verified hazards show non-zero risk and are deprioritized.
-    path_points: list of [lat, lng]
-    hazards: list of HazardReport with .latitude, .longitude
+    Return (distance_to_route_meters, distance_to_nearest_segment_meters).
+    Distances are computed as perpendicular distance to each path segment.
+    """
+    if not path_points:
+        return float('inf'), float('inf')
+    if len(path_points) == 1:
+        d = haversine_meters(
+            _float(path_points[0][0]), _float(path_points[0][1]),
+            hazard_lat, hazard_lng,
+        )
+        return d, d
+
+    best = float('inf')
+    for i in range(1, len(path_points)):
+        prev = path_points[i - 1]
+        curr = path_points[i]
+        if len(prev) < 2 or len(curr) < 2:
+            continue
+        dist_m, _ = _perpendicular_distance_m(
+            hazard_lat, hazard_lng,
+            _float(prev[0]), _float(prev[1]),
+            _float(curr[0]), _float(curr[1]),
+        )
+        if dist_m < best:
+            best = dist_m
+    return best, best
+
+
+def _route_hazard_diagnostics(path_points, hazards):
+    """
+    Compute per-hazard inclusion diagnostics against the ACTUAL route polyline.
+
+    Output fields include:
+      hazard_id, hazard_type, hazard_lat/lng,
+      distance_to_route_meters, distance_to_nearest_segment_meters,
+      allowed_radius_meters, included, reason_included
+    """
+    if not path_points or not hazards:
+        return []
+
+    diagnostics = []
+    for hazard in hazards:
+        hazard_id = getattr(hazard, 'id', id(hazard))
+        hazard_type = (getattr(hazard, 'hazard_type', 'other') or 'other').lower().replace(' ', '_')
+        hazard_lat = _float(hazard.latitude)
+        hazard_lng = _float(hazard.longitude)
+        allowed_radius = _path_radius_for_hazard(hazard_type)
+        distance_to_route, distance_to_segment = _distance_to_route_polyline_m(
+            path_points, hazard_lat, hazard_lng,
+        )
+        included = distance_to_route <= allowed_radius
+        if included:
+            reason = (
+                f'included: distance {distance_to_route:.1f}m <= '
+                f'{allowed_radius:.1f}m type radius'
+            )
+        else:
+            reason = (
+                f'excluded: distance {distance_to_route:.1f}m > '
+                f'{allowed_radius:.1f}m type radius'
+            )
+        diagnostics.append({
+            'hazard_id': hazard_id,
+            'hazard_type': hazard_type,
+            'hazard_lat': hazard_lat,
+            'hazard_lng': hazard_lng,
+            'distance_to_route_meters': round(distance_to_route, 2),
+            'distance_to_nearest_segment_meters': round(distance_to_segment, 2),
+            'allowed_radius_meters': round(allowed_radius, 2),
+            'included': included,
+            'reason_included': reason,
+            'hazard': hazard,
+        })
+    return diagnostics
+
+
+def _path_based_hazard_risk(path_points, hazards, diagnostics=None) -> float:
+    """
+    Route-level risk from hazards that are actually close to the route polyline.
     """
     if not path_points or not hazards:
         return 0.0
+    diag = diagnostics if diagnostics is not None else _route_hazard_diagnostics(path_points, hazards)
     total = 0.0
-    seen_hazard_ids = set()
-    for pt in path_points:
-        if len(pt) < 2:
+    for d in diag:
+        if not d.get('included'):
             continue
-        pt_lat, pt_lng = _float(pt[0]), _float(pt[1])
-        for h in hazards:
-            h_id = getattr(h, 'id', id(h))
-            if h_id in seen_hazard_ids:
-                continue
-            dist_m = haversine_meters(pt_lat, pt_lng, _float(h.latitude), _float(h.longitude))
-            if dist_m <= PATH_HAZARD_PROXIMITY_METERS:
-                seen_hazard_ids.add(h_id)
-                # Improvement 2: use type-aware weight for path-based risk too
-                type_weight = _hazard_type_weight(getattr(h, 'hazard_type', ''))
-                total += type_weight * _hazard_routing_impact(h)
+        hazard = d.get('hazard')
+        if hazard is None:
+            continue
+        hazard_type = d.get('hazard_type') or getattr(hazard, 'hazard_type', '')
+        radius = max(1.0, _path_radius_for_hazard(hazard_type))
+        profile = HAZARD_DECAY_PROFILE.get(hazard_type, 'moderate')
+        distance = _float(d.get('distance_to_route_meters'))
+        proximity = _decay_factor(distance, radius, profile)
+        if proximity <= 0:
+            continue
+        total += (
+            _hazard_type_weight(hazard_type)
+            * _hazard_routing_impact(hazard)
+            * proximity
+        )
     return min(total, PATH_HAZARD_RISK_CAP)
 
 
@@ -594,41 +660,40 @@ def _path_length_meters(path_points) -> float:
     return total
 
 
-def _hazards_along_path(path_points, hazards):
+def _hazards_along_path(path_points, hazards, diagnostics=None):
     """
-    Return list of approved hazards that are within PATH_HAZARD_PROXIMITY_METERS of the path.
-    Each item: {hazard_type, latitude, longitude, distance_km_from_start} for UI (e.g. "near Km 2").
+    Return list of approved hazards that are close enough to the route polyline.
+    Includes distance diagnostics used by explanation and backend logging.
     """
     if not path_points or not hazards:
         return []
-    path_len_m = _path_length_meters(path_points)
+    diag = diagnostics if diagnostics is not None else _route_hazard_diagnostics(path_points, hazards)
     result = []
-    seen_ids = set()
-    for h in hazards:
-        h_id = getattr(h, 'id', id(h))
-        if h_id in seen_ids:
+    for d in diag:
+        if not d.get('included'):
             continue
+        h = d.get('hazard')
+        if h is None:
+            continue
+        h_id = d.get('hazard_id')
         h_lat = _float(h.latitude)
         h_lng = _float(h.longitude)
-        for pt in path_points:
-            if len(pt) < 2:
-                continue
-            dist_m = haversine_meters(_float(pt[0]), _float(pt[1]), h_lat, h_lng)
-            if dist_m <= PATH_HAZARD_PROXIMITY_METERS:
-                # Distance from start: approximate by first point of path
-                dist_from_start_m = haversine_meters(
-                    _float(path_points[0][0]), _float(path_points[0][1]),
-                    h_lat, h_lng,
-                )
-                dist_km = dist_from_start_m / 1000.0
-                result.append({
-                    'hazard_type': getattr(h, 'hazard_type', 'hazard'),
-                    'latitude': h_lat,
-                    'longitude': h_lng,
-                    'distance_km_from_start': round(dist_km, 2),
-                })
-                seen_ids.add(h_id)
-                break
+        # Distance from start: approximate by first point of path
+        dist_from_start_m = haversine_meters(
+            _float(path_points[0][0]), _float(path_points[0][1]),
+            h_lat, h_lng,
+        )
+        dist_km = dist_from_start_m / 1000.0
+        result.append({
+            'hazard_id': h_id,
+            'hazard_type': getattr(h, 'hazard_type', 'hazard'),
+            'latitude': h_lat,
+            'longitude': h_lng,
+            'distance_km_from_start': round(dist_km, 2),
+            'distance_to_route_meters': d.get('distance_to_route_meters'),
+            'distance_to_nearest_segment_meters': d.get('distance_to_nearest_segment_meters'),
+            'reason_included': d.get('reason_included', 'included by route proximity'),
+        })
     return result
 
 
@@ -837,31 +902,51 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
 
     start_lat_f = float(start_lat)
     start_lng_f = float(start_lng)
-    end_lat_f = float(ec.latitude)
-    end_lng_f = float(ec.longitude)
-    geographic_path = _geographic_path_for_hazard_check(start_lat_f, start_lng_f, end_lat_f, end_lng_f)
-    path_risk_from_geo = _path_based_hazard_risk(geographic_path, approved_hazards)
-    hazards_along_geo = _hazards_along_path(geographic_path, approved_hazards)
 
-    # Per-route: path risk from this path + geographic hazard risk so routes reflect hazards in user's area
-    # (Geographic risk ensures we don't recommend as "safe" when verified hazards exist between user and EC)
+    # Per-route risk must come only from hazards that are actually close to that
+    # route's geometry. No global/straight-line hazard floor is applied.
     for r in routes:
         path = r.get('path') or []
         total_dist = r.get('total_distance') or 0.0
         if total_dist <= 0 and path:
             total_dist = _path_length_meters(path)
-        if total_dist <= 0 and geographic_path:
-            total_dist = _path_length_meters(geographic_path)
         r['total_distance'] = total_dist
 
-        path_risk = _path_based_hazard_risk(path, approved_hazards)
-        # Include geographic risk so hazard presence between user and EC raises risk
-        path_risk = max(path_risk, path_risk_from_geo)
+        diagnostics = _route_hazard_diagnostics(path, approved_hazards)
+        path_risk = _path_based_hazard_risk(path, approved_hazards, diagnostics=diagnostics)
         total = r.get('total_risk') or 0.0
         total += path_risk
         r['total_risk'] = min(1.0, max(0.0, total))  # always clamped to [0, 1]
         r['risk_level'] = _risk_level_from_total(total)
-        r['hazards_along_route'] = _hazards_along_path(path, approved_hazards) or hazards_along_geo
+        r['hazards_along_route'] = _hazards_along_path(path, approved_hazards, diagnostics=diagnostics)
+
+        # Route-level diagnostics for auditing why hazards were included/excluded.
+        r['hazard_diagnostics'] = [
+            {
+                'hazard_id': d['hazard_id'],
+                'hazard_type': d['hazard_type'],
+                'hazard_lat': d['hazard_lat'],
+                'hazard_lng': d['hazard_lng'],
+                'distance_to_route_meters': d['distance_to_route_meters'],
+                'distance_to_nearest_segment_meters': d['distance_to_nearest_segment_meters'],
+                'allowed_radius_meters': d['allowed_radius_meters'],
+                'included': d['included'],
+                'reason_included': d['reason_included'],
+            }
+            for d in diagnostics
+        ]
+
+        included_logs = [d for d in diagnostics if d.get('included')]
+        for d in included_logs:
+            print(
+                '[ROUTE_HAZARD] '
+                f"hazard_id={d['hazard_id']} "
+                f"type={d['hazard_type']} "
+                f"lat={d['hazard_lat']:.6f} lng={d['hazard_lng']:.6f} "
+                f"distance_to_route_m={d['distance_to_route_meters']} "
+                f"distance_to_nearest_segment_m={d['distance_to_nearest_segment_meters']} "
+                f"reason_included=\"{d['reason_included']}\""
+            )
 
     # Safest first (lowest total_risk)
     routes.sort(key=lambda x: x.get('total_risk') or 0.0)

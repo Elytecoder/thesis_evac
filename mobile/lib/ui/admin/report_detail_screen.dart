@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import '../../core/utils/date_time_utils.dart';
 import '../../features/hazards/hazard_service.dart';
 import '../../models/hazard_report.dart';
+import '../widgets/map_marker_style.dart';
 import '../widgets/report_media_preview.dart';
 
 /// Report Detail Screen - View full report details and make approval decisions.
@@ -23,14 +24,7 @@ class ReportDetailScreen extends StatefulWidget {
 
 class _ReportDetailScreenState extends State<ReportDetailScreen> {
   final HazardService _hazardService = HazardService();
-  final TextEditingController _commentController = TextEditingController();
   bool _isProcessing = false;
-
-  @override
-  void dispose() {
-    _commentController.dispose();
-    super.dispose();
-  }
 
   /// Show reminder modal before approval
   /// Reminder modal ensures hazard impacts evacuation route before approval.
@@ -127,7 +121,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         await _hazardService.approveOrRejectReport(
           reportId: widget.report.id ?? 0,
           approve: true,
-          comment: _commentController.text.trim().isEmpty ? null : _commentController.text.trim(),
         );
 
         if (mounted) {
@@ -168,7 +161,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         await _hazardService.approveOrRejectReport(
           reportId: widget.report.id ?? 0,
           approve: false,
-          comment: _commentController.text.trim().isEmpty ? null : _commentController.text.trim(),
         );
 
         if (mounted) {
@@ -415,8 +407,8 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                           ),
                         ),
                         Icon(
-                          Icons.warning,
-                          color: Colors.red,
+                          MapMarkerStyle.verifiedHazardIcon,
+                          color: MapMarkerStyle.verifiedHazardColor,
                           size: 40,
                           shadows: [
                             Shadow(
@@ -494,7 +486,11 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.warning, color: Colors.red, size: 16),
+                      const Icon(
+                        MapMarkerStyle.verifiedHazardIcon,
+                        color: MapMarkerStyle.verifiedHazardColor,
+                        size: 16,
+                      ),
                       const SizedBox(width: 4),
                       const Text('Reported Hazard', style: TextStyle(fontSize: 12)),
                     ],
@@ -594,6 +590,13 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
 
   Widget _buildReportInfo() {
     final report = widget.report;
+    final coordText =
+        '${report.latitude.toStringAsFixed(5)}, ${report.longitude.toStringAsFixed(5)}';
+    final locationText = (report.locationLabel ?? '').trim();
+    final areaText = [
+      (report.locationBarangay ?? '').trim(),
+      (report.locationMunicipality ?? '').trim(),
+    ].where((v) => v.isNotEmpty).join(', ');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -602,6 +605,9 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         _buildInfoRow('Report ID', report.publicReportLabel),
         _buildReporterBlock(report),
         _buildInfoRow('Submitted', _formatFullDateTime(report.createdAt ?? DateTime.now())),
+        _buildInfoRow('Hazard Coordinates', coordText),
+        if (areaText.isNotEmpty) _buildInfoRow('Hazard Area', areaText),
+        if (locationText.isNotEmpty) _buildInfoRow('Hazard Address', locationText),
         _buildInfoRow('Status', _getStatusText(report.status), statusColor: _getStatusColor(report.status)),
         
         const SizedBox(height: 12),
@@ -1266,23 +1272,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          controller: _commentController,
-          decoration: InputDecoration(
-            labelText: 'Comment (Optional)',
-            hintText: 'Add any notes or reasons for your decision...',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            filled: true,
-            fillColor: Colors.grey[50],
-          ),
-          maxLines: 3,
-          enabled: !_isProcessing,
-        ),
-        
-        const SizedBox(height: 16),
-        
         Row(
           children: [
             Expanded(

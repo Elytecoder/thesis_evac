@@ -11,6 +11,7 @@ Random Forest is used only for road segment risk prediction (routing),
 not report validation.
 """
 from apps.hazards.models import HazardReport
+from apps.hazards.location_resolver import resolve_hazard_location
 from apps.validation.services.naive_bayes import NaiveBayesValidator, nearby_count_to_category
 from apps.validation.services.consensus import ConsensusScoringService
 from apps.validation.services.rule_scoring import (
@@ -19,6 +20,24 @@ from apps.validation.services.rule_scoring import (
     reporter_proximity_weight,
 )
 from reports.utils import distance_km_to_category, should_auto_reject_report
+
+
+class DuplicateHazardReportError(Exception):
+    """Raised when submission matches an existing active hazard cluster."""
+
+    def __init__(
+        self,
+        message: str,
+        existing_report=None,
+        distance_meters: float | None = None,
+        already_reported_by_user: bool = False,
+        has_user_confirmed: bool = False,
+    ):
+        super().__init__(message)
+        self.existing_report = existing_report
+        self.distance_meters = distance_meters
+        self.already_reported_by_user = already_reported_by_user
+        self.has_user_confirmed = has_user_confirmed
 
 
 def _build_explanation(
@@ -97,11 +116,59 @@ def process_new_report(
     Create report, run NB (type + description only) and separate rule scores,
     combine into final_validation_score, save breakdown for MDRRMO.
     """
+    latitude_f = float(latitude)
+    longitude_f = float(longitude)
+    consensus = ConsensusScoringService()
+
+    # Enforce anti-duplicate submission server-side:
+    # if an active same-type report already exists in the same area/time cluster,
+    # force residents to use confirmation flow instead of creating duplicates.
+    base_qs = HazardReport.objects.filter(
+        is_deleted=False,
+        auto_rejected=False,
+    )
+    similar_existing = consensus.find_similar_existing_report(
+        lat=latitude_f,
+        lng=longitude_f,
+        report_queryset=base_qs,
+        hazard_type=hazard_type,
+        time_window_hours=1,
+    )
+    if similar_existing is not None:
+        from core.utils.geo import haversine_meters
+
+        distance_m = haversine_meters(
+            latitude_f, longitude_f,
+            float(similar_existing.latitude), float(similar_existing.longitude),
+        )
+        same_user = (similar_existing.user_id == user.id)
+        has_confirmed = similar_existing.has_user_confirmed(user)
+        if same_user:
+            raise DuplicateHazardReportError(
+                message='You already submitted this hazard in this area. Duplicate reports are blocked.',
+                existing_report=similar_existing,
+                distance_meters=distance_m,
+                already_reported_by_user=True,
+                has_user_confirmed=False,
+            )
+        raise DuplicateHazardReportError(
+            message='A similar hazard already exists nearby. Please confirm the existing report instead.',
+            existing_report=similar_existing,
+            distance_meters=distance_m,
+            already_reported_by_user=False,
+            has_user_confirmed=has_confirmed,
+        )
+
+    location = resolve_hazard_location(latitude_f, longitude_f)
+
     report = HazardReport.objects.create(
         user=user,
         hazard_type=hazard_type,
         latitude=latitude,
         longitude=longitude,
+        location_address=location.get('location_address', ''),
+        location_barangay=location.get('location_barangay', ''),
+        location_municipality=location.get('location_municipality', ''),
         description=description or '',
         photo_url=photo_url or '',
         video_url=video_url or '',
@@ -141,16 +208,15 @@ def process_new_report(
         distance_category = 'unknown'
         distance_weight = 0.0
 
-    # Step 2: Consensus — count nearby reports of the SAME hazard_type that
-    # are PENDING or APPROVED, within 150 m, submitted in the last hour.
-    consensus = ConsensusScoringService()
-    nearby = consensus.count_nearby_reports(
+    # Step 2: Consensus — use deduplicated support (cluster-based nearby reports).
+    support = consensus.get_support_summary(
         float(report.latitude), float(report.longitude),
         HazardReport.objects.filter(is_deleted=False).exclude(id=report.id),
         exclude_report_id=report.id,
         time_window_hours=1,
         hazard_type=hazard_type,
     )
+    nearby = support.nearby_cluster_count
     nearby_category = nearby_count_to_category(nearby)
     confirmation_count = report.confirmation_count
     consensus_score_val = consensus_rule_score(nearby, confirmation_count)
@@ -211,6 +277,9 @@ def process_new_report(
         'description_category': desc_bucket,
         # Consensus details
         'nearby_count': nearby,
+        'nearby_raw_reports': support.nearby_raw_reports,
+        'nearby_unique_user_count': support.nearby_unique_user_count,
+        'nearby_cluster_count': support.nearby_cluster_count,
         'nearby_category': nearby_category,
         'confirmation_count': confirmation_count,
         'consensus_radius_meters': 150,

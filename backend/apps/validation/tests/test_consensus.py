@@ -1,5 +1,6 @@
 """
-Tests for nearby-report counting (ConsensusScoringService) and rule_scoring consensus_rule_score.
+Tests for deduplicated nearby support (ConsensusScoringService)
+and rule_scoring consensus_rule_score.
 """
 from decimal import Decimal
 from django.test import TestCase
@@ -10,13 +11,14 @@ from apps.validation.services.rule_scoring import consensus_rule_score, combine_
 
 
 class ConsensusScoringServiceTests(TestCase):
-    """Test cases for nearby counting and consensus rule mapping."""
+    """Test cases for anti-duplicate nearby support and consensus mapping."""
 
     def setUp(self):
         """Set up test data."""
         self.service = ConsensusScoringService(radius_m=50.0)
         self.user = User.objects.create_user(
             username='testuser',
+            email='testuser@example.com',
             password='testpass123',
             role=User.Role.RESIDENT,
         )
@@ -30,7 +32,7 @@ class ConsensusScoringServiceTests(TestCase):
         self.assertEqual(count, 0)
 
     def test_count_nearby_reports_with_reports(self):
-        """Test counting nearby reports."""
+        """Multiple duplicate reports in one area count as one support cluster."""
         lat, lng = Decimal('14.5995'), Decimal('120.9842')
         for i in range(3):
             HazardReport.objects.create(
@@ -45,7 +47,7 @@ class ConsensusScoringServiceTests(TestCase):
             float(lat), float(lng),
             HazardReport.objects.all(),
         )
-        self.assertEqual(count, 3)
+        self.assertEqual(count, 1)
 
     def test_count_nearby_reports_exclude_self(self):
         """Test that exclude_report_id works."""
@@ -81,6 +83,38 @@ class ConsensusScoringServiceTests(TestCase):
             HazardReport.objects.all(),
         )
         self.assertEqual(count, 0)
+
+    def test_get_support_summary_tracks_unique_users(self):
+        """Support summary deduplicates clusters and reports unique nearby users."""
+        user_b = User.objects.create_user(
+            username='testuser_b',
+            email='testuser_b@example.com',
+            password='testpass123',
+            role=User.Role.RESIDENT,
+        )
+        lat, lng = Decimal('14.5995'), Decimal('120.9842')
+        HazardReport.objects.create(
+            user=self.user, hazard_type='flood',
+            latitude=lat, longitude=lng, description='A1',
+        )
+        HazardReport.objects.create(
+            user=self.user, hazard_type='flood',
+            latitude=lat, longitude=lng, description='A2 duplicate',
+        )
+        HazardReport.objects.create(
+            user=user_b, hazard_type='flood',
+            latitude=lat, longitude=lng, description='B1',
+        )
+
+        summary = self.service.get_support_summary(
+            float(lat), float(lng),
+            HazardReport.objects.all(),
+            hazard_type='flood',
+            time_window_hours=1,
+        )
+        self.assertEqual(summary.nearby_raw_reports, 3)
+        self.assertEqual(summary.nearby_cluster_count, 1)
+        self.assertEqual(summary.nearby_unique_user_count, 2)
 
     def test_consensus_rule_score_steps(self):
         """Consensus rule uses smooth formula min((nearby+confirmations)/5, 1.0)."""

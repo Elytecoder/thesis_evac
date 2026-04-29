@@ -29,7 +29,10 @@ from apps.hazards.serializers import (
 )
 from apps.routing.models import RouteLog
 from apps.routing.serializers import CalculateRouteRequestSerializer
-from apps.mobile_sync.services.report_service import process_new_report
+from apps.mobile_sync.services.report_service import (
+    process_new_report,
+    DuplicateHazardReportError,
+)
 from apps.mobile_sync.services.route_service import calculate_safest_routes
 from apps.mobile_sync.services.bootstrap_service import get_bootstrap_data
 from apps.notifications.models import Notification
@@ -176,18 +179,32 @@ def report_hazard(request):
             if existing:
                 return Response(HazardReportSerializer(existing).data, status=status.HTTP_200_OK)
 
-        report = process_new_report(
-            user=request.user,
-            hazard_type=validated['hazard_type'],
-            latitude=validated['latitude'],
-            longitude=validated['longitude'],
-            description=validated.get('description', ''),
-            photo_url=photo_url,
-            video_url=video_url,
-            user_latitude=user_lat,
-            user_longitude=user_lng,
-            client_submission_id=client_submission_id,
-        )
+        try:
+            report = process_new_report(
+                user=request.user,
+                hazard_type=validated['hazard_type'],
+                latitude=validated['latitude'],
+                longitude=validated['longitude'],
+                description=validated.get('description', ''),
+                photo_url=photo_url,
+                video_url=video_url,
+                user_latitude=user_lat,
+                user_longitude=user_lng,
+                client_submission_id=client_submission_id,
+            )
+        except DuplicateHazardReportError as dup_exc:
+            existing = dup_exc.existing_report
+            return Response(
+                {
+                    'error': str(dup_exc),
+                    'requires_confirmation': True,
+                    'existing_report_id': existing.id if existing else None,
+                    'distance_meters': round(float(dup_exc.distance_meters), 2) if dup_exc.distance_meters is not None else None,
+                    'already_reported_by_user': dup_exc.already_reported_by_user,
+                    'has_user_confirmed': dup_exc.has_user_confirmed,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # Notify MDRRMO staff via push notification (non-blocking thread)
         if not report.auto_rejected:
@@ -568,6 +585,23 @@ def mdrrmo_pending_reports(request):
     return Response(serializer.data)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsMDRRMO])
+def mdrrmo_approved_reports(request):
+    """
+    GET /api/mdrrmo/approved-reports/
+    Returns approved reports for MDRRMO report management with full detail fields
+    (description, scores, validation breakdown, media flags, etc.).
+    """
+    qs = (
+        HazardReport.objects.filter(status=HazardReport.Status.APPROVED, is_deleted=False)
+        .select_related('user')
+        .order_by('-created_at')
+    )
+    serializer = PendingReportSerializer(qs, many=True)
+    return Response(serializer.data)
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsMDRRMO])
 def mdrrmo_approve_report(request):
@@ -789,9 +823,18 @@ def check_similar_reports(request):
             is_deleted=False,
         ).exclude(user=request.user).select_related('user')
 
+    # Keep UX aligned with server-side duplicate blocking: only consider reports
+    # from the same recent incident window.
+    from datetime import timedelta
+    from django.utils import timezone
+    from apps.validation.services.consensus import NEARBY_TIME_WINDOW_HOURS
+
+    since = timezone.now() - timedelta(hours=NEARBY_TIME_WINDOW_HOURS)
+
     # Search both PENDING (confirmable) and APPROVED (already verified) reports.
     candidate_qs = base_qs.filter(
-        status__in=[HazardReport.Status.PENDING, HazardReport.Status.APPROVED]
+        status__in=[HazardReport.Status.PENDING, HazardReport.Status.APPROVED],
+        created_at__gte=since,
     )
 
     similar_reports = []
@@ -817,6 +860,7 @@ def check_similar_reports(request):
         'similar_reports': similar_reports,
         'count': len(similar_reports),
         'is_other_type_search': is_other_type,
+        'time_window_hours': NEARBY_TIME_WINDOW_HOURS,
     })
 
 
@@ -881,13 +925,14 @@ def confirm_hazard_report(request):
             from apps.validation.services.rule_scoring import consensus_rule_score, combine_validation_scores
 
             consensus = ConsensusScoringService()
-            nearby = consensus.count_nearby_reports(
+            support = consensus.get_support_summary(
                 float(report.latitude), float(report.longitude),
                 HazardReport.objects.exclude(id=report.id).filter(is_deleted=False),
                 exclude_report_id=report.id,
                 time_window_hours=1,
                 hazard_type=report.hazard_type,
             )
+            nearby = support.nearby_cluster_count
 
             consensus_score_val = consensus_rule_score(nearby, confirmation_count)
             final_score = combine_validation_scores(
@@ -901,6 +946,10 @@ def confirm_hazard_report(request):
 
             if report.validation_breakdown:
                 report.validation_breakdown['confirmation_count'] = confirmation_count
+                report.validation_breakdown['nearby_count'] = nearby
+                report.validation_breakdown['nearby_raw_reports'] = support.nearby_raw_reports
+                report.validation_breakdown['nearby_unique_user_count'] = support.nearby_unique_user_count
+                report.validation_breakdown['nearby_cluster_count'] = support.nearby_cluster_count
                 report.validation_breakdown['consensus_score'] = round(consensus_score_val, 4)
                 report.validation_breakdown['final_validation_score'] = round(final_score, 4)
 

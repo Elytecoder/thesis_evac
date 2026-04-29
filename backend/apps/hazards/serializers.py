@@ -2,6 +2,7 @@
 from rest_framework import serializers
 
 from .models import HazardReport
+from .location_resolver import resolve_hazard_location
 
 
 def _round_coord(value):
@@ -70,6 +71,57 @@ def _reporter_barangay_for_report(obj):
     return normalize_barangay_label(getattr(u, 'barangay', '') or '')
 
 
+def _coord_fallback_label(obj):
+    try:
+        return f"{float(obj.latitude):.5f}, {float(obj.longitude):.5f}"
+    except Exception:
+        return ''
+
+
+def _location_label_for_report(obj):
+    """
+    Human-readable location text from hazard coordinates.
+    Priority: full reverse-geocoded address -> barangay/municipality -> coordinates.
+    """
+    resolved = _resolved_location_fields(obj)
+    addr = (resolved.get('location_address') or '').strip()
+    if addr:
+        return addr
+    brgy = (resolved.get('location_barangay') or '').strip()
+    muni = (resolved.get('location_municipality') or '').strip()
+    if brgy and muni:
+        return f'{brgy}, {muni}'
+    if brgy:
+        return brgy
+    if muni:
+        return muni
+    return _coord_fallback_label(obj)
+
+
+def _resolved_location_fields(obj):
+    """
+    Return location_address/barangay/municipality for a report.
+    Uses stored fields first; falls back to reverse geocoding when missing.
+    """
+    address = (getattr(obj, 'location_address', '') or '').strip()
+    barangay = (getattr(obj, 'location_barangay', '') or '').strip()
+    municipality = (getattr(obj, 'location_municipality', '') or '').strip()
+    if address or barangay or municipality:
+        return {
+            'location_address': address,
+            'location_barangay': barangay,
+            'location_municipality': municipality,
+        }
+    try:
+        return resolve_hazard_location(float(obj.latitude), float(obj.longitude))
+    except Exception:
+        return {
+            'location_address': '',
+            'location_barangay': '',
+            'location_municipality': '',
+        }
+
+
 class HazardReportSerializer(serializers.ModelSerializer):
     """Full read serializer: NB + rule scores + breakdown (no Random Forest in validation)."""
 
@@ -80,6 +132,10 @@ class HazardReportSerializer(serializers.ModelSerializer):
     confirmation_count = serializers.SerializerMethodField()
     photo_url = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
+    location_address = serializers.SerializerMethodField()
+    location_barangay = serializers.SerializerMethodField()
+    location_municipality = serializers.SerializerMethodField()
+    location_label = serializers.SerializerMethodField()
 
     class Meta:
         model = HazardReport
@@ -89,6 +145,10 @@ class HazardReportSerializer(serializers.ModelSerializer):
             'hazard_type',
             'latitude',
             'longitude',
+            'location_address',
+            'location_barangay',
+            'location_municipality',
+            'location_label',
             'description',
             'photo_url',
             'video_url',
@@ -132,6 +192,18 @@ class HazardReportSerializer(serializers.ModelSerializer):
         url = obj.video_url or ''
         return '' if url.startswith('data:') else url
 
+    def get_location_address(self, obj):
+        return _resolved_location_fields(obj)['location_address']
+
+    def get_location_barangay(self, obj):
+        return _resolved_location_fields(obj)['location_barangay']
+
+    def get_location_municipality(self, obj):
+        return _resolved_location_fields(obj)['location_municipality']
+
+    def get_location_label(self, obj):
+        return _location_label_for_report(obj)
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['has_photo'] = bool((instance.photo_url or '').strip())
@@ -145,7 +217,9 @@ class PublicHazardSerializer(serializers.ModelSerializer):
     identity, no AI scores, no timestamps.
     """
     confirmation_count = serializers.SerializerMethodField()
-    reporter_barangay = serializers.SerializerMethodField()
+    location_barangay = serializers.SerializerMethodField()
+    location_municipality = serializers.SerializerMethodField()
+    location_label = serializers.SerializerMethodField()
 
     class Meta:
         model = HazardReport
@@ -156,14 +230,22 @@ class PublicHazardSerializer(serializers.ModelSerializer):
             'longitude',
             'status',
             'confirmation_count',
-            'reporter_barangay',
+            'location_barangay',
+            'location_municipality',
+            'location_label',
         )
 
     def get_confirmation_count(self, obj):
         return obj.confirmation_count
 
-    def get_reporter_barangay(self, obj):
-        return _reporter_barangay_for_report(obj)
+    def get_location_barangay(self, obj):
+        return _resolved_location_fields(obj)['location_barangay']
+
+    def get_location_municipality(self, obj):
+        return _resolved_location_fields(obj)['location_municipality']
+
+    def get_location_label(self, obj):
+        return _location_label_for_report(obj)
 
 
 class SimilarReportPublicSerializer(serializers.ModelSerializer):
@@ -199,6 +281,10 @@ class PendingReportSerializer(serializers.ModelSerializer):
     confirmation_count = serializers.SerializerMethodField()
     photo_url = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
+    location_address = serializers.SerializerMethodField()
+    location_barangay = serializers.SerializerMethodField()
+    location_municipality = serializers.SerializerMethodField()
+    location_label = serializers.SerializerMethodField()
 
     class Meta:
         model = HazardReport
@@ -208,6 +294,10 @@ class PendingReportSerializer(serializers.ModelSerializer):
             'hazard_type',
             'latitude',
             'longitude',
+            'location_address',
+            'location_barangay',
+            'location_municipality',
+            'location_label',
             'description',
             'photo_url',
             'video_url',
@@ -255,6 +345,18 @@ class PendingReportSerializer(serializers.ModelSerializer):
     def get_video_url(self, obj):
         url = obj.video_url or ''
         return '' if url.startswith('data:') else url
+
+    def get_location_address(self, obj):
+        return _resolved_location_fields(obj)['location_address']
+
+    def get_location_barangay(self, obj):
+        return _resolved_location_fields(obj)['location_barangay']
+
+    def get_location_municipality(self, obj):
+        return _resolved_location_fields(obj)['location_municipality']
+
+    def get_location_label(self, obj):
+        return _location_label_for_report(obj)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

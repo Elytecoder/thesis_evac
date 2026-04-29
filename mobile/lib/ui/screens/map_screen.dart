@@ -21,6 +21,7 @@ import '../../features/residents/resident_hazard_reports_service.dart';
 import '../../features/residents/resident_notifications_service.dart';
 import '../widgets/offline_banner.dart';
 import '../widgets/exit_confirm_scope.dart';
+import '../widgets/map_marker_style.dart';
 import '../widgets/report_media_preview.dart' show normalizeMediaUrl, buildImageFromUrl;
 import 'routes_selection_screen.dart';
 import 'report_hazard_screen.dart';
@@ -611,7 +612,9 @@ class _MapScreenState extends State<MapScreen>
     final isCurrentUserReport = report['reported_by'] == ResidentHazardReportsService.currentUserId;
     final rawType = (report['type'] as String? ?? '').trim();
     final displayType = _formatHazardType(rawType);
-    final barangay = (report['barangay'] as String? ?? '').trim();
+    final locationBarangay = (report['location_barangay'] as String? ?? report['barangay'] as String? ?? '').trim();
+    final locationMunicipality = (report['location_municipality'] as String? ?? '').trim();
+    final locationLabel = (report['location_label'] as String? ?? '').trim();
 
     // Offline-queued report: show "pending sync" info
     if (isOffline) {
@@ -674,7 +677,10 @@ class _MapScreenState extends State<MapScreen>
 
     if (!isCurrentUserReport) {
       // Other resident's report — show safe public view only
-      _showPublicHazardView(displayType, barangay, isPending);
+      final area = locationBarangay.isNotEmpty
+          ? locationBarangay
+          : (locationMunicipality.isNotEmpty ? locationMunicipality : locationLabel);
+      _showPublicHazardView(displayType, area, isPending);
       return;
     }
 
@@ -759,6 +765,8 @@ class _MapScreenState extends State<MapScreen>
                   'Location',
                   '${(report['lat'] as double).toStringAsFixed(4)}, ${(report['lng'] as double).toStringAsFixed(4)}',
                 ),
+                if (locationLabel.isNotEmpty)
+                  _buildDetailRow(Icons.place_outlined, 'Address', locationLabel),
                 if ((report['date_submitted'] as String? ?? '').isNotEmpty)
                   _buildDetailRow(Icons.access_time, 'Reported', report['date_submitted']),
 
@@ -811,8 +819,8 @@ class _MapScreenState extends State<MapScreen>
   }
 
   /// Public-safe view for another resident's hazard report.
-  /// Shows only: formatted hazard type, barangay, status badge, safety message.
-  void _showPublicHazardView(String displayType, String barangay, bool isPending) {
+  /// Shows only: formatted hazard type, general area, status badge, safety message.
+  void _showPublicHazardView(String displayType, String area, bool isPending) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -892,9 +900,9 @@ class _MapScreenState extends State<MapScreen>
               // Hazard type
               _buildDetailRow(Icons.dangerous, 'Hazard Type', displayType),
 
-              // Barangay (general area — safe to show)
-              if (barangay.isNotEmpty)
-                _buildDetailRow(Icons.location_city, 'Area', barangay),
+              // General area from hazard coordinates (safe to show)
+              if (area.isNotEmpty)
+                _buildDetailRow(Icons.location_city, 'Area', area),
 
               const SizedBox(height: 20),
 
@@ -1273,14 +1281,14 @@ class _MapScreenState extends State<MapScreen>
                                     width: 36,
                                     height: 36,
                                     decoration: BoxDecoration(
-                                      color: Colors.red[600],
+                                      color: MapMarkerStyle.evacuationCenterColor,
                                       shape: BoxShape.circle,
                                       border: Border.all(color: Colors.white, width: 2),
                                     ),
                                     child: const Icon(
-                                      Icons.location_on,
+                                      MapMarkerStyle.evacuationCenterIcon,
                                       color: Colors.white,
-                                      size: 24,
+                                      size: 20,
                                     ),
                                   ),
                                 ],
@@ -1346,7 +1354,9 @@ class _MapScreenState extends State<MapScreen>
                                             ? Colors.orange[700]
                                             : isOffline
                                                 ? Colors.deepOrange[400]
-                                                : (isPending ? Colors.yellow[700] : Colors.red[600]),
+                                                : (isPending
+                                                    ? MapMarkerStyle.pendingHazardColor
+                                                    : MapMarkerStyle.verifiedHazardColor),
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color: isHighlighted
@@ -1368,7 +1378,11 @@ class _MapScreenState extends State<MapScreen>
                                       child: Icon(
                                         isOffline
                                             ? Icons.cloud_upload
-                                            : (isHighlighted ? Icons.warning_amber_rounded : Icons.warning),
+                                            : (isHighlighted
+                                                ? MapMarkerStyle.verifiedHazardIcon
+                                                : (isPending
+                                                    ? MapMarkerStyle.pendingHazardIcon
+                                                    : MapMarkerStyle.verifiedHazardIcon)),
                                         color: Colors.white,
                                         size: 24,
                                       ),

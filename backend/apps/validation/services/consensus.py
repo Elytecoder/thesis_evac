@@ -1,42 +1,110 @@
 """
-Nearby-report counting for hazard reports.
+Nearby-report support logic for hazard consensus scoring.
 
-Naive Bayes does not use nearby count. This service only counts reports
-within radius and time window; report_service maps the count to
-rule_scoring.consensus_rule_score (separate from NB).
+Naive Bayes does not use nearby count. This service computes corroboration
+signals used by rule_scoring.consensus_rule_score.
 
 Consensus rules:
-- Only reports of the SAME hazard_type are counted (different hazard types
-  at the same location are unrelated events).
-- Only PENDING or APPROVED reports are counted (REJECTED reports are excluded
-  as they were deemed invalid by MDRRMO or auto-rejected by the system).
-- Reports must be within CONSENSUS_RADIUS_METERS (150 m) to be considered
-  part of the same incident area.
+- only SAME hazard_type reports are considered
+- only PENDING / APPROVED reports are considered
+- only reports within 150 m and within the configured time window are considered
+- duplicate reports in the same area/time are clustered to prevent inflation
 """
+from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
-from datetime import timedelta
+
 from django.utils import timezone
 
-from core.utils.geo import within_radius
+from core.utils.geo import haversine_meters, within_radius
 
 
-# Radius in meters for counting nearby reports of the same hazard type.
-# Standardized to 150 m to match the auto-reject proximity limit and thesis spec.
 CONSENSUS_RADIUS_METERS = 150.0
-# Time window: only count reports within this many hours.
 NEARBY_TIME_WINDOW_HOURS = 1
 
 
 class ConsensusScoringService:
-    """
-    Counts nearby reports of the same hazard type within radius and optional
-    time window. Used by report_service for consensus_rule_score (rule layer,
-    not NB features).
-    """
-
     def __init__(self, radius_m: float = CONSENSUS_RADIUS_METERS):
         self.radius_m = radius_m
+
+    @dataclass
+    class SupportSummary:
+        nearby_raw_reports: int
+        nearby_cluster_count: int
+        nearby_unique_user_count: int
+
+    def _filtered_queryset(
+        self,
+        report_queryset,
+        hazard_type: Optional[str],
+        time_window_hours: Optional[float],
+    ):
+        qs = report_queryset.filter(status__in=['pending', 'approved'])
+        if hazard_type:
+            qs = qs.filter(hazard_type=hazard_type)
+        if time_window_hours is not None:
+            since = timezone.now() - timedelta(hours=time_window_hours)
+            qs = qs.filter(created_at__gte=since)
+        return qs
+
+    def get_support_summary(
+        self,
+        lat: float,
+        lng: float,
+        report_queryset,
+        exclude_report_id: Optional[int] = None,
+        time_window_hours: Optional[float] = None,
+        hazard_type: Optional[str] = None,
+    ) -> "ConsensusScoringService.SupportSummary":
+        lat_f = float(lat) if isinstance(lat, Decimal) else float(lat)
+        lng_f = float(lng) if isinstance(lng, Decimal) else float(lng)
+        qs = self._filtered_queryset(report_queryset, hazard_type, time_window_hours)
+
+        nearby_reports = []
+        for report in qs:
+            if exclude_report_id is not None and report.id == exclude_report_id:
+                continue
+            report_lat = float(report.latitude)
+            report_lng = float(report.longitude)
+            if within_radius(lat_f, lng_f, report_lat, report_lng, self.radius_m):
+                nearby_reports.append(report)
+
+        if not nearby_reports:
+            return self.SupportSummary(0, 0, 0)
+
+        # Cluster nearby reports by proximity + time overlap (anti-duplicate logic).
+        clusters = []
+        time_window_seconds = (time_window_hours or NEARBY_TIME_WINDOW_HOURS) * 3600.0
+        for report in nearby_reports:
+            report_lat = float(report.latitude)
+            report_lng = float(report.longitude)
+            report_ts = report.created_at.timestamp() if report.created_at else 0.0
+            placed = False
+
+            for cluster in clusters:
+                if (
+                    haversine_meters(report_lat, report_lng, cluster['rep_lat'], cluster['rep_lng']) <= self.radius_m
+                    and abs(report_ts - cluster['rep_ts']) <= time_window_seconds
+                ):
+                    cluster['user_ids'].add(report.user_id)
+                    placed = True
+                    break
+
+            if not placed:
+                clusters.append({
+                    'rep_lat': report_lat,
+                    'rep_lng': report_lng,
+                    'rep_ts': report_ts,
+                    'user_ids': {report.user_id},
+                })
+
+        unique_user_ids = {report.user_id for report in nearby_reports}
+        return self.SupportSummary(
+            nearby_raw_reports=len(nearby_reports),
+            nearby_cluster_count=len(clusters),
+            nearby_unique_user_count=len(unique_user_ids),
+        )
 
     def count_nearby_reports(
         self,
@@ -48,39 +116,44 @@ class ConsensusScoringService:
         hazard_type: Optional[str] = None,
     ) -> int:
         """
-        Count reports within self.radius_m of (lat, lng) that share the same
-        hazard_type and have PENDING or APPROVED status.
-
-        Parameters
-        ----------
-        lat, lng           : centre of the search area
-        report_queryset    : base queryset (e.g. HazardReport.objects.all())
-        exclude_report_id  : skip the report being scored (avoid self-count)
-        time_window_hours  : if set, only include reports created within this window
-        hazard_type        : if set, only include reports with this exact hazard_type
+        Backward-compatible helper returning deduplicated cluster count.
         """
-        lat_f = float(lat) if isinstance(lat, Decimal) else lat
-        lng_f = float(lng) if isinstance(lng, Decimal) else lng
+        summary = self.get_support_summary(
+            lat=lat,
+            lng=lng,
+            report_queryset=report_queryset,
+            exclude_report_id=exclude_report_id,
+            time_window_hours=time_window_hours,
+            hazard_type=hazard_type,
+        )
+        return summary.nearby_cluster_count
 
-        qs = report_queryset
+    def find_similar_existing_report(
+        self,
+        lat: float,
+        lng: float,
+        report_queryset,
+        hazard_type: Optional[str] = None,
+        time_window_hours: Optional[float] = NEARBY_TIME_WINDOW_HOURS,
+        exclude_report_id: Optional[int] = None,
+    ):
+        """
+        Return nearest existing active report within radius/type/window, if any.
+        Used to block duplicate submissions and force confirmation flow.
+        """
+        lat_f = float(lat) if isinstance(lat, Decimal) else float(lat)
+        lng_f = float(lng) if isinstance(lng, Decimal) else float(lng)
+        qs = self._filtered_queryset(report_queryset, hazard_type, time_window_hours)
 
-        # Only count PENDING or APPROVED reports — rejected reports are invalid.
-        qs = qs.filter(status__in=['pending', 'approved'])
-
-        # Only count reports of the same hazard type.
-        if hazard_type:
-            qs = qs.filter(hazard_type=hazard_type)
-
-        if time_window_hours is not None:
-            since = timezone.now() - timedelta(hours=time_window_hours)
-            qs = qs.filter(created_at__gte=since)
-
-        count = 0
-        for r in qs:
-            if exclude_report_id is not None and r.id == exclude_report_id:
+        best_report = None
+        best_distance = float('inf')
+        for report in qs:
+            if exclude_report_id is not None and report.id == exclude_report_id:
                 continue
-            r_lat = float(r.latitude)
-            r_lng = float(r.longitude)
-            if within_radius(lat_f, lng_f, r_lat, r_lng, self.radius_m):
-                count += 1
-        return count
+            report_lat = float(report.latitude)
+            report_lng = float(report.longitude)
+            distance = haversine_meters(lat_f, lng_f, report_lat, report_lng)
+            if distance <= self.radius_m and distance < best_distance:
+                best_distance = distance
+                best_report = report
+        return best_report

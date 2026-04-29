@@ -5,8 +5,8 @@ NB handles text/classification only (hazard_type + description features).
 This module applies:
 - distance_weight: reporter proximity to reported hazard (credibility proxy
   for "at scene"). Formula: 1 - (distance_m / 150), clamped to [0, 1].
-- consensus_score: strength from nearby same-type reports + confirmations.
-  Formula: min((nearby + confirmations) / 5, 1.0).
+- consensus_score: strength from deduplicated nearby incident clusters
+  + unique confirmations. Formula: min((nearby_clusters + confirmations) / 5, 1.0).
 
 final_validation_score is a weighted blend of all three components:
   (NB × 0.5) + (distance × 0.3) + (consensus × 0.2)
@@ -39,12 +39,12 @@ def reporter_proximity_weight(distance_km: float) -> float:
 
 def consensus_rule_score(nearby_similar_count: int, confirmation_count: int = 0) -> float:
     """
-    Map count of nearby same-type reports + user confirmations to [0, 1].
+    Map deduplicated nearby-cluster support + user confirmations to [0, 1].
 
-    Formula: min((nearby + confirmations) / 5, 1.0)
+    Formula: min((nearby_clusters + confirmations) / 5, 1.0)
 
-    Produces a smooth, continuous score instead of fixed buckets so that
-    each additional supporting report meaningfully raises the score.
+    Nearby support must already be deduplicated (cluster-based) to avoid
+    duplicate-report inflation.
 
     Examples:
         0 total → 0.00

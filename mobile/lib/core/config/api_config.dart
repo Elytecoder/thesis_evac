@@ -56,6 +56,7 @@ class ApiConfig {
   static const String dashboardStatsEndpoint = '/mdrrmo/dashboard-stats/';
   static const String analyticsEndpoint = '/mdrrmo/analytics/';
   static const String pendingReportsEndpoint = '/mdrrmo/pending-reports/';
+  static const String approvedReportsEndpoint = '/mdrrmo/approved-reports/';
   static const String rejectedReportsEndpoint = '/mdrrmo/rejected-reports/';
   static const String approveReportEndpoint = '/mdrrmo/approve-report/';
   static const String restoreReportEndpoint = '/mdrrmo/restore-report/';

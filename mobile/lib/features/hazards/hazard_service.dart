@@ -212,10 +212,30 @@ class HazardService {
     required double longitude,
     double radiusMeters = 150.0,
   }) async {
+    final result = await checkSimilarReportsWithMeta(
+      hazardType: hazardType,
+      latitude: latitude,
+      longitude: longitude,
+      radiusMeters: radiusMeters,
+    );
+    return result['similar_reports'] as List<Map<String, dynamic>>;
+  }
+
+  /// Same as [checkSimilarReports] but includes server metadata such as
+  /// `time_window_hours` for user-facing copy.
+  Future<Map<String, dynamic>> checkSimilarReportsWithMeta({
+    required String hazardType,
+    required double latitude,
+    required double longitude,
+    double radiusMeters = 150.0,
+  }) async {
     if (ApiConfig.useMockData) {
       // Mock: return empty list (no similar reports)
       await Future.delayed(const Duration(milliseconds: 300));
-      return [];
+      return {
+        'similar_reports': <Map<String, dynamic>>[],
+        'time_window_hours': null,
+      };
     }
 
     try {
@@ -232,16 +252,30 @@ class HazardService {
       );
 
       final responseData = response.data as Map<String, dynamic>;
+      final rawWindow = responseData['time_window_hours'];
+      final int? timeWindowHours =
+          rawWindow is num ? rawWindow.toInt() : null;
       final similarReports = responseData['similar_reports'] as List<dynamic>?;
       if (similarReports == null || similarReports.isEmpty) {
-        return [];
+        return {
+          'similar_reports': <Map<String, dynamic>>[],
+          'time_window_hours': timeWindowHours,
+        };
       }
 
-      return similarReports.map((r) => Map<String, dynamic>.from(r)).toList();
+      return {
+        'similar_reports': similarReports
+            .map((r) => Map<String, dynamic>.from(r))
+            .toList(),
+        'time_window_hours': timeWindowHours,
+      };
     } catch (e) {
       print('Error checking similar reports: $e');
       // Return empty list on error (proceed with normal submission)
-      return [];
+      return {
+        'similar_reports': <Map<String, dynamic>>[],
+        'time_window_hours': null,
+      };
     }
   }
 
@@ -545,6 +579,28 @@ class HazardService {
       return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
     } catch (e) {
       throw Exception('Failed to fetch pending reports: $e');
+    }
+  }
+
+  /// Get approved hazard reports for MDRRMO report management.
+  ///
+  /// IMPORTANT:
+  /// - Uses the MDRRMO endpoint that returns full report details.
+  /// - Do NOT use /verified-hazards/ here because that endpoint is intentionally
+  ///   privacy-minimized for resident map display.
+  Future<List<HazardReport>> getApprovedReports() async {
+    if (ApiConfig.useMockData) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      return [];
+    }
+
+    await _ensureAuthToken();
+    try {
+      final response = await _apiClient.get(ApiConfig.approvedReportsEndpoint);
+      final list = _extractList(response.data);
+      return list.map((json) => _tryParseReport(json)).whereType<HazardReport>().toList();
+    } catch (e) {
+      throw Exception('Failed to fetch approved reports: $e');
     }
   }
 

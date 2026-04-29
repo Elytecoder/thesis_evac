@@ -142,7 +142,9 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
         reports.addAll(await _hazardService.getRejectedReports());
       }
       if (status == null || status == 'approved') {
-        reports.addAll(await _hazardService.getVerifiedHazards());
+        // Use MDRRMO full-detail endpoint (not resident public verified endpoint)
+        // so approved report information and AI analysis remain available.
+        reports.addAll(await _hazardService.getApprovedReports());
       }
       // Sort by created_at descending
       reports.sort((a, b) {

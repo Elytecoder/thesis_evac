@@ -18,6 +18,7 @@ import '../../features/hazards/hazard_service.dart';
 import '../../features/navigation/gps_tracking_service.dart';
 import '../../features/navigation/risk_aware_routing_service.dart';
 import '../../features/routing/routing_service.dart';
+import '../widgets/map_marker_style.dart';
 import '../widgets/navigation/top_instruction_banner.dart';
 import '../widgets/report_media_preview.dart';
 import 'report_hazard_screen.dart';
@@ -1512,7 +1513,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                 },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: _hasArrived ? Colors.green.shade400 : Colors.green,
+                    color: _hasArrived
+                        ? MapMarkerStyle.evacuationCenterColor.withValues(alpha: 0.85)
+                        : MapMarkerStyle.evacuationCenterColor,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: Colors.white,
@@ -1520,7 +1523,10 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: (_hasArrived ? Colors.green : Colors.black).withValues(alpha: 0.35),
+                        color: (_hasArrived
+                                ? MapMarkerStyle.evacuationCenterColor
+                                : Colors.black)
+                            .withValues(alpha: 0.35),
                         blurRadius: _hasArrived ? 24 : 12,
                         spreadRadius: _hasArrived ? 4 : 0,
                         offset: const Offset(0, 4),
@@ -1528,9 +1534,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
                     ],
                   ),
                   child: Icon(
-                    _hasArrived ? Icons.check_circle : Icons.location_on,
+                    _hasArrived
+                        ? Icons.check_circle
+                        : MapMarkerStyle.evacuationCenterIcon,
                     color: Colors.white,
-                    size: _hasArrived ? 40 : 32,
+                    size: _hasArrived ? 40 : 28,
                   ),
                 ),
               ),
@@ -1664,7 +1672,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           onTap: () => _showHazardDetail(report),
           child: Container(
           decoration: BoxDecoration(
-            color: Colors.orange.shade600,
+            color: MapMarkerStyle.pendingHazardColor,
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
@@ -1675,7 +1683,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
               ),
             ],
           ),
-          child: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+          child: const Icon(MapMarkerStyle.pendingHazardIcon, color: Colors.white, size: 20),
         ),
         ),
       );
@@ -1693,7 +1701,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           onTap: () => _showHazardDetail(report),
           child: Container(
           decoration: BoxDecoration(
-            color: Colors.red.shade700,
+            color: MapMarkerStyle.verifiedHazardColor,
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
@@ -1704,7 +1712,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
               ),
             ],
           ),
-          child: const Icon(Icons.warning_rounded, color: Colors.white, size: 24),
+          child: const Icon(MapMarkerStyle.verifiedHazardIcon, color: Colors.white, size: 24),
         ),
         ),
       );

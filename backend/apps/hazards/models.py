@@ -52,6 +52,11 @@ class HazardReport(models.Model):
     # Hazard location (reported location)
     latitude = models.DecimalField(max_digits=10, decimal_places=7)
     longitude = models.DecimalField(max_digits=10, decimal_places=7)
+    # Human-readable location resolved from hazard coordinates (not reporter profile).
+    # These fields are best-effort and may be blank when reverse geocoding is unavailable.
+    location_address = models.TextField(blank=True, default='')
+    location_barangay = models.CharField(max_length=100, blank=True, default='')
+    location_municipality = models.CharField(max_length=100, blank=True, default='')
     
     # User location at time of report (for proximity validation)
     user_latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)

@@ -34,7 +34,10 @@ class ResidentHazardReportsService {
         'description': r.description,
         'date_submitted': r.createdAt != null ? formatManila(r.createdAt!) : '',
         'media': media,
-        'barangay': r.reporterBarangay ?? '',
+        'location_address': r.locationAddress ?? '',
+        'location_barangay': r.locationBarangay ?? '',
+        'location_municipality': r.locationMunicipality ?? '',
+        'location_label': r.locationLabel ?? '',
       };
     } else {
       // Other resident's report: expose only public, non-identifying fields.
@@ -49,7 +52,10 @@ class ResidentHazardReportsService {
         'description': '',
         'date_submitted': '',
         'media': <Map<String, dynamic>>[],
-        'barangay': r.reporterBarangay ?? '',
+        'location_address': '',
+        'location_barangay': r.locationBarangay ?? '',
+        'location_municipality': r.locationMunicipality ?? '',
+        'location_label': r.locationLabel ?? '',
       };
     }
   }

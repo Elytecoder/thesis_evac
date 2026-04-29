@@ -11,6 +11,7 @@ import '../../features/evacuation/evacuation_center_service.dart';
 import '../../models/hazard_report.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
+import '../widgets/map_marker_style.dart';
 
 /// Map Monitor Screen — Full-screen map for MDRRMO with hazard overlays and
 /// road risk layer. Navigated to from the "High Risk Roads" dashboard tile,
@@ -80,8 +81,10 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
     try {
       final pending = await _hazardService.getPendingReports();
       final rejected = await _hazardService.getRejectedReports();
-      final verified = await _hazardService.getVerifiedHazards();
-      final reports = <HazardReport>[...pending, ...rejected, ...verified];
+      // Use MDRRMO full-detail approved endpoint; do not use resident public
+      // verified endpoint here because it strips technical report fields.
+      final approved = await _hazardService.getApprovedReports();
+      final reports = <HazardReport>[...pending, ...rejected, ...approved];
       final centers = await _evacuationCenterService.getEvacuationCenters(includeInactive: true);
       if (mounted) {
         setState(() {
@@ -323,11 +326,11 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.blue,
+              color: MapMarkerStyle.evacuationCenterColor,
               shape: BoxShape.circle,
               border: Border.all(color: Colors.white, width: 2),
             ),
-            child: const Icon(Icons.location_city, color: Colors.white, size: 24),
+            child: const Icon(MapMarkerStyle.evacuationCenterIcon, color: Colors.white, size: 22),
           ),
         ),
       );
@@ -346,11 +349,11 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red,
+                    color: MapMarkerStyle.verifiedHazardColor,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: const Icon(Icons.warning, color: Colors.white, size: 24),
+                  child: const Icon(MapMarkerStyle.verifiedHazardIcon, color: Colors.white, size: 24),
                 ),
               ),
             ))
@@ -376,14 +379,14 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
                     height: 50,
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.orange,
+                      color: MapMarkerStyle.pendingHazardColor,
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: high ? Colors.green : Colors.white,
                         width: high ? 3 : 2,
                       ),
                     ),
-                    child: const Icon(Icons.warning_amber, color: Colors.white, size: 24),
+                    child: const Icon(MapMarkerStyle.pendingHazardIcon, color: Colors.white, size: 22),
                   ),
                   if (high)
                     Positioned(
@@ -495,9 +498,9 @@ class _MapMonitorScreenState extends State<MapMonitorScreen> with WidgetsBinding
         children: [
           const Text('Legend', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          _legendDot(Colors.blue, 'Evacuation Centers'),
-          _legendDot(Colors.red, 'Verified Hazards'),
-          _legendDot(Colors.orange, 'Pending Hazards'),
+          _legendDot(MapMarkerStyle.evacuationCenterColor, 'Evacuation Centers'),
+          _legendDot(MapMarkerStyle.verifiedHazardColor, 'Verified Hazards'),
+          _legendDot(MapMarkerStyle.pendingHazardColor, 'Pending Hazards'),
           if (_showRoadRiskLayer) ...[
             const Divider(height: 10, thickness: 0.8),
             const Text('Road Risk', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black54)),

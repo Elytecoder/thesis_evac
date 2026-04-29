@@ -4,10 +4,12 @@ Tests for mobile sync API endpoints.
 import io
 import tempfile
 from decimal import Decimal
+from datetime import timedelta
 from pathlib import Path
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
@@ -123,6 +125,43 @@ class ReportHazardAPITests(TestCase):
             'Invalid file. Must be under size limit and correct format.',
         )
 
+    def test_report_hazard_duplicate_cluster_is_blocked(self):
+        """Submitting same hazard in same area/time returns 409 and forces confirmation."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token.key}')
+        first = {
+            'hazard_type': 'flood',
+            'latitude': 14.5995,
+            'longitude': 120.9842,
+            'description': 'First report',
+            'user_latitude': 14.5995,
+            'user_longitude': 120.9842,
+        }
+        response1 = self.client.post('/api/report-hazard/', first, format='json')
+        self.assertEqual(response1.status_code, 201, response1.data)
+
+        other = User.objects.create_user(
+            username='otheruser',
+            email='other@example.com',
+            password='testpass123',
+            role=User.Role.RESIDENT,
+        )
+        other.is_active = True
+        other.save(update_fields=['is_active'])
+        other_token = Token.objects.create(user=other)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {other_token.key}')
+        duplicate = {
+            'hazard_type': 'flood',
+            'latitude': 14.5995,
+            'longitude': 120.9842,
+            'description': 'Duplicate report',
+            'user_latitude': 14.5995,
+            'user_longitude': 120.9842,
+        }
+        response2 = self.client.post('/api/report-hazard/', duplicate, format='json')
+        self.assertEqual(response2.status_code, 409, response2.data)
+        self.assertTrue(response2.data.get('requires_confirmation'))
+        self.assertIsNotNone(response2.data.get('existing_report_id'))
+
 
 class EvacuationCentersAPITests(TestCase):
     """Test cases for GET /api/evacuation-centers/"""
@@ -169,6 +208,8 @@ class CalculateRouteAPITests(TestCase):
             password='testpass123',
             role=User.Role.RESIDENT,
         )
+        self.user.is_active = True
+        self.user.save(update_fields=['is_active'])
         self.token = Token.objects.create(user=self.user)
         self.center = EvacuationCenter.objects.create(
             name='Test Center',
@@ -397,3 +438,71 @@ class BootstrapSyncAPITests(TestCase):
         self.assertIsInstance(response.data['baseline_hazards'], list)
         self.assertEqual(len(response.data['evacuation_centers']), 1)
         self.assertEqual(len(response.data['baseline_hazards']), 1)
+
+
+class CheckSimilarReportsAPITests(TestCase):
+    """Test cases for POST /api/check-similar-reports/."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.requester = User.objects.create_user(
+            username='requester',
+            email='requester@example.com',
+            password='testpass123',
+            role=User.Role.RESIDENT,
+        )
+        self.requester.is_active = True
+        self.requester.save(update_fields=['is_active'])
+        self.requester_token = Token.objects.create(user=self.requester)
+
+        self.other = User.objects.create_user(
+            username='other',
+            email='other2@example.com',
+            password='testpass123',
+            role=User.Role.RESIDENT,
+        )
+        self.other.is_active = True
+        self.other.save(update_fields=['is_active'])
+
+    def test_check_similar_reports_applies_one_hour_window(self):
+        """Only recent nearby reports are returned to match duplicate-block logic."""
+        old_report = HazardReport.objects.create(
+            user=self.other,
+            hazard_type='flood',
+            latitude=14.5995,
+            longitude=120.9842,
+            status=HazardReport.Status.PENDING,
+            auto_rejected=False,
+            is_deleted=False,
+        )
+        HazardReport.objects.filter(pk=old_report.id).update(
+            created_at=timezone.now() - timedelta(hours=2)
+        )
+
+        fresh_report = HazardReport.objects.create(
+            user=self.other,
+            hazard_type='flood',
+            latitude=14.5995,
+            longitude=120.9842,
+            status=HazardReport.Status.PENDING,
+            auto_rejected=False,
+            is_deleted=False,
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.requester_token.key}')
+        response = self.client.post(
+            '/api/check-similar-reports/',
+            {
+                'hazard_type': 'flood',
+                'latitude': 14.5995,
+                'longitude': 120.9842,
+                'radius_meters': 150,
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data.get('time_window_hours'), 1)
+        self.assertEqual(response.data.get('count'), 1)
+        returned_ids = [item.get('id') for item in response.data.get('similar_reports', [])]
+        self.assertIn(fresh_report.id, returned_ids)
+        self.assertNotIn(old_report.id, returned_ids)

@@ -11,6 +11,11 @@ class HazardReport {
   final int? displayReportId;
   /// Reporter's barangay from linked user (`reporter_barangay` in API).
   final String? reporterBarangay;
+  /// Hazard location resolved from report coordinates (`location_*` in API).
+  final String? locationAddress;
+  final String? locationBarangay;
+  final String? locationMunicipality;
+  final String? locationLabel;
 
   final String hazardType;
   
@@ -66,6 +71,10 @@ class HazardReport {
     this.reporterDisplayId,
     this.displayReportId,
     this.reporterBarangay,
+    this.locationAddress,
+    this.locationBarangay,
+    this.locationMunicipality,
+    this.locationLabel,
     required this.hazardType,
     required this.latitude,
     required this.longitude,
@@ -105,6 +114,10 @@ class HazardReport {
       reporterDisplayId: _parseOptionalPositiveInt(json['reporter_display_id']),
       displayReportId: _parseOptionalPositiveInt(json['display_report_id']),
       reporterBarangay: _nonEmptyString(json['reporter_barangay']),
+      locationAddress: _nonEmptyString(json['location_address']),
+      locationBarangay: _nonEmptyString(json['location_barangay']),
+      locationMunicipality: _nonEmptyString(json['location_municipality']),
+      locationLabel: _nonEmptyString(json['location_label']),
       hazardType: (json['hazard_type'] as String?) ?? '',
       latitude: lat == null ? 0.0 : (lat is num ? lat.toDouble() : double.tryParse(lat.toString()) ?? 0.0),
       longitude: lng == null ? 0.0 : (lng is num ? lng.toDouble() : double.tryParse(lng.toString()) ?? 0.0),
@@ -147,6 +160,10 @@ class HazardReport {
       if (reporterDisplayId != null) 'reporter_display_id': reporterDisplayId,
       if (displayReportId != null) 'display_report_id': displayReportId,
       if (reporterBarangay != null) 'reporter_barangay': reporterBarangay,
+      if (locationAddress != null) 'location_address': locationAddress,
+      if (locationBarangay != null) 'location_barangay': locationBarangay,
+      if (locationMunicipality != null) 'location_municipality': locationMunicipality,
+      if (locationLabel != null) 'location_label': locationLabel,
       'hazard_type': hazardType,
       'latitude': latitude,
       'longitude': longitude,
