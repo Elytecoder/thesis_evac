@@ -39,7 +39,7 @@ class PhilippineAddressData {
       'Sorsogon City',
     ],
   };
-
+  
   // ── Barangays ────────────────────────────────────────────────────────────
   // Sorted alphabetically within each municipality.
   // Source: PSA PSGC 2023 / COMELEC official lists.

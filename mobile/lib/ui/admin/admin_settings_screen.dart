@@ -23,7 +23,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   final NotificationService _notifService = NotificationService();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _contactsSectionKey = GlobalKey();
-
+  
   Map<String, dynamic>? _userProfile;
   List<EmergencyContact> _emergencyContacts = [];
   bool _isLoading = true;
@@ -52,11 +52,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       final profile = await _authService.getCurrentUser();
       final contacts = await _contactsService.getAllContacts();
       if (mounted) {
-        setState(() {
-          _userProfile = profile;
-          _emergencyContacts = contacts;
-          _isLoading = false;
-        });
+      setState(() {
+        _userProfile = profile;
+        _emergencyContacts = contacts;
+        _isLoading = false;
+      });
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
@@ -185,15 +185,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               ],
             ),
           ),
-          actions: [
-            TextButton(
+        actions: [
+          TextButton(
               onPressed: () => Navigator.pop(dialogCtx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
                 backgroundColor: _navy,
-                foregroundColor: Colors.white,
+              foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
               ),
@@ -313,7 +313,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context),
                 child: const Text('Cancel')),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -422,7 +422,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(context),
                 child: const Text('Cancel')),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -475,15 +475,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       confirmColor: Colors.red,
     );
     if (confirm != true) return;
-    await _contactsService.deleteContact(contact.id);
-    _loadData();
+      await _contactsService.deleteContact(contact.id);
+      _loadData();
     if (mounted) _showSnack('Contact deleted.', Colors.orange);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   void _showSnack(String msg, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
         backgroundColor: color,
@@ -502,7 +502,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     required Color confirmColor,
   }) =>
       showDialog<bool>(
-        context: context,
+      context: context,
         builder: (ctx) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
@@ -525,12 +525,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           content: Text(message,
               style: TextStyle(color: Colors.grey[700], fontSize: 14,
                   height: 1.5)),
-          actions: [
-            TextButton(
+        actions: [
+          TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: confirmColor,
                 foregroundColor: Colors.white,
@@ -595,9 +595,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       body: SingleChildScrollView(
         controller: _scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
             // ── Admin profile header ───────────────────────────────────────
             _buildProfileHeader(),
 
@@ -667,8 +667,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                 title: 'System Logs',
                 subtitle: 'View all system activity and events',
                 onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
+                    context,
+                    MaterialPageRoute(
                       builder: (_) => const SystemLogsScreen()),
                 ),
               ),
@@ -723,12 +723,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     final email = _userProfile?['email'] ?? '';
 
     return Container(
-      decoration: BoxDecoration(
+                    decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [_navy, _navyLight],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -740,13 +740,13 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       ),
       padding: const EdgeInsets.all(20),
       child: Row(
-        children: [
-          Container(
+                      children: [
+                        Container(
             width: 64,
             height: 64,
-            decoration: BoxDecoration(
+                          decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
+                            shape: BoxShape.circle,
               border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
             ),
             child: const Icon(Icons.admin_panel_settings,
@@ -758,10 +758,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(name,
-                    style: const TextStyle(
+                          style: const TextStyle(
                       fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                     )),
                 if (email.isNotEmpty) ...[
                   const SizedBox(height: 2),
@@ -771,26 +771,26 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                           color: Colors.white.withValues(alpha: 0.8))),
                 ],
                 const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
+                        Container(
+                          padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 3),
-                  decoration: BoxDecoration(
+                          decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    'MDRRMO ADMINISTRATOR',
-                    style: TextStyle(
+                          ),
+                          child: const Text(
+                            'MDRRMO ADMINISTRATOR',
+                            style: TextStyle(
                       fontSize: 10,
-                      fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.bold,
                       color: Colors.white,
                       letterSpacing: 0.8,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
           // HAZNAV logo watermark in top-right of card
           SizedBox(
             width: 36,
@@ -833,9 +833,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+                        ),
+                      ],
+                    ),
         child: Column(children: children),
       );
 
@@ -857,21 +857,21 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
-              children: [
-                Container(
+                      children: [
+                        Container(
                   width: 42,
                   height: 42,
-                  decoration: BoxDecoration(
+                          decoration: BoxDecoration(
                     color: iconColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
-                  ),
+                          ),
                   child: Icon(icon, color: iconColor, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
-                  child: Column(
+                          child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                            children: [
                       Text(title,
                           style: const TextStyle(
                               fontSize: 15, fontWeight: FontWeight.w600)),
@@ -879,15 +879,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       Text(subtitle,
                           style: TextStyle(
                               fontSize: 12, color: Colors.grey[600])),
-                    ],
-                  ),
-                ),
+                            ],
+                          ),
+                        ),
                 trailing ??
                     Icon(Icons.chevron_right,
                         color: trailingColor ?? Colors.grey[400]),
-              ],
-            ),
-          ),
+                      ],
+                    ),
+                  ),
         ),
       );
 
@@ -921,19 +921,19 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
 
   Widget _buildEmergencyContactsSection({Key? key}) {
     return Column(key: key,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
             Row(children: [
               const Icon(Icons.emergency, color: Colors.red, size: 18),
               const SizedBox(width: 8),
               const Text(
                 'EMERGENCY CONTACTS',
-                style: TextStyle(
+                    style: TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.bold,
                   color: Colors.red,
                   letterSpacing: 1.0,
                 ),
@@ -942,17 +942,17 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               Container(height: 1, width: 40, color: Colors.red.shade100),
             ]),
             TextButton.icon(
-              onPressed: _showAddContactDialog,
+                onPressed: _showAddContactDialog,
               icon: const Icon(Icons.add, size: 16),
               label: const Text('Add'),
               style: TextButton.styleFrom(
                 foregroundColor: _navy,
                 textStyle: const TextStyle(
                     fontWeight: FontWeight.bold, fontSize: 13),
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
         const SizedBox(height: 4),
         Text('Visible to all residents in the app',
             style: TextStyle(fontSize: 12, color: Colors.grey[500])),
@@ -962,16 +962,16 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               ? [
                   Padding(
                     padding: const EdgeInsets.all(32),
-                    child: Column(
-                      children: [
+                      child: Column(
+                        children: [
                         Icon(Icons.contacts_outlined,
                             size: 48, color: Colors.grey[300]),
-                        const SizedBox(height: 8),
+                          const SizedBox(height: 8),
                         Text('No emergency contacts added yet',
                             style: TextStyle(color: Colors.grey[500])),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
                 ]
               : _emergencyContacts
                   .asMap()
@@ -981,9 +981,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                         if (e.key < _emergencyContacts.length - 1)
                           _buildDivider(),
                       ]))
-                  .toList(),
-        ),
-      ],
+                        .toList(),
+          ),
+        ],
     );
   }
 
@@ -1008,14 +1008,14 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(contact.name,
-                    style: const TextStyle(
+                  style: const TextStyle(
                         fontSize: 14, fontWeight: FontWeight.w600)),
                 Text(contact.number,
                     style:
                         TextStyle(fontSize: 13, color: Colors.grey[600])),
                 if (contact.description.isNotEmpty)
                   Text(contact.description,
-                      style: TextStyle(
+                    style: TextStyle(
                           fontSize: 11, color: Colors.grey[500])),
               ],
             ),
@@ -1027,11 +1027,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(contact.type,
-                style: TextStyle(
+              style: TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.bold,
                     color: color)),
-          ),
+              ),
           const SizedBox(width: 4),
           IconButton(
             icon: const Icon(Icons.edit_outlined, size: 18),

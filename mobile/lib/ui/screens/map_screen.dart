@@ -375,6 +375,7 @@ class _MapScreenState extends State<MapScreen>
             if (mounted) _mapController.move(_userLocation, 16.0);
           });
         }
+        _startLocationStream();
       } catch (_) {}
     }
 
@@ -419,6 +420,7 @@ class _MapScreenState extends State<MapScreen>
         });
         _mapController.move(_userLocation, 16.0);
       }
+      _startLocationStream();
     } catch (_) {
       // Timed out or failed. Only show the retry banner if we have no real
       // position at all — if last-known position already placed the marker,
