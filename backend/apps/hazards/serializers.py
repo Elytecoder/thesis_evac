@@ -2,7 +2,6 @@
 from rest_framework import serializers
 
 from .models import HazardReport
-from .location_resolver import resolve_hazard_location
 
 
 def _round_coord(value):
@@ -101,25 +100,16 @@ def _location_label_for_report(obj):
 def _resolved_location_fields(obj):
     """
     Return location_address/barangay/municipality for a report.
-    Uses stored fields first; falls back to reverse geocoding when missing.
+    Uses stored fields only - reverse geocoding is done at report creation time.
     """
     address = (getattr(obj, 'location_address', '') or '').strip()
     barangay = (getattr(obj, 'location_barangay', '') or '').strip()
     municipality = (getattr(obj, 'location_municipality', '') or '').strip()
-    if address or barangay or municipality:
-        return {
-            'location_address': address,
-            'location_barangay': barangay,
-            'location_municipality': municipality,
-        }
-    try:
-        return resolve_hazard_location(float(obj.latitude), float(obj.longitude))
-    except Exception:
-        return {
-            'location_address': '',
-            'location_barangay': '',
-            'location_municipality': '',
-        }
+    return {
+        'location_address': address,
+        'location_barangay': barangay,
+        'location_municipality': municipality,
+    }
 
 
 class HazardReportSerializer(serializers.ModelSerializer):

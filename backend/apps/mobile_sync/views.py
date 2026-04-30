@@ -9,10 +9,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
-import logging
 import threading
-
-_log = logging.getLogger(__name__)
 
 from apps.hazards import hazard_media
 from core.permissions.mdrrmo import IsMDRRMO
@@ -605,6 +602,69 @@ def mdrrmo_approved_reports(request):
     return Response(serializer.data)
 
 
+def _notify_report_action_async(report, action, admin_comment=''):
+    """Send notifications in background thread to avoid blocking response."""
+    def _send():
+        try:
+            if action == 'approve':
+                # Create notification for resident
+                Notification.create_notification(
+                    user=report.user,
+                    notification_type=Notification.Type.REPORT_APPROVED,
+                    title='Report Approved',
+                    message=f'Your hazard report about {report.hazard_type} has been approved by MDRRMO.',
+                    related_object_type='HazardReport',
+                    related_object_id=report.id,
+                    metadata={
+                        'hazard_type': report.hazard_type,
+                        'latitude': str(report.latitude),
+                        'longitude': str(report.longitude),
+                    }
+                )
+                # Push to resident device
+                if report.user.fcm_token:
+                    fcm_service.send_push(
+                        token=report.user.fcm_token,
+                        title='Report Approved',
+                        body='Your reported hazard has been verified and approved.',
+                        data={
+                            'type': 'report_approved',
+                            'target': 'resident_notifications',
+                            'report_id': str(report.id),
+                        },
+                    )
+            else:
+                # Create notification for resident
+                Notification.create_notification(
+                    user=report.user,
+                    notification_type=Notification.Type.REPORT_REJECTED,
+                    title='Report Rejected',
+                    message=f'Your hazard report about {report.hazard_type} was rejected after verification.',
+                    related_object_type='HazardReport',
+                    related_object_id=report.id,
+                    metadata={
+                        'hazard_type': report.hazard_type,
+                        'reason': admin_comment if admin_comment else 'Did not meet validation criteria',
+                    }
+                )
+                # Push to resident device
+                if report.user.fcm_token:
+                    fcm_service.send_push(
+                        token=report.user.fcm_token,
+                        title='Report Rejected',
+                        body='Your reported hazard was reviewed and rejected.',
+                        data={
+                            'type': 'report_rejected',
+                            'target': 'resident_notifications',
+                            'report_id': str(report.id),
+                        },
+                    )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning('Notification failed for report %s: %s', report.id, exc)
+    threading.Thread(target=_send, daemon=True).start()
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsMDRRMO])
 def mdrrmo_approve_report(request):
@@ -616,7 +676,7 @@ def mdrrmo_approve_report(request):
     report_id = request.data.get('report_id')
     action = request.data.get('action')
     admin_comment = request.data.get('admin_comment', '')
-    
+
     if not report_id or action not in ('approve', 'reject'):
         return Response(
             {'error': 'report_id and action (approve|reject) required'},
@@ -626,81 +686,45 @@ def mdrrmo_approve_report(request):
         report = HazardReport.objects.select_related('user').get(pk=report_id)
     except HazardReport.DoesNotExist:
         return Response({'error': 'Report not found'}, status=status.HTTP_404_NOT_FOUND)
-    
-    if action == 'approve':
-        report.status = HazardReport.Status.APPROVED
+
+    try:
+        if action == 'approve':
+            report.status = HazardReport.Status.APPROVED
+        else:
+            # Handle reject without calling mark_rejected() to avoid double save
+            from datetime import timedelta
+            from django.utils import timezone
+            report.status = HazardReport.Status.REJECTED
+            report.rejected_at = timezone.now()
+            # Schedule deletion 15 days from now
+            report.deletion_scheduled_at = timezone.now() + timedelta(days=15)
+
         if admin_comment:
             report.admin_comment = admin_comment
+
         report.save()
 
-        # Notify resident — non-critical; approval is already committed above.
-        try:
-            Notification.create_notification(
-                user=report.user,
-                notification_type=Notification.Type.REPORT_APPROVED,
-                title='Report Approved',
-                message=f'Your hazard report about {report.hazard_type} has been approved by MDRRMO.',
-                related_object_type='HazardReport',
-                related_object_id=report.id,
-                metadata={
-                    'hazard_type': report.hazard_type,
-                    'latitude': str(report.latitude),
-                    'longitude': str(report.longitude),
-                }
-            )
-        except Exception as _exc:
-            _log.warning('Could not create approval notification for report %s: %s', report.id, _exc)  # noqa: E501
+        # Send notifications asynchronously (don't block response)
+        _notify_report_action_async(report, action, admin_comment)
 
-        if report.user.fcm_token:
-            fcm_service.send_push(
-                token=report.user.fcm_token,
-                title='Report Approved',
-                body='Your reported hazard has been verified and approved.',
-                data={
-                    'type': 'report_approved',
-                    'target': 'resident_notifications',
-                    'report_id': str(report.id),
-                },
-            )
-    else:
-        if admin_comment:
-            report.admin_comment = admin_comment
-        report.mark_rejected()
+        # Recompute segment risks asynchronously (don't block response)
+        # This was causing timeouts when run synchronously
+        def _async_recompute():
+            try:
+                _sync_recompute_segment_risks()
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning('Async segment recompute failed: %s', exc)
+        threading.Thread(target=_async_recompute, daemon=True).start()
 
-        # Notify resident — non-critical; rejection is already committed above.
-        try:
-            Notification.create_notification(
-                user=report.user,
-                notification_type=Notification.Type.REPORT_REJECTED,
-                title='Report Rejected',
-                message=f'Your hazard report about {report.hazard_type} was rejected after verification.',
-                related_object_type='HazardReport',
-                related_object_id=report.id,
-                metadata={
-                    'hazard_type': report.hazard_type,
-                    'reason': admin_comment if admin_comment else 'Did not meet validation criteria',
-                }
-            )
-        except Exception as _exc:
-            _log.warning('Could not create rejection notification for report %s: %s', report.id, _exc)  # noqa: E501
-
-        if report.user.fcm_token:
-            fcm_service.send_push(
-                token=report.user.fcm_token,
-                title='Report Rejected',
-                body='Your reported hazard was reviewed and rejected.',
-                data={
-                    'type': 'report_rejected',
-                    'target': 'resident_notifications',
-                    'report_id': str(report.id),
-                },
-            )
-
-    # Synchronously refresh segment risks BEFORE returning the response so
-    # the very next route request sees up-to-date risk scores (zero stale window).
-    _sync_recompute_segment_risks()
-
-    return Response(PendingReportSerializer(report).data)
+        return Response(PendingReportSerializer(report).data)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).exception('Failed to %s report %s: %s', action, report_id, exc)
+        return Response(
+            {'error': f'Failed to {action} report', 'detail': str(exc)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @api_view(['GET'])
@@ -1013,7 +1037,14 @@ def restore_report(request):
         )
     
     report.restore(restoration_reason)
-    _sync_recompute_segment_risks()
+    # Recompute segment risks asynchronously (don't block response)
+    def _async_recompute():
+        try:
+            _sync_recompute_segment_risks()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning('Async segment recompute failed: %s', exc)
+    threading.Thread(target=_async_recompute, daemon=True).start()
     return Response(PendingReportSerializer(report).data)
 
 
@@ -1057,7 +1088,14 @@ def mdrrmo_delete_report(request, report_id: int):
     report.is_deleted = True
     report.deleted_at = tz.now()
     report.save(update_fields=['is_deleted', 'deleted_at'])
-    _sync_recompute_segment_risks()
+    # Recompute segment risks asynchronously (don't block response)
+    def _async_recompute():
+        try:
+            _sync_recompute_segment_risks()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning('Async segment recompute failed: %s', exc)
+    threading.Thread(target=_async_recompute, daemon=True).start()
     return Response({'message': 'Report deleted successfully'}, status=status.HTTP_200_OK)
 
 
