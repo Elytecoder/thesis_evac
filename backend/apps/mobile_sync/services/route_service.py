@@ -912,8 +912,10 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
     start_lat_f = float(start_lat)
     start_lng_f = float(start_lng)
 
-    # Per-route risk must come only from hazards that are actually close to that
-    # route's geometry. No global/straight-line hazard floor is applied.
+    # Per-route risk: Dijkstra already uses effective_risk which includes hazard
+    # proximity (via calculate_segment_risk). We should NOT double-count by adding
+    # path_risk again. Instead, use the Dijkstra's total_risk directly, which already
+    # accounts for hazards along the route through effective_risk per segment.
     for r in routes:
         path = r.get('path') or []
         total_dist = r.get('total_distance') or 0.0
@@ -921,12 +923,14 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
             total_dist = _path_length_meters(path)
         r['total_distance'] = total_dist
 
-        diagnostics = _route_hazard_diagnostics(path, approved_hazards)
-        path_risk = _path_based_hazard_risk(path, approved_hazards, diagnostics=diagnostics)
+        # Dijkstra's total_risk already includes hazard effects via effective_risk
+        # Don't add path_risk again to avoid double-counting
         total = r.get('total_risk') or 0.0
-        total += path_risk
-        r['total_risk'] = min(1.0, max(0.0, total))  # always clamped to [0, 1]
+        r['total_risk'] = min(1.0, max(0.0, total))  # clamp to [0, 1]
         r['risk_level'] = _risk_level_from_total(total)
+
+        # Still need diagnostics and hazards_along_route for display/explanation
+        diagnostics = _route_hazard_diagnostics(path, approved_hazards)
         r['hazards_along_route'] = _hazards_along_path(path, approved_hazards, diagnostics=diagnostics)
 
         # Route-level diagnostics for auditing why hazards were included/excluded.

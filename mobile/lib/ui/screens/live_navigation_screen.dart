@@ -213,7 +213,17 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _userLocation = firstFix;
         _displayLocation = firstFix;
         _updateCurrentStep(firstFix);
-        _mapController.move(firstFix, 17.0);
+        // Defer map movement until after first frame when FlutterMap is ready.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            try {
+              _mapController.move(firstFix, 17.0);
+            } catch (e) {
+              // Map not ready yet; location stream will update it shortly.
+              debugPrint('MapController not ready yet: $e');
+            }
+          }
+        });
       }
 
       setState(() {
