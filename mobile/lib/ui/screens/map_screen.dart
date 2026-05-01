@@ -143,7 +143,7 @@ class _MapScreenState extends State<MapScreen>
     _reconnectSub = _connectivity.onConnectionChange.listen((isOnline) {
       if (isOnline && mounted) {
         _loadEvacuationCenters();
-        _loadHazardReports();
+    _loadHazardReports();
         _refreshRoadRiskLayerIfVisible();
       }
     });
@@ -161,7 +161,7 @@ class _MapScreenState extends State<MapScreen>
     });
   }
 
-  /// Load evacuation centers: show Hive cache instantly, then refresh from network.
+  /// Load evacuation centers from API (residents see same data as MDRRMO updates).
   Future<void> _loadEvacuationCenters() async {
     if (ApiConfig.useMockData) {
       setState(() {
@@ -169,12 +169,6 @@ class _MapScreenState extends State<MapScreen>
       });
       return;
     }
-    // 1. Render cached centers immediately (zero network wait).
-    final cached = await _routingService.getCachedCenters();
-    if (cached != null && cached.isNotEmpty && mounted) {
-      setState(() => _evacuationCenters = cached);
-    }
-    // 2. Refresh from network; update UI when response arrives.
     try {
       final centers = await _routingService.getEvacuationCenters();
       if (mounted) {
@@ -183,7 +177,10 @@ class _MapScreenState extends State<MapScreen>
         });
       }
     } catch (e) {
-      if (mounted && _evacuationCenters.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _evacuationCenters = [];
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Could not load evacuation centers. Try again later.'),
@@ -247,15 +244,15 @@ class _MapScreenState extends State<MapScreen>
     _pendingFocusCheck = false; // consume the pending flag immediately
     final prefs = await SharedPreferences.getInstance();
     final shouldFocus = prefs.getBool('map_should_focus') ?? false;
-
+    
     if (shouldFocus) {
       final targetLat = prefs.getDouble('map_target_lat');
       final targetLng = prefs.getDouble('map_target_lng');
       final highlightId = prefs.getString('map_highlight_report_id');
-
+      
       if (targetLat != null && targetLng != null && mounted) {
         _mapController.move(LatLng(targetLat, targetLng), 17.0);
-
+        
         // Highlight the specific hazard marker with a pulse animation
         if (highlightId != null && highlightId.isNotEmpty) {
           setState(() => _highlightedReportId = highlightId);
@@ -282,20 +279,12 @@ class _MapScreenState extends State<MapScreen>
   Future<void> _loadHazardReports() async {
     if (_hazardLoadInFlight) return;
     _hazardLoadInFlight = true;
-    // 1. Render cached hazards immediately (zero network wait).
-    if (_hazardReports.isEmpty) {
-      final cached = await _hazardReportsService.getCachedMapReports();
-      if (cached.isNotEmpty && mounted) {
-        setState(() => _hazardReports = cached);
-      }
-    }
-    // 2. Refresh from network; update UI when response arrives.
     try {
       final reports = await _hazardReportsService.getMapReports();
       if (mounted) {
-        setState(() {
-          _hazardReports = reports;
-        });
+      setState(() {
+        _hazardReports = reports;
+      });
       }
     } catch (e) {
       print('Error loading hazard reports: $e');
@@ -414,14 +403,14 @@ class _MapScreenState extends State<MapScreen>
     // slow and the browser permission dialog is part of this call.
     final timeout =
         kIsWeb ? const Duration(seconds: 20) : const Duration(seconds: 8);
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        try {
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
       ).timeout(timeout);
 
       if (mounted) {
         _pulseController.stop();
-        setState(() {
+          setState(() {
           _userLocation = LatLng(position.latitude, position.longitude);
           _locationIsReal = true;
           _gpsLocating = false;
@@ -444,8 +433,8 @@ class _MapScreenState extends State<MapScreen>
     _startLocationStream();
 
     // ── STEP 5: Honour notification deep-link focus ──────────────────────────
-    if (mounted) {
-      final prefs = await SharedPreferences.getInstance();
+            if (mounted) {
+              final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool('map_should_focus') == true) {
         await _checkAndFocusTargetLocation();
       }
@@ -466,7 +455,7 @@ class _MapScreenState extends State<MapScreen>
     }
 
     if (!mounted) return;
-    setState(() {
+        setState(() {
       _gpsLocating = true;
       _gpsFailed = false;
     });
@@ -479,7 +468,7 @@ class _MapScreenState extends State<MapScreen>
         desiredAccuracy: LocationAccuracy.high,
       ).timeout(timeout);
 
-      if (mounted) {
+          if (mounted) {
         _pulseController.stop();
         setState(() {
           _userLocation = LatLng(position.latitude, position.longitude);
@@ -493,7 +482,7 @@ class _MapScreenState extends State<MapScreen>
       _startLocationStream();
     } catch (_) {
       if (mounted) {
-        setState(() {
+      setState(() {
           _gpsLocating = false;
           _gpsFailed = true;
         });
@@ -830,7 +819,7 @@ class _MapScreenState extends State<MapScreen>
 
     // Own report — show full personal details
     final hasMedia = report['media'] != null && (report['media'] as List).isNotEmpty;
-
+    
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -867,7 +856,7 @@ class _MapScreenState extends State<MapScreen>
                   ],
                 ),
                 const SizedBox(height: 16),
-
+                
                 // Status Badge
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -899,21 +888,21 @@ class _MapScreenState extends State<MapScreen>
                   ),
                 ),
                 const SizedBox(height: 16),
-
+                
                 // Full report details (own report only)
                 _buildDetailRow(Icons.dangerous, 'Hazard Type', displayType),
                 if ((report['description'] as String? ?? '').isNotEmpty)
-                  _buildDetailRow(Icons.description, 'Description', report['description']),
+                _buildDetailRow(Icons.description, 'Description', report['description']),
                 _buildDetailRow(
-                  Icons.location_on,
-                  'Location',
+                  Icons.location_on, 
+                  'Location', 
                   '${(report['lat'] as double).toStringAsFixed(4)}, ${(report['lng'] as double).toStringAsFixed(4)}',
                 ),
                 if (locationLabel.isNotEmpty)
                   _buildDetailRow(Icons.place_outlined, 'Address', locationLabel),
                 if ((report['date_submitted'] as String? ?? '').isNotEmpty)
                   _buildDetailRow(Icons.access_time, 'Reported', report['date_submitted']),
-
+                
                 // Media Attachments (if any)
                 if (hasMedia) ...[
                   const SizedBox(height: 16),
@@ -933,9 +922,9 @@ class _MapScreenState extends State<MapScreen>
                   const SizedBox(height: 8),
                   _buildMediaGallery(report['media']),
                 ],
-
+                
                 const SizedBox(height: 24),
-
+                
                 // Delete button (only for own pending reports)
                 if (isPending)
                   SizedBox(
@@ -1134,7 +1123,7 @@ class _MapScreenState extends State<MapScreen>
             child: isImage
                 ? Stack(
                     fit: StackFit.expand,
-                    children: [
+                        children: [
                       buildImageFromUrl(
                         url,
                         width: 100,
@@ -1163,8 +1152,8 @@ class _MapScreenState extends State<MapScreen>
                       Text('Video', style: TextStyle(fontSize: 10, color: Colors.grey[600])),
                     ],
                   ),
+                  ),
           ),
-        ),
         );
       }).toList(),
     );
@@ -1339,8 +1328,8 @@ class _MapScreenState extends State<MapScreen>
                             strokeWidth: 6.0,
                           );
                         }).toList(),
-                      ),
-
+                    ),
+                    
                     // Draw active route if selected
                     if (_activeRoute != null)
                       PolylineLayer(
@@ -1470,11 +1459,11 @@ class _MapScreenState extends State<MapScreen>
                                         animation: _pulseAnimation,
                                         builder: (_, __) => Transform.scale(
                                           scale: _pulseAnimation.value,
-                                          child: Container(
+                                child: Container(
                                             width: 56,
                                             height: 56,
-                                            decoration: BoxDecoration(
-                                              shape: BoxShape.circle,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
                                               border: Border.all(
                                                 color: Colors.orangeAccent.withOpacity(
                                                   1.6 - _pulseAnimation.value,
@@ -1508,18 +1497,18 @@ class _MapScreenState extends State<MapScreen>
                                               : (hasHighConfirmations ? Colors.green : Colors.white),
                                           width: isHighlighted ? 3 : (hasHighConfirmations ? 3 : 2),
                                         ),
-                                        boxShadow: [
-                                          BoxShadow(
+                                    boxShadow: [
+                                      BoxShadow(
                                             color: isHighlighted
                                                 ? Colors.orangeAccent.withOpacity(0.6)
                                                 : Colors.black.withOpacity(0.3),
                                             blurRadius: isHighlighted ? 10 : 4,
                                             spreadRadius: isHighlighted ? 2 : 0,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
+                                        offset: const Offset(0, 2),
                                       ),
-                                      child: Icon(
+                                    ],
+                                  ),
+                                  child: Icon(
                                         isOffline
                                             ? Icons.cloud_upload
                                             : (isHighlighted
@@ -1527,9 +1516,9 @@ class _MapScreenState extends State<MapScreen>
                                                 : (isPending
                                                     ? MapMarkerStyle.pendingHazardIcon
                                                     : MapMarkerStyle.verifiedHazardIcon)),
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
                                     ),
 
                                     // Confirmation badge (if high confirmations)
@@ -1731,63 +1720,63 @@ class _MapScreenState extends State<MapScreen>
                         duration: const Duration(milliseconds: 250),
                         curve: Curves.easeOut,
                         height: _panelHeight,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.1),
-                              blurRadius: 10,
-                              offset: const Offset(0, -2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 10,
+                            offset: const Offset(0, -2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
                             // Drag handle bar
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 10),
                               child: Center(
                                 child: Container(
-                                  width: 40,
-                                  height: 4,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[300],
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
                               ),
                             ),
                             // Header row
-                            Padding(
+                          Padding(
                               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Nearby Evacuation Centers',
-                                    style: TextStyle(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Nearby Evacuation Centers',
+                                  style: TextStyle(
                                       fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                  Row(
+                                    children: [
+                                Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red[50],
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${_evacuationCenters.length} Available',
+                                    style: TextStyle(
+                                            fontSize: 11,
+                                      color: Colors.red[700],
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red[50],
-                                          borderRadius: BorderRadius.circular(12),
-                                        ),
-                                        child: Text(
-                                          '${_evacuationCenters.length} Available',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.red[700],
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
+                                ),
                                       const SizedBox(width: 6),
                                       GestureDetector(
                                         onTap: () => setState(() =>
@@ -1839,61 +1828,61 @@ class _MapScreenState extends State<MapScreen>
                                       ),
                                     )
                                   : ListView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                itemCount: _evacuationCenters.length,
-                                itemBuilder: (context, index) {
-                                  final center = _evacuationCenters[index];
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _evacuationCenters.length,
+                              itemBuilder: (context, index) {
+                                final center = _evacuationCenters[index];
                                   final distance = _calculateDistance(
                                     _userLocation,
-                                    LatLng(center.latitude, center.longitude),
+                                        LatLng(center.latitude, center.longitude),
                                   );
 
-                                  return Container(
-                                    margin: const EdgeInsets.only(bottom: 12),
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
                                     padding: const EdgeInsets.all(14),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[50],
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.grey[200]!),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[50],
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.grey[200]!),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
                                           width: 44,
                                           height: 44,
-                                          decoration: BoxDecoration(
-                                            color: Colors.red[50],
+                                        decoration: BoxDecoration(
+                                          color: Colors.red[50],
                                             borderRadius: BorderRadius.circular(10),
                                           ),
                                           child: Icon(Icons.emergency, color: Colors.red[700], size: 26),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                center.name,
-                                                style: const TextStyle(
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              center.name,
+                                              style: const TextStyle(
                                                   fontSize: 15,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
+                                                fontWeight: FontWeight.bold,
                                               ),
+                                            ),
                                               const SizedBox(height: 3),
-                                              Text(
+                                            Text(
                                                 '${distance.toStringAsFixed(1)} km away',
                                                 style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                                              ),
-                                            ],
-                                          ),
+                                            ),
+                                          ],
                                         ),
-                                        TextButton(
+                                      ),
+                                      TextButton(
                                           onPressed: _isOpeningRoutes
                                               ? null
                                               : () => _onSelectCenter(center),
-                                          style: TextButton.styleFrom(
-                                            foregroundColor: Colors.blue[700],
-                                          ),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.blue[700],
+                                        ),
                                           child: _isOpeningRoutes &&
                                                   _selectedCenter?.id == center.id
                                               ? const SizedBox(
@@ -1904,24 +1893,24 @@ class _MapScreenState extends State<MapScreen>
                                                   ),
                                                 )
                                               : const Row(
-                                            children: [
+                                          children: [
                                               Text('Routes'),
-                                              SizedBox(width: 4),
+                                            SizedBox(width: 4),
                                               Icon(Icons.arrow_forward, size: 14),
-                                            ],
-                                          ),
+                                          ],
                                         ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
                             ), // ListView.builder
                             const SizedBox(height: 8),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
+                  ),
                   ),
                 // Active navigation bar
                 if (_activeRoute != null)
@@ -2073,9 +2062,9 @@ class _MapScreenState extends State<MapScreen>
                                 color: Colors.black.withOpacity(0.25),
                                 blurRadius: 6,
                                 offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
+                ),
+              ],
+            ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [

@@ -538,28 +538,14 @@ def mdrrmo_analytics(request):
     from django.db.models import Count
     from apps.routing.models import RoadSegment
 
-    # Road risk distribution from EFFECTIVE risk scores (base RF + dynamic hazards)
-    # This matches the risk calculation used by the map/routing layer
+    # Road risk distribution from RoadSegment.predicted_risk_score thresholds
     try:
-        from apps.mobile_sync.services.route_service import (
-            calculate_segment_risk,
-            _get_approved_hazards,
-        )
-        all_segs = list(RoadSegment.objects.all())
-        approved_hazards = _get_approved_hazards()
-
-        high_risk = 0
-        moderate_risk = 0
-        low_risk = 0
-
-        for seg in all_segs:
-            effective_risk = calculate_segment_risk(seg, approved_hazards)
-            if effective_risk >= 0.7:
-                high_risk += 1
-            elif effective_risk >= 0.3:
-                moderate_risk += 1
-            else:
-                low_risk += 1
+        all_segs = RoadSegment.objects.all()
+        high_risk = all_segs.filter(predicted_risk_score__gte=0.7).count()
+        moderate_risk = all_segs.filter(
+            predicted_risk_score__gte=0.3, predicted_risk_score__lt=0.7
+        ).count()
+        low_risk = all_segs.filter(predicted_risk_score__lt=0.3).count()
     except Exception:
         high_risk = moderate_risk = low_risk = 0
 

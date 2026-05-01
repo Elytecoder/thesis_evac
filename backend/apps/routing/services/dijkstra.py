@@ -83,7 +83,7 @@ class ModifiedDijkstraService:
         forbidden_edges = forbidden_edges or set()
         edge_penalty = edge_penalty or {}
         dist = {start_key: 0}
-        risk_sum = {start_key: 0}
+        risk_weighted = {start_key: 0}
         path_dist = {start_key: 0}
         parent = {}
         pq = [(0, start_key)]
@@ -98,23 +98,26 @@ class ModifiedDijkstraService:
                     path.append(cur)
                     cur = parent.get(cur)
                 path.reverse()
+                total_dist = path_dist.get(u, 0)
+                avg_risk = (risk_weighted.get(u, 0) / total_dist) if total_dist > 0 else 0.0
                 return {
                     'path_keys': path,
-                    'total_distance': path_dist.get(u, 0),
-                    'total_risk': risk_sum.get(u, 0),
+                    'total_distance': total_dist,
+                    # Average risk along the path, normalized by distance.
+                    'total_risk': avg_risk,
                     'weight': dist[u],
-                    'risk_level': self._risk_level(risk_sum.get(u, 0)),
+                    'risk_level': self._risk_level(avg_risk),
                 }
             for v, w, d_edge, r_edge in graph[u]:
                 if (u, v) in forbidden_edges:
                     continue
                 penalty = edge_penalty.get((u, v), 0)
                 new_d = dist[u] + w + penalty
-                new_risk = risk_sum[u] + r_edge
                 new_path_dist = path_dist[u] + d_edge
+                new_risk = risk_weighted[u] + (r_edge * d_edge)
                 if new_d < dist.get(v, float('inf')):
                     dist[v] = new_d
-                    risk_sum[v] = new_risk
+                    risk_weighted[v] = new_risk
                     path_dist[v] = new_path_dist
                     parent[v] = u
                     heapq.heappush(pq, (new_d, v))

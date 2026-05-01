@@ -185,14 +185,19 @@ class ResidentHazardReportsService {
     }
 
     final List<Map<String, dynamic>> out = [];
+    List<HazardReport> verified = [];
+    List<HazardReport> myReports = [];
 
-    // Run both API calls in parallel — cuts network wait time in half.
-    final results = await Future.wait([
-      _hazardService.getVerifiedHazards().catchError((_) => <HazardReport>[]),
-      _hazardService.getMyReports().catchError((_) => <HazardReport>[]),
-    ]);
-    final List<HazardReport> verified = results[0];
-    final List<HazardReport> myReports = results[1];
+    try {
+      verified = await _hazardService.getVerifiedHazards();
+    } catch (_) {
+      verified = [];
+    }
+    try {
+      myReports = await _hazardService.getMyReports();
+    } catch (_) {
+      myReports = [];
+    }
 
     final verifiedIds = verified.map((r) => r.id).whereType<int>().toSet();
     for (final r in verified) {
@@ -229,26 +234,6 @@ class ResidentHazardReportsService {
     } catch (_) {}
 
     return out;
-  }
-
-  /// Returns cached verified hazard reports from Hive without any network call.
-  /// Used for cache-first rendering: call this first, show results immediately,
-  /// then call getMapReports() in the background to refresh.
-  Future<List<Map<String, dynamic>>> getCachedMapReports() async {
-    try {
-      final cached = await _storageService.getCachedVerifiedHazards();
-      if (cached == null || cached.isEmpty) return [];
-      return cached.map((json) {
-        try {
-          final r = HazardReport.fromJson(Map<String, dynamic>.from(json as Map));
-          return _reportToMap(r, isCurrentUser: false);
-        } catch (_) {
-          return null;
-        }
-      }).whereType<Map<String, dynamic>>().toList();
-    } catch (_) {
-      return [];
-    }
   }
 
   /// Delete a pending report (only if status is pending and belongs to current user).

@@ -360,18 +360,6 @@ class RoutingService {
     ];
   }
 
-  /// Returns evacuation centers from Hive cache without any network call.
-  /// Returns null if nothing is cached yet (first run).
-  Future<List<EvacuationCenter>?> getCachedCenters() async {
-    try {
-      final cached = await _storageService.getEvacuationCenters();
-      if (cached == null || cached.isEmpty) return null;
-      return cached.map((json) => EvacuationCenter.fromJson(json)).toList();
-    } catch (_) {
-      return null;
-    }
-  }
-
   /// Get evacuation center by ID.
   /// 
   /// MOCK: Returns from mock list.
