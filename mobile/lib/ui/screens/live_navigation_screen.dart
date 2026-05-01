@@ -213,14 +213,30 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _userLocation = firstFix;
         _displayLocation = firstFix;
         _updateCurrentStep(firstFix);
-        _mapController.move(firstFix, 17.0);
       }
 
+      // Render the map widget BEFORE moving the camera. The FlutterMap widget
+      // only exists in the tree after _isLoading becomes false, so calling
+      // _mapController.move() before this setState causes the crash:
+      // "You need to have the FlutterMap widget rendered at least once".
       setState(() {
         _isLoading = false;
       });
 
       _navigationStartTime = DateTime.now();
+
+      // Move camera after the map widget is built (next frame).
+      if (firstFix != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            try {
+              _mapController.move(firstFix, 17.0);
+            } catch (_) {
+              // _smoothCameraFollow will handle subsequent updates
+            }
+          }
+        });
+      }
 
       // Start smooth camera updates
       _startCameraUpdates();
