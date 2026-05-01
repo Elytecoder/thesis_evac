@@ -173,6 +173,48 @@ class ResidentHazardReportsService {
         .toList();
   }
 
+  /// Return cached hazards immediately with NO network calls.
+  /// Reads cached verified hazards from Hive + any offline-queued reports.
+  /// Call this before [getMapReports] to show markers while the API loads.
+  Future<List<Map<String, dynamic>>> getCachedMapReports() async {
+    if (ApiConfig.useMockData) return [];
+    final List<Map<String, dynamic>> out = [];
+
+    // Cached verified hazards (Hive read, no network)
+    try {
+      final cachedVerified = await _storageService.getCachedVerifiedHazards();
+      for (final json in (cachedVerified ?? [])) {
+        try {
+          final r = HazardReport.fromJson(Map<String, dynamic>.from(json as Map));
+          out.add(_reportToMap(r, isCurrentUser: false));
+        } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Offline-queued reports that haven't been uploaded yet
+    try {
+      final queued = await _storageService.getPendingReports();
+      for (final q in queued) {
+        out.add({
+          'id': q['id'] ?? 0,
+          'lat': (q['latitude'] as num? ?? 0).toDouble(),
+          'lng': (q['longitude'] as num? ?? 0).toDouble(),
+          'type': q['hazard_type'] ?? 'other',
+          'status': 'pending',
+          'reported_by': currentUserId,
+          'description': q['description'] ?? '',
+          'date_submitted': q['created_at'] ?? '',
+          'media': <Map<String, dynamic>>[],
+          'barangay': '',
+          'is_offline': true,
+          'client_submission_id': q['client_submission_id'],
+        });
+      }
+    } catch (_) {}
+
+    return out;
+  }
+
   /// Get all reports for map display (verified + current user's own reports: pending, rejected, and approved so they always see their submission).
   /// When not in mock mode: fetches verified hazards and my reports from API, merges and converts to map format.
   Future<List<Map<String, dynamic>>> getMapReports() async {

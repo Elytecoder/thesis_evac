@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/config/api_config.dart';
 import '../../core/auth/session_storage.dart';
+import '../../core/storage/storage_service.dart';
 import '../../core/map/cached_tile_provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/connectivity_service.dart';
@@ -47,6 +48,7 @@ class _MapScreenState extends State<MapScreen>
   final ResidentHazardReportsService _hazardReportsService = ResidentHazardReportsService();
   final ResidentNotificationsService _notificationsService = ResidentNotificationsService();
   final ConnectivityService _connectivity = ConnectivityService();
+  final StorageService _storageService = StorageService();
   StreamSubscription<bool>? _reconnectSub;
   StreamSubscription<void>? _syncRefreshSub;
   Timer? _pollTimer;
@@ -161,26 +163,36 @@ class _MapScreenState extends State<MapScreen>
     });
   }
 
-  /// Load evacuation centers from API (residents see same data as MDRRMO updates).
+  /// Load evacuation centers using a cache-first strategy:
+  /// 1. Show Hive-cached centers immediately (no network wait).
+  /// 2. Fetch fresh data from API in background and update markers.
   Future<void> _loadEvacuationCenters() async {
     if (ApiConfig.useMockData) {
-      setState(() {
-        _evacuationCenters = getMockEvacuationCenters();
-      });
+      setState(() { _evacuationCenters = getMockEvacuationCenters(); });
       return;
     }
+
+    final sw = Stopwatch()..start();
+
+    // Step 1: render cached centers right away so the map is never empty.
+    final cached = await _storageService.getEvacuationCenters();
+    if (cached != null && cached.isNotEmpty && mounted) {
+      setState(() {
+        _evacuationCenters = cached.map((j) => EvacuationCenter.fromJson(j)).toList();
+      });
+      debugPrint('[MapPerf] ECs from cache: ${cached.length} in ${sw.elapsedMilliseconds}ms');
+    }
+
+    // Step 2: refresh from API; update markers when response arrives.
     try {
       final centers = await _routingService.getEvacuationCenters();
       if (mounted) {
-        setState(() {
-          _evacuationCenters = centers;
-        });
+        setState(() { _evacuationCenters = centers; });
+        debugPrint('[MapPerf] ECs from API: ${centers.length} in ${sw.elapsedMilliseconds}ms');
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _evacuationCenters = [];
-        });
+      // Cached data is already displayed — only alert if there was nothing to show.
+      if ((cached == null || cached.isEmpty) && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Could not load evacuation centers. Try again later.'),
@@ -210,11 +222,11 @@ class _MapScreenState extends State<MapScreen>
     super.dispose();
   }
 
-  /// Polls live data every 30 s while the app is foregrounded.
+  /// Polls live data every 60 s while the app is foregrounded.
   /// Stops automatically when the app goes to background (see [didChangeAppLifecycleState]).
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _pollTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (mounted) {
         _loadHazardReports();
         _loadEvacuationCenters();
@@ -276,18 +288,33 @@ class _MapScreenState extends State<MapScreen>
     }
   }
   
+  /// Load hazard reports using a cache-first strategy:
+  /// 1. Show Hive-cached verified hazards + offline-queued reports immediately.
+  /// 2. Fetch fresh data from API and replace markers when done.
   Future<void> _loadHazardReports() async {
     if (_hazardLoadInFlight) return;
     _hazardLoadInFlight = true;
+
+    final sw = Stopwatch()..start();
+
+    // Step 1: render cached hazards immediately (no network call).
+    try {
+      final cachedReports = await _hazardReportsService.getCachedMapReports();
+      if (cachedReports.isNotEmpty && mounted) {
+        setState(() { _hazardReports = cachedReports; });
+        debugPrint('[MapPerf] Hazards from cache: ${cachedReports.length} in ${sw.elapsedMilliseconds}ms');
+      }
+    } catch (_) {}
+
+    // Step 2: fetch fresh verified + my-reports + offline queue from API.
     try {
       final reports = await _hazardReportsService.getMapReports();
       if (mounted) {
-      setState(() {
-        _hazardReports = reports;
-      });
+        setState(() { _hazardReports = reports; });
+        debugPrint('[MapPerf] Hazards from API: ${reports.length} in ${sw.elapsedMilliseconds}ms');
       }
     } catch (e) {
-      print('Error loading hazard reports: $e');
+      debugPrint('[MapPerf] Hazard API error: $e');
     } finally {
       _hazardLoadInFlight = false;
     }
