@@ -958,8 +958,23 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
                 f"reason_included=\"{d['reason_included']}\""
             )
 
-    # Safest first (lowest total_risk)
-    routes.sort(key=lambda x: x.get('total_risk') or 0.0)
+    # Prefer safer routes first, but keep distances practical.
+    # Within the same risk band, choose fewer hazards and shorter distance.
+    def _risk_band(val: float) -> int:
+        if val < 0.3:
+            return 0
+        if val < 0.7:
+            return 1
+        return 2
+
+    routes.sort(
+        key=lambda r: (
+            _risk_band(_float(r.get('total_risk'))),
+            len(r.get('hazards_along_route') or []),
+            _float(r.get('total_distance') or 0.0),
+            _float(r.get('total_risk') or 0.0),
+        )
+    )
 
     # —— Risk evaluation layer (after Dijkstra): no algorithm changes, only evaluation and metadata ——
     for r in routes:

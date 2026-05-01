@@ -1,5 +1,5 @@
 """
-Modified Dijkstra: weight = base_distance + (predicted_risk_score × risk_multiplier).
+Modified Dijkstra: weight = base_distance × (1 + risk × risk_multiplier).
 Returns up to k distinct routes by reusing Dijkstra multiple times: run once for the best
 path, then penalize edges used in that path and run again to get alternatives. No new
 algorithm; only edge costs are adjusted temporarily via a penalty dict (graph is not mutated).
@@ -17,8 +17,10 @@ from collections import defaultdict, deque
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
 
-# Risk multiplier to emphasize safety over pure distance
-DEFAULT_RISK_MULTIPLIER = 500.0
+# Risk multiplier to emphasize safety over pure distance.
+# This is applied as a distance-scaled penalty to avoid huge detours when
+# the risk difference is small.
+DEFAULT_RISK_MULTIPLIER = 2.0
 
 
 def _float(x) -> float:
@@ -56,7 +58,7 @@ class ModifiedDijkstraService:
             dist = _float(seg.base_distance)
             # Use effective_risk (base + hazard proximity) when set; else predicted_risk_score
             risk = _float(getattr(seg, 'effective_risk', getattr(seg, 'predicted_risk_score', 0)))
-            weight = dist + risk * self.risk_multiplier
+            weight = dist * (1.0 + risk * self.risk_multiplier)
             sk, ek = _key(s_lat, s_lng), _key(e_lat, e_lng)
             nodes.add(sk)
             nodes.add(ek)
