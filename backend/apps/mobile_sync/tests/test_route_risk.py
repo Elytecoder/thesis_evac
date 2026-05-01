@@ -166,3 +166,17 @@ class ApprovedHazardFilteringTests(TestCase):
 
         self.assertIn(approved_kept.id, ids)
         self.assertEqual(ids, {approved_kept.id})
+
+
+class RoutePriorityScoreTests(SimpleTestCase):
+    def test_shorter_route_wins_when_risk_gap_is_small(self):
+        short_score = route_service._route_priority_score(5000.0, 0.35, 5000.0, 0.30)
+        long_score = route_service._route_priority_score(7000.0, 0.30, 5000.0, 0.30)
+
+        self.assertLess(short_score, long_score)
+
+    def test_longer_route_can_win_when_it_is_substantially_safer(self):
+        short_score = route_service._route_priority_score(5000.0, 0.85, 5000.0, 0.30)
+        long_score = route_service._route_priority_score(7000.0, 0.20, 5000.0, 0.20)
+
+        self.assertGreater(short_score, long_score)

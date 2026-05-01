@@ -65,9 +65,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   bool _isRerouting = false;
   /// When true, camera follows user; when false, user can pan/explore freely.
   bool _followUserLocation = true;
-  bool _isMapReady = false;
-  LatLng? _pendingMapCenter;
-  double? _pendingMapZoom;
 
   // Tile provider — caches OSM tiles to disk so the map renders offline.
   // Reuse the shared, pre-warmed instance so live navigation tiles load
@@ -176,15 +173,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     _positionController.forward(from: 0);
   }
 
-  void _safeMove(LatLng center, double zoom) {
-    if (_isMapReady) {
-      _mapController.move(center, zoom);
-      return;
-    }
-    _pendingMapCenter = center;
-    _pendingMapZoom = zoom;
-  }
-
   /// Initialize navigation system
   Future<void> _initializeNavigation() async {
     try {
@@ -225,7 +213,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _userLocation = firstFix;
         _displayLocation = firstFix;
         _updateCurrentStep(firstFix);
-        _safeMove(firstFix, 17.0);
+        _mapController.move(firstFix, 17.0);
       }
 
       setState(() {
@@ -457,7 +445,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _smoothCameraFollow() {
     if (_userLocation == null || !_followUserLocation) return;
     try {
-      _safeMove(_userLocation!, 17.0);
+      _mapController.move(_userLocation!, 17.0);
     } catch (e) {
       // Map controller not ready yet
     }
@@ -483,7 +471,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
 
     // ── Smooth camera pan to destination ──────────────────────────────────
     try {
-      _safeMove(
+      _mapController.move(
         LatLng(widget.destination.latitude, widget.destination.longitude),
         16.5,
       );
@@ -1382,7 +1370,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _recenterOnUser() {
     if (_userLocation != null && mounted) {
       setState(() => _followUserLocation = true);
-      _safeMove(_userLocation!, 17.0);
+      _mapController.move(_userLocation!, 17.0);
       return;
     }
 
@@ -1396,7 +1384,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _userLocation = live;
         _displayLocation = live;
       });
-      _safeMove(live, 17.0);
+      _mapController.move(live, 17.0);
     });
   }
 
@@ -1417,16 +1405,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           minZoom: 12.0,
           maxZoom: 19.0,
           onLongPress: _onLongPressMap,
-          onMapReady: () {
-            _isMapReady = true;
-            final center = _pendingMapCenter;
-            final zoom = _pendingMapZoom;
-            if (center != null && zoom != null) {
-              _mapController.move(center, zoom);
-              _pendingMapCenter = null;
-              _pendingMapZoom = null;
-            }
-          },
           interactionOptions: const InteractionOptions(
             flags: InteractiveFlag.all,
           ),
