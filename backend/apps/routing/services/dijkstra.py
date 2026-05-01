@@ -1,5 +1,5 @@
 """
-Modified Dijkstra: weight = base_distance × (1 + predicted_risk_score × risk_multiplier).
+Modified Dijkstra: weight = base_distance + (predicted_risk_score × risk_multiplier).
 Returns up to k distinct routes by reusing Dijkstra multiple times: run once for the best
 path, then penalize edges used in that path and run again to get alternatives. No new
 algorithm; only edge costs are adjusted temporarily via a penalty dict (graph is not mutated).
@@ -17,9 +17,8 @@ from collections import defaultdict, deque
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
 
-# Risk multiplier to emphasize safety over pure distance.
-# Keep this low so distance stays dominant unless risk is clearly higher.
-DEFAULT_RISK_MULTIPLIER = 1.5
+# Risk multiplier to emphasize safety over pure distance
+DEFAULT_RISK_MULTIPLIER = 500.0
 
 
 def _float(x) -> float:
@@ -57,7 +56,7 @@ class ModifiedDijkstraService:
             dist = _float(seg.base_distance)
             # Use effective_risk (base + hazard proximity) when set; else predicted_risk_score
             risk = _float(getattr(seg, 'effective_risk', getattr(seg, 'predicted_risk_score', 0)))
-            weight = dist * (1.0 + (risk * self.risk_multiplier))
+            weight = dist + risk * self.risk_multiplier
             sk, ek = _key(s_lat, s_lng), _key(e_lat, e_lng)
             nodes.add(sk)
             nodes.add(ek)
@@ -84,7 +83,7 @@ class ModifiedDijkstraService:
         forbidden_edges = forbidden_edges or set()
         edge_penalty = edge_penalty or {}
         dist = {start_key: 0}
-        risk_weighted = {start_key: 0.0}
+        risk_sum = {start_key: 0}
         path_dist = {start_key: 0}
         parent = {}
         pq = [(0, start_key)]
@@ -99,25 +98,23 @@ class ModifiedDijkstraService:
                     path.append(cur)
                     cur = parent.get(cur)
                 path.reverse()
-                total_distance = path_dist.get(u, 0)
-                avg_risk = (risk_weighted.get(u, 0.0) / total_distance) if total_distance > 0 else 0.0
                 return {
                     'path_keys': path,
-                    'total_distance': total_distance,
-                    'total_risk': avg_risk,
+                    'total_distance': path_dist.get(u, 0),
+                    'total_risk': risk_sum.get(u, 0),
                     'weight': dist[u],
-                    'risk_level': self._risk_level(avg_risk),
+                    'risk_level': self._risk_level(risk_sum.get(u, 0)),
                 }
             for v, w, d_edge, r_edge in graph[u]:
                 if (u, v) in forbidden_edges:
                     continue
                 penalty = edge_penalty.get((u, v), 0)
                 new_d = dist[u] + w + penalty
+                new_risk = risk_sum[u] + r_edge
                 new_path_dist = path_dist[u] + d_edge
-                new_risk = risk_weighted[u] + (r_edge * d_edge)
                 if new_d < dist.get(v, float('inf')):
                     dist[v] = new_d
-                    risk_weighted[v] = new_risk
+                    risk_sum[v] = new_risk
                     path_dist[v] = new_path_dist
                     parent[v] = u
                     heapq.heappush(pq, (new_d, v))

@@ -65,9 +65,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   bool _isRerouting = false;
   /// When true, camera follows user; when false, user can pan/explore freely.
   bool _followUserLocation = true;
-  bool _isMapReady = false;
-  LatLng? _pendingMapCenter;
-  double? _pendingMapZoom;
 
   // Tile provider — caches OSM tiles to disk so the map renders offline.
   // Reuse the shared, pre-warmed instance so live navigation tiles load
@@ -125,6 +122,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   static const double _leftDestinationRadiusM = 150.0;
   /// Prevents the "left destination" prompt from appearing repeatedly.
   bool _hasShownLeftDestination = false;
+  bool _isMapReady = false;
+  LatLng? _pendingMapCenter;
+  double? _pendingMapZoom;
 
   // ── Trip analytics ───────────────────────────────────────────────────────
   /// Number of reroutes triggered during this session.

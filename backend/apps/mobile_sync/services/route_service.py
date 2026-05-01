@@ -847,19 +847,15 @@ def _get_alternative_centers(start_lat: float, start_lng: float, exclude_ec_id: 
 
 
 def _route_priority_score(total_distance: float, total_risk: float, shortest_distance: float, best_risk: float) -> float:
-    """Rank routes so distance stays dominant unless the longer route is meaningfully safer."""
+    """Keep distance dominant unless a route is substantially safer."""
     distance = max(0.0, _float(total_distance))
     risk = max(0.0, min(1.0, _float(total_risk)))
     shortest = max(0.0, _float(shortest_distance))
     best = max(0.0, min(1.0, _float(best_risk)))
 
     score = distance * (1.0 + (risk * 1.5))
-
-    # Distance-dominance rule: if a route is much longer but only slightly safer,
-    # it should not outrank a more practical alternative.
     if shortest > 0 and distance > (shortest * 1.3) and (risk - best) <= 0.08:
         score += shortest * 0.5
-
     return score
 
 
@@ -976,8 +972,7 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
     shortest_distance = min((_float(r.get('total_distance') or 0.0) for r in routes), default=0.0)
     best_risk = min((_float(r.get('total_risk') or 0.0) for r in routes), default=0.0)
 
-    # Safest-practical first: balance distance against risk, then keep shorter
-    # routes ahead when their risk is only marginally worse.
+    # Prefer practical routes: rank by balanced score, then by distance/risk.
     routes.sort(
         key=lambda r: (
             _route_priority_score(
@@ -991,7 +986,6 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         )
     )
 
-    # Debug comparison: top candidate versus the pure shortest candidate.
     if routes:
         chosen = routes[0]
         shortest_candidate = min(routes, key=lambda r: _float(r.get('total_distance') or 0.0))
