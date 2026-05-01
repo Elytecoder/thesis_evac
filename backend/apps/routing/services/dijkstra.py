@@ -17,8 +17,12 @@ from collections import defaultdict, deque
 from decimal import Decimal
 from typing import List, Dict, Any, Tuple, Optional
 
-# Risk multiplier to emphasize safety over pure distance
-DEFAULT_RISK_MULTIPLIER = 500.0
+# Risk multiplier to emphasize safety over pure distance.
+# 150 = each risk unit adds 150 m of effective cost; a 100 m segment at risk=1.0
+# costs 250 m (2.5×), so Dijkstra avoids truly dangerous roads without routing
+# kilometres out of the way to avoid moderate-risk segments (old value 500 caused
+# 4-6× detours for segments with risk≈0.5-0.7).
+DEFAULT_RISK_MULTIPLIER = 150.0
 
 
 def _float(x) -> float:

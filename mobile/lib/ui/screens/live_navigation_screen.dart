@@ -122,9 +122,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   static const double _leftDestinationRadiusM = 150.0;
   /// Prevents the "left destination" prompt from appearing repeatedly.
   bool _hasShownLeftDestination = false;
-  bool _isMapReady = false;
-  LatLng? _pendingMapCenter;
-  double? _pendingMapZoom;
 
   // ── Trip analytics ───────────────────────────────────────────────────────
   /// Number of reroutes triggered during this session.
@@ -176,24 +173,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     _positionController.forward(from: 0);
   }
 
-  void _safeMove(LatLng center, double zoom) {
-    if (_isMapReady) {
-      _mapController.move(center, zoom);
-      return;
-    }
-    _pendingMapCenter = center;
-    _pendingMapZoom = zoom;
-  }
-
-  void _flushPendingMapMove() {
-    final center = _pendingMapCenter;
-    final zoom = _pendingMapZoom;
-    if (!_isMapReady || center == null || zoom == null) return;
-    _pendingMapCenter = null;
-    _pendingMapZoom = null;
-    _mapController.move(center, zoom);
-  }
-
   /// Initialize navigation system
   Future<void> _initializeNavigation() async {
     try {
@@ -234,7 +213,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _userLocation = firstFix;
         _displayLocation = firstFix;
         _updateCurrentStep(firstFix);
-        _safeMove(firstFix, 17.0);
+        _mapController.move(firstFix, 17.0);
       }
 
       setState(() {
@@ -466,7 +445,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _smoothCameraFollow() {
     if (_userLocation == null || !_followUserLocation) return;
     try {
-      _safeMove(_userLocation!, 17.0);
+      _mapController.move(_userLocation!, 17.0);
     } catch (e) {
       // Map controller not ready yet
     }
@@ -492,7 +471,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
 
     // ── Smooth camera pan to destination ──────────────────────────────────
     try {
-      _safeMove(
+      _mapController.move(
         LatLng(widget.destination.latitude, widget.destination.longitude),
         16.5,
       );
@@ -1391,7 +1370,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   void _recenterOnUser() {
     if (_userLocation != null && mounted) {
       setState(() => _followUserLocation = true);
-      _safeMove(_userLocation!, 17.0);
+      _mapController.move(_userLocation!, 17.0);
       return;
     }
 
@@ -1405,7 +1384,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
         _userLocation = live;
         _displayLocation = live;
       });
-      _safeMove(live, 17.0);
+      _mapController.move(live, 17.0);
     });
   }
 
@@ -1425,10 +1404,6 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
           initialZoom: 17.0,
           minZoom: 12.0,
           maxZoom: 19.0,
-          onMapReady: () {
-            _isMapReady = true;
-            _flushPendingMapMove();
-          },
           onLongPress: _onLongPressMap,
           interactionOptions: const InteractionOptions(
             flags: InteractiveFlag.all,

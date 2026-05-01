@@ -112,7 +112,7 @@ DEFAULT_HAZARD_RISK_WEIGHT = 0.35   # fallback for unknown types
 # ── Improvement 3: Road-block hazard types that force segment risk to 1.0 ──
 BLOCKING_HAZARD_TYPES = {'road_blocked', 'road_block'}
 ON_SEGMENT_BONUS_MULTIPLIER = 1.35
-MIN_APPROVED_HAZARD_IMPACT = 0.65
+MIN_APPROVED_HAZARD_IMPACT = 0.35
 
 
 def _hazard_type_weight(hazard_type: str) -> float:
@@ -846,19 +846,6 @@ def _get_alternative_centers(start_lat: float, start_lng: float, exclude_ec_id: 
     return result
 
 
-def _route_priority_score(total_distance: float, total_risk: float, shortest_distance: float, best_risk: float) -> float:
-    """Keep distance dominant unless a route is substantially safer."""
-    distance = max(0.0, _float(total_distance))
-    risk = max(0.0, min(1.0, _float(total_risk)))
-    shortest = max(0.0, _float(shortest_distance))
-    best = max(0.0, min(1.0, _float(best_risk)))
-
-    score = distance * (1.0 + (risk * 1.5))
-    if shortest > 0 and distance > (shortest * 1.3) and (risk - best) <= 0.08:
-        score += shortest * 0.5
-    return score
-
-
 def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: int = 3, include_alternative_centers: bool = True):
     """
     Return list of up to k safest routes from (start_lat, start_lng) to the evacuation center.
@@ -893,7 +880,7 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
     for seg in segments:
         seg.effective_risk = calculate_segment_risk(seg, approved_hazards)
     # 1–4) Up to k routes by reusing Dijkstra: run once → penalize used edges → run again.
-    dijkstra_safe = ModifiedDijkstraService(risk_multiplier=1.5)
+    dijkstra_safe = ModifiedDijkstraService(risk_multiplier=150.0)
     safest_routes = dijkstra_safe.get_safest_routes(
         segments,
         float(start_lat), float(start_lng),
@@ -936,9 +923,10 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
 
         diagnostics = _route_hazard_diagnostics(path, approved_hazards)
         path_risk = _path_based_hazard_risk(path, approved_hazards, diagnostics=diagnostics)
-        total = max(r.get('total_risk') or 0.0, path_risk)
+        total = r.get('total_risk') or 0.0
+        total += path_risk
         r['total_risk'] = min(1.0, max(0.0, total))  # always clamped to [0, 1]
-        r['risk_level'] = _risk_level_from_total(r['total_risk'])
+        r['risk_level'] = _risk_level_from_total(total)
         r['hazards_along_route'] = _hazards_along_path(path, approved_hazards, diagnostics=diagnostics)
 
         # Route-level diagnostics for auditing why hazards were included/excluded.
@@ -969,35 +957,27 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
                 f"reason_included=\"{d['reason_included']}\""
             )
 
-    shortest_distance = min((_float(r.get('total_distance') or 0.0) for r in routes), default=0.0)
-    best_risk = min((_float(r.get('total_risk') or 0.0) for r in routes), default=0.0)
+    # Safest first (lowest total_risk)
+    routes.sort(key=lambda x: x.get('total_risk') or 0.0)
 
-    # Prefer practical routes: rank by balanced score, then by distance/risk.
-    routes.sort(
-        key=lambda r: (
-            _route_priority_score(
-                _float(r.get('total_distance') or 0.0),
-                _float(r.get('total_risk') or 0.0),
-                shortest_distance,
-                best_risk,
-            ),
-            _float(r.get('total_distance') or 0.0),
-            _float(r.get('total_risk') or 0.0),
-        )
-    )
-
-    if routes:
-        chosen = routes[0]
-        shortest_candidate = min(routes, key=lambda r: _float(r.get('total_distance') or 0.0))
-        print(
-            '[ROUTE_COMPARE] '
-            f'chosen_distance_m={_float(chosen.get("total_distance") or 0.0):.1f} '
-            f'chosen_risk={_float(chosen.get("total_risk") or 0.0):.3f} '
-            f'chosen_score={_route_priority_score(_float(chosen.get("total_distance") or 0.0), _float(chosen.get("total_risk") or 0.0), shortest_distance, best_risk):.1f} '
-            f'shortest_distance_m={_float(shortest_candidate.get("total_distance") or 0.0):.1f} '
-            f'shortest_risk={_float(shortest_candidate.get("total_risk") or 0.0):.3f} '
-            f'shortest_score={_route_priority_score(_float(shortest_candidate.get("total_distance") or 0.0), _float(shortest_candidate.get("total_risk") or 0.0), shortest_distance, best_risk):.1f}'
-        )
+    # Distance guardrail: if the top-ranked route is >2× longer than the shortest
+    # available route AND the shorter route is not fully blocked, promote the shorter
+    # one to first place.  Prevents the algorithm from choosing a 10-14 km detour
+    # to avoid moderate-risk segments when a 1-2 km route with manageable risk exists.
+    if len(routes) >= 2:
+        min_dist = min((r.get('total_distance') or float('inf')) for r in routes)
+        if min_dist > 0:
+            best_dist = routes[0].get('total_distance') or 0.0
+            if best_dist > 2.0 * min_dist:
+                practical = next(
+                    (r for r in routes
+                     if (r.get('total_distance') or 0.0) <= 2.0 * min_dist
+                     and (r.get('total_risk') or 0.0) < EXTREME_RISK_THRESHOLD),
+                    None,
+                )
+                if practical is not None and practical is not routes[0]:
+                    routes.remove(practical)
+                    routes.insert(0, practical)
 
     # —— Risk evaluation layer (after Dijkstra): no algorithm changes, only evaluation and metadata ——
     for r in routes:

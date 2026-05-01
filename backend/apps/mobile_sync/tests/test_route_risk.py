@@ -166,37 +166,3 @@ class ApprovedHazardFilteringTests(TestCase):
 
         self.assertIn(approved_kept.id, ids)
         self.assertEqual(ids, {approved_kept.id})
-
-
-class RoutePriorityScoreTests(SimpleTestCase):
-    def test_shorter_route_wins_when_risk_difference_is_small(self):
-        shorter_route_score = route_service._route_priority_score(
-            total_distance=1200.0,
-            total_risk=0.32,
-            shortest_distance=1200.0,
-            best_risk=0.28,
-        )
-        longer_route_score = route_service._route_priority_score(
-            total_distance=1650.0,
-            total_risk=0.28,
-            shortest_distance=1200.0,
-            best_risk=0.28,
-        )
-
-        self.assertLess(shorter_route_score, longer_route_score)
-
-    def test_significantly_safer_route_can_still_outscore_shorter_route(self):
-        risky_short_route_score = route_service._route_priority_score(
-            total_distance=1100.0,
-            total_risk=0.78,
-            shortest_distance=1100.0,
-            best_risk=0.18,
-        )
-        safer_long_route_score = route_service._route_priority_score(
-            total_distance=1500.0,
-            total_risk=0.18,
-            shortest_distance=1100.0,
-            best_risk=0.18,
-        )
-
-        self.assertLess(safer_long_route_score, risky_short_route_score)
