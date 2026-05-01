@@ -89,6 +89,80 @@ def _notify_mdrrmo_new_report_async(report):
     threading.Thread(target=_send, daemon=True).start()
 
 
+def _fire_approve_reject_background(action: str, fcm_token: str | None, report_id: int) -> None:
+    """Send resident FCM push and refresh segment risks in a background thread.
+
+    Both operations are fire-and-forget: a slow FCM network call or a DB-heavy
+    risk recompute must NOT block the HTTP response that confirms the approve/reject
+    action to the MDRRMO operator.
+    """
+    def _work():
+        if fcm_token:
+            try:
+                if action == 'approve':
+                    fcm_service.send_push(
+                        token=fcm_token,
+                        title='Report Approved',
+                        body='Your reported hazard has been verified and approved.',
+                        data={
+                            'type': 'report_approved',
+                            'target': 'resident_notifications',
+                            'report_id': str(report_id),
+                        },
+                    )
+                else:
+                    fcm_service.send_push(
+                        token=fcm_token,
+                        title='Report Rejected',
+                        body='Your reported hazard was reviewed and rejected.',
+                        data={
+                            'type': 'report_rejected',
+                            'target': 'resident_notifications',
+                            'report_id': str(report_id),
+                        },
+                    )
+            except Exception:
+                pass
+        _sync_recompute_segment_risks()
+
+    threading.Thread(target=_work, daemon=True).start()
+
+
+def _compute_effective_risk_counts():
+    """Return (high, moderate, low) segment counts using effective_risk.
+
+    Uses the same calculate_segment_risk() formula as the road-risk-layer endpoint
+    and the routing algorithm, so Dashboard, Analytics, and Map all agree.
+
+    Thresholds (matching the map colour bands):
+        high_risk     : effective_risk >= 0.70  (red)
+        moderate_risk : 0.30 <= effective_risk < 0.70  (orange)
+        low_risk      : effective_risk < 0.30  (green)
+    """
+    try:
+        from apps.routing.models import RoadSegment
+        from apps.mobile_sync.services.route_service import (
+            calculate_segment_risk,
+            _get_approved_hazards,
+        )
+        segments = list(RoadSegment.objects.all())
+        if not segments:
+            return 0, 0, 0
+        approved_hazards = _get_approved_hazards()
+        high = moderate = low = 0
+        for seg in segments:
+            er = calculate_segment_risk(seg, approved_hazards)
+            if er >= 0.70:
+                high += 1
+            elif er >= 0.30:
+                moderate += 1
+            else:
+                low += 1
+        return high, moderate, low
+    except Exception:
+        return 0, 0, 0
+
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def report_hazard(request):
@@ -475,12 +549,11 @@ def mdrrmo_dashboard_stats(request):
     ).count()
     total_evacuation_centers = EvacuationCenter.objects.count()
     non_operational_centers = EvacuationCenter.objects.filter(is_operational=False).count()
-    # Count road segments whose predicted risk score exceeds the high-risk threshold
-    try:
-        from apps.routing.models import RoadSegment
-        high_risk_roads = RoadSegment.objects.filter(predicted_risk_score__gte=0.7).count()
-    except Exception:
-        high_risk_roads = 0
+    # Count high-risk road segments using effective_risk (same formula as the
+    # road-risk-layer endpoint and the map overlay) so the tile count matches
+    # what MDRRMO sees on the map.  effective_risk incorporates live approved
+    # hazards; predicted_risk_score alone (static RF output) would not.
+    high_risk_roads, _, _ = _compute_effective_risk_counts()
 
     # Hazard type distribution from verified (approved) reports only
     hazard_distribution = dict(
@@ -536,18 +609,11 @@ def mdrrmo_analytics(request):
     Used by the analytics dashboard.  MDRRMO only.
     """
     from django.db.models import Count
-    from apps.routing.models import RoadSegment
 
-    # Road risk distribution from RoadSegment.predicted_risk_score thresholds
-    try:
-        all_segs = RoadSegment.objects.all()
-        high_risk = all_segs.filter(predicted_risk_score__gte=0.7).count()
-        moderate_risk = all_segs.filter(
-            predicted_risk_score__gte=0.3, predicted_risk_score__lt=0.7
-        ).count()
-        low_risk = all_segs.filter(predicted_risk_score__lt=0.3).count()
-    except Exception:
-        high_risk = moderate_risk = low_risk = 0
+    # Road risk distribution uses effective_risk (same formula as the map overlay)
+    # so the Analytics chart matches exactly what MDRRMO sees as red/orange/green
+    # segments on the map.  Thresholds: high >= 0.70 | moderate 0.30–0.70 | low < 0.30
+    high_risk, moderate_risk, low_risk = _compute_effective_risk_counts()
 
     # Hazard type distribution from approved, non-deleted reports
     hazard_type_distribution = dict(
@@ -626,8 +692,7 @@ def mdrrmo_approve_report(request):
     
     if action == 'approve':
         report.status = HazardReport.Status.APPROVED
-        
-        # Create notification for resident
+        # In-request DB notification (fast write — does not block response)
         Notification.create_notification(
             user=report.user,
             notification_type=Notification.Type.REPORT_APPROVED,
@@ -641,23 +706,9 @@ def mdrrmo_approve_report(request):
                 'longitude': str(report.longitude),
             }
         )
-        # Push to resident device
-        if report.user.fcm_token:
-            hazard_label = report.hazard_type.replace('_', ' ').title()
-            fcm_service.send_push(
-                token=report.user.fcm_token,
-                title='Report Approved',
-                body='Your reported hazard has been verified and approved.',
-                data={
-                    'type': 'report_approved',
-                    'target': 'resident_notifications',
-                    'report_id': str(report.id),
-                },
-            )
     else:
         report.mark_rejected()
-        
-        # Create notification for resident
+        # In-request DB notification (fast write — does not block response)
         Notification.create_notification(
             user=report.user,
             notification_type=Notification.Type.REPORT_REJECTED,
@@ -670,28 +721,15 @@ def mdrrmo_approve_report(request):
                 'reason': admin_comment if admin_comment else 'Did not meet validation criteria',
             }
         )
-        # Push to resident device
-        if report.user.fcm_token:
-            hazard_label = report.hazard_type.replace('_', ' ').title()
-            fcm_service.send_push(
-                token=report.user.fcm_token,
-                title='Report Rejected',
-                body='Your reported hazard was reviewed and rejected.',
-                data={
-                    'type': 'report_rejected',
-                    'target': 'resident_notifications',
-                    'report_id': str(report.id),
-                },
-            )
-    
+
     if admin_comment:
         report.admin_comment = admin_comment
-    
-    report.save()
 
-    # Synchronously refresh segment risks BEFORE returning the response so
-    # the very next route request sees up-to-date risk scores (zero stale window).
-    _sync_recompute_segment_risks()
+    report.save()  # status persisted — return the response immediately
+
+    # FCM push + segment risk recompute run in a background thread so they
+    # never block or timeout the HTTP response.  Status is already saved above.
+    _fire_approve_reject_background(action, report.user.fcm_token, report.id)
 
     return Response(PendingReportSerializer(report).data)
 

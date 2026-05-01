@@ -979,6 +979,23 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
                     routes.remove(practical)
                     routes.insert(0, practical)
 
+    # Alternative-route length cap: drop Route 2/3 when they are > 1.5× the
+    # shortest non-blocked route.  Route 1 is always kept regardless of length.
+    # Fully-blocked alternatives (risk ≥ EXTREME_RISK_THRESHOLD) are also kept
+    # so the UI can still warn the user why a center is unreachable.
+    if len(routes) > 1:
+        non_blocked = [r for r in routes if (r.get('total_risk') or 0.0) < EXTREME_RISK_THRESHOLD]
+        if non_blocked:
+            min_nb_dist = min(r.get('total_distance') or float('inf') for r in non_blocked)
+            if 0 < min_nb_dist < float('inf'):
+                cap = 1.5 * min_nb_dist
+                routes = [
+                    r for r in routes
+                    if r is routes[0]  # always keep the primary route
+                    or (r.get('total_distance') or 0.0) <= cap
+                    or (r.get('total_risk') or 0.0) >= EXTREME_RISK_THRESHOLD
+                ]
+
     # —— Risk evaluation layer (after Dijkstra): no algorithm changes, only evaluation and metadata ——
     for r in routes:
         tr = _float(r.get('total_risk'))
