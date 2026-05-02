@@ -301,7 +301,7 @@ class _MapScreenState extends State<MapScreen>
     try {
       final cachedReports = await _hazardReportsService.getCachedMapReports();
       if (cachedReports.isNotEmpty && mounted) {
-        setState(() { _hazardReports = cachedReports; });
+        setState(() { _hazardReports = _mergeWithOptimistic(cachedReports); });
         debugPrint('[MapPerf] Hazards from cache: ${cachedReports.length} in ${sw.elapsedMilliseconds}ms');
       }
     } catch (_) {}
@@ -310,7 +310,7 @@ class _MapScreenState extends State<MapScreen>
     try {
       final reports = await _hazardReportsService.getMapReports();
       if (mounted) {
-        setState(() { _hazardReports = reports; });
+        setState(() { _hazardReports = _mergeWithOptimistic(reports); });
         debugPrint('[MapPerf] Hazards from API: ${reports.length} in ${sw.elapsedMilliseconds}ms');
       }
     } catch (e) {
@@ -318,6 +318,45 @@ class _MapScreenState extends State<MapScreen>
     } finally {
       _hazardLoadInFlight = false;
     }
+  }
+
+  /// Merge API data with any optimistic reports that haven't synced yet.
+  /// Optimistic reports are temporary markers shown immediately after submission.
+  /// They're replaced by real server data once the API returns the synced report.
+  List<Map<String, dynamic>> _mergeWithOptimistic(List<Map<String, dynamic>> apiReports) {
+    // Find optimistic reports (marked with is_optimistic flag)
+    final optimisticReports = _hazardReports.where((r) => r['is_optimistic'] == true).toList();
+
+    if (optimisticReports.isEmpty) {
+      return apiReports;
+    }
+
+    // Merge: keep API reports + add optimistic reports that aren't in API yet
+    final result = List<Map<String, dynamic>>.from(apiReports);
+    final apiIds = apiReports.map((r) => r['id'].toString()).toSet();
+
+    for (final optimistic in optimisticReports) {
+      final optimisticId = optimistic['id'].toString();
+      // If API doesn't have this report yet (ID starts with 'temp_' or not in API), keep optimistic
+      if (optimisticId.startsWith('temp_') || !apiIds.contains(optimisticId)) {
+        // Also check if this might be an offline queued report that's already in API
+        // by checking client_submission_id
+        final clientId = optimistic['client_submission_id'] as String?;
+        if (clientId != null && clientId.isNotEmpty) {
+          // Check if API has a report with same client_submission_id
+          final alreadySynced = apiReports.any((api) =>
+            api['client_submission_id'] == clientId
+          );
+          if (alreadySynced) {
+            continue; // Skip this optimistic report, API has the real version
+          }
+        }
+        result.add(optimistic);
+      }
+      // Otherwise, API has the real version, so we don't need the optimistic anymore
+    }
+
+    return result;
   }
   
   Future<void> _loadNotificationCount() async {
@@ -796,7 +835,7 @@ class _MapScreenState extends State<MapScreen>
                           'location_municipality': submittedReport.locationMunicipality ?? '',
                           'location_label': '',
                           'is_offline': wasQueued,
-                          'is_optimistic': true,  // Flag for temporary report
+                          'is_optimistic': submittedReport.id == null,  // Only mark as optimistic if no server ID yet
                         };
 
                         setState(() {
