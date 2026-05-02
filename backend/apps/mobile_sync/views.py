@@ -354,6 +354,11 @@ def calculate_route(request):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    # Convert path_keys to path (coordinate arrays) for Flutter
+    for route in result.get('routes', []):
+        path_keys = route.get('path_keys', [])
+        route['path'] = [[float(key.split(',')[0]), float(key.split(',')[1])] for key in path_keys]
+
     # ── Snap-distance diagnostics (helps detect wrong EC coordinates) ──────────
     try:
         from apps.routing.models import RoadSegment

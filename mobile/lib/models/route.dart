@@ -174,6 +174,13 @@ class Route {
     final List<ContributingFactor> contrib = contribRaw is List
         ? (contribRaw as List).map((e) => ContributingFactor.fromJson(Map<String, dynamic>.from(e as Map))).toList()
         : [];
+
+    final totalRisk = (json['total_risk'] as num? ?? 0).toDouble();
+    final riskLevelStr = json['risk_level'] as String?;
+
+    // Log for debugging
+    print('📊 Route parsing: risk=$totalRisk, risk_level="$riskLevelStr", hazards=${hazards.length}');
+
     return Route(
       path: (json['path'] as List)
           .map((point) => RoutePoint(
@@ -182,9 +189,9 @@ class Route {
               ))
           .toList(),
       totalDistance: (json['total_distance'] as num? ?? 0).toDouble(),
-      totalRisk: (json['total_risk'] as num? ?? 0).toDouble(),
+      totalRisk: totalRisk,
       weight: (json['weight'] as num? ?? json['total_distance'] as num? ?? 0).toDouble(),
-      riskLevel: RiskLevel.fromString(json['risk_level'] as String? ?? 'Yellow'),
+      riskLevel: RiskLevel.fromString(riskLevelStr ?? 'Yellow'),
       hazardsAlongRoute: hazards,
       riskLabel: (json['risk_label'] as String?) ?? 'Safer Route',
       explanation: (json['explanation'] as String?) ?? '',
