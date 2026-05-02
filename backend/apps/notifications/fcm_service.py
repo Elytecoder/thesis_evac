@@ -55,7 +55,7 @@ def _get_app():
 
     creds_b64 = os.environ.get('FIREBASE_CREDENTIALS', '').strip()
     if not creds_b64:
-        logger.debug('FIREBASE_CREDENTIALS not set — FCM push notifications disabled.')
+        logger.warning('⚠️  FIREBASE_CREDENTIALS not set — FCM push notifications disabled. Database notifications will still be created.')
         return None
 
     try:

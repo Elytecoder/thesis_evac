@@ -9,7 +9,10 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 
+import logging
 import threading
+
+logger = logging.getLogger(__name__)
 
 from apps.hazards import hazard_media
 from core.permissions.mdrrmo import IsMDRRMO
@@ -100,7 +103,7 @@ def _fire_approve_reject_background(action: str, fcm_token: str | None, report_i
         if fcm_token:
             try:
                 if action == 'approve':
-                    fcm_service.send_push(
+                    success = fcm_service.send_push(
                         token=fcm_token,
                         title='Report Approved',
                         body='Your reported hazard has been verified and approved.',
@@ -110,8 +113,10 @@ def _fire_approve_reject_background(action: str, fcm_token: str | None, report_i
                             'report_id': str(report_id),
                         },
                     )
+                    if not success:
+                        logger.warning(f'FCM push failed for report {report_id} approval (token: {fcm_token[:12]}...)')
                 else:
-                    fcm_service.send_push(
+                    success = fcm_service.send_push(
                         token=fcm_token,
                         title='Report Rejected',
                         body='Your reported hazard was reviewed and rejected.',
@@ -121,8 +126,12 @@ def _fire_approve_reject_background(action: str, fcm_token: str | None, report_i
                             'report_id': str(report_id),
                         },
                     )
-            except Exception:
-                pass
+                    if not success:
+                        logger.warning(f'FCM push failed for report {report_id} rejection (token: {fcm_token[:12]}...)')
+            except Exception as e:
+                logger.error(f'FCM push exception for report {report_id}: {e}')
+        else:
+            logger.debug(f'No FCM token for report {report_id} — push notification skipped')
         _sync_recompute_segment_risks()
 
     threading.Thread(target=_work, daemon=True).start()
