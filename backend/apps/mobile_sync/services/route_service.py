@@ -891,6 +891,8 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         float(ec.latitude), float(ec.longitude),
         k=k,
     )
+    for i, r in enumerate(safest_routes):
+        r['_src'] = f'safe_r{i + 1}'  # safe_r1 = primary; safe_r2/r3 = penalized reruns
     # Optional: add shortest (distance-only) if it is a different path.
     dijkstra_short = ModifiedDijkstraService(risk_multiplier=0.0)
     shortest_routes = dijkstra_short.get_safest_routes(
@@ -899,6 +901,8 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         float(ec.latitude), float(ec.longitude),
         k=1,
     )
+    for r in shortest_routes:
+        r['_src'] = 'dist_only'
     t3 = time.time()
     # 6–8) Unique routes only; do not duplicate; return only available routes.
     seen_path_keys = set()
@@ -964,6 +968,15 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
 
     # Safest first (lowest total_risk)
     routes.sort(key=lambda x: x.get('total_risk') or 0.0)
+
+    # Log all candidates after risk-sort so we can trace why routes ended up in a given order.
+    print(f'[ROUTE_CANDIDATES] ec={ec.id} candidates={len(routes)} after risk-sort:')
+    for _i, _r in enumerate(routes):
+        print(
+            f'  cand={_i + 1} src={_r.get("_src", "?")} '
+            f'dist={_r.get("total_distance", 0):.0f}m '
+            f'risk={_r.get("total_risk", 0):.3f}'
+        )
 
     # Distance guardrail: if the top-ranked route is >2× longer than the shortest
     # available route AND the shorter route is not fully blocked, promote the shorter
@@ -1035,16 +1048,34 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
                         kept.append(r)
                 routes = kept
 
-                # Diagnostic log — visible in Render.com logs for tuning
+                # Re-sort alternatives by practical score after filtering.
+                # Pure risk-sort (above) can place a longer penalized-rerun before a shorter
+                # split-road alternative just because its marginal risk is slightly lower.
+                # score = distance × (1 + risk): shorter routes with only modestly higher risk
+                # outrank longer routes with marginally lower risk.
+                # Route 1 (primary) is always kept first.
+                if len(routes) > 1:
+                    _primary = routes[0]
+                    _alts = routes[1:]
+                    _alts.sort(key=lambda _r: (_r.get('total_distance') or 0.0) * (1.0 + (_r.get('total_risk') or 0.0)))
+                    routes = [_primary] + _alts
+
                 for i, r in enumerate(routes):
                     keys = r.get('path_keys') or []
                     overlap = _edge_overlap(keys) if i > 0 else 1.0
+                    prac = (r.get('total_distance') or 0.0) * (1.0 + (r.get('total_risk') or 0.0))
                     print(
                         f'[ROUTE_DEBUG] route={i + 1} '
+                        f'src={r.get("_src", "?")} '
                         f'dist={r.get("total_distance", 0):.0f}m '
                         f'risk={r.get("total_risk", 0):.3f} '
+                        f'practical_score={prac:.0f} '
                         f'overlap_r1={overlap:.0%}'
                     )
+
+    # Strip internal source tag before API response
+    for r in routes:
+        r.pop('_src', None)
 
     # —— Risk evaluation layer (after Dijkstra): no algorithm changes, only evaluation and metadata ——
     for r in routes:
