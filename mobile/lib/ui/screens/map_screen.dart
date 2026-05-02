@@ -931,7 +931,6 @@ class _MapScreenState extends State<MapScreen>
     final hasPhoto = (mediaList?.any((m) => m['type'] == 'image') ?? false) || (report['has_photo'] == true);
     final hasVideo = (mediaList?.any((m) => m['type'] == 'video') ?? false) || (report['has_video'] == true);
     final hasMedia = hasPhoto || hasVideo;
-    
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -1032,7 +1031,30 @@ class _MapScreenState extends State<MapScreen>
                     ],
                   ),
                   const SizedBox(height: 8),
-                  _buildMediaGallery(_buildMediaListFromReport(report)),
+                  StatefulBuilder(
+                    builder: (context, setState) {
+                      final mediaList = _buildMediaListFromReport(report);
+                      if (mediaList.isEmpty && (report['has_photo'] == true || report['has_video'] == true)) {
+                        // Media exists on server but URLs were stripped; fetch on demand
+                        return _buildMediaFetchButton(
+                          reportId: report['id'],
+                          onMediaFetched: (photo, video) {
+                            setState(() {
+                              if (photo.isNotEmpty) {
+                                report['media'] ??= [];
+                                (report['media'] as List).add({'type': 'image', 'url': photo});
+                              }
+                              if (video.isNotEmpty) {
+                                report['media'] ??= [];
+                                (report['media'] as List).add({'type': 'video', 'url': video});
+                              }
+                            });
+                          },
+                        );
+                      }
+                      return _buildMediaGallery(mediaList);
+                    },
+                  ),
                 ],
                 
                 const SizedBox(height: 24),
@@ -1290,6 +1312,45 @@ class _MapScreenState extends State<MapScreen>
           ),
         );
       }).toList(),
+    );
+  }
+
+  Widget _buildMediaFetchButton({
+    required dynamic reportId,
+    required Function(String photo, String video) onMediaFetched,
+  }) {
+    return StatefulBuilder(
+      builder: (context, setState) {
+        final state = {'isLoading': false};
+
+        Future<void> fetchMedia() async {
+          setState(() => state['isLoading'] = true);
+          try {
+            final apiClient = ApiClient();
+            final endpoint = ApiConfig.reportMediaEndpoint(reportId);
+            final resp = await apiClient.get(endpoint);
+            if (resp.statusCode == 200 && mounted) {
+              final photo = (resp.data['photo_url'] as String? ?? '').trim();
+              final video = (resp.data['video_url'] as String? ?? '').trim();
+              onMediaFetched(photo, video);
+              setState(() => state['isLoading'] = false);
+            }
+          } catch (e) {
+            debugPrint('Error fetching media: $e');
+            if (mounted) setState(() => state['isLoading'] = false);
+          }
+        }
+
+        final isLoading = state['isLoading'] as bool;
+        return OutlinedButton.icon(
+          onPressed: isLoading ? null : fetchMedia,
+          icon: isLoading
+              ? const SizedBox(width: 16, height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.perm_media_outlined, size: 16),
+          label: Text(isLoading ? 'Loading media…' : 'Load Attached Media'),
+        );
+      },
     );
   }
 

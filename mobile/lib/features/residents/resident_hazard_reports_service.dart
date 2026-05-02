@@ -34,6 +34,8 @@ class ResidentHazardReportsService {
         'description': r.description,
         'date_submitted': r.createdAt != null ? formatManila(r.createdAt!) : '',
         'media': media,
+        'has_photo': r.hasPhoto,
+        'has_video': r.hasVideo,
         'location_address': r.locationAddress ?? '',
         'location_barangay': r.locationBarangay ?? '',
         'location_municipality': r.locationMunicipality ?? '',
