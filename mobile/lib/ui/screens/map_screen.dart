@@ -882,8 +882,10 @@ class _MapScreenState extends State<MapScreen>
     }
 
     // Own report — show full personal details
-    final hasPhoto = report['has_photo'] == true;
-    final hasVideo = report['has_video'] == true;
+    // Check media array for attachments (modern format) or fall back to has_photo/has_video flags
+    final mediaList = report['media'] as List?;
+    final hasPhoto = (mediaList?.any((m) => m['type'] == 'image') ?? false) || (report['has_photo'] == true);
+    final hasVideo = (mediaList?.any((m) => m['type'] == 'video') ?? false) || (report['has_video'] == true);
     final hasMedia = hasPhoto || hasVideo;
     
     showDialog(
@@ -1166,18 +1168,23 @@ class _MapScreenState extends State<MapScreen>
 
   /// Build media list from report's photo_url and video_url fields
   List<Map<String, dynamic>> _buildMediaListFromReport(Map<String, dynamic> report) {
-    final List<Map<String, dynamic>> media = [];
+    // The report object already contains a 'media' array from _reportToMap()
+    // with entries like: {'type': 'image', 'url': '...'} or {'type': 'video', 'url': '...'}
+    final mediaList = report['media'];
+    if (mediaList is List) {
+      return mediaList.cast<Map<String, dynamic>>();
+    }
 
+    // Fallback: construct media list from photo_url/video_url if media array is missing
+    final List<Map<String, dynamic>> media = [];
     final photoUrl = (report['photo_url'] as String? ?? '').trim();
     if (photoUrl.isNotEmpty) {
       media.add({'type': 'image', 'url': photoUrl});
     }
-
     final videoUrl = (report['video_url'] as String? ?? '').trim();
     if (videoUrl.isNotEmpty) {
       media.add({'type': 'video', 'url': videoUrl});
     }
-
     return media;
   }
 
