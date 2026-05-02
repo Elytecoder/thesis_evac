@@ -984,23 +984,67 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
                     routes.remove(practical)
                     routes.insert(0, practical)
 
-    # Alternative-route length cap: drop Route 2/3 when they are > 1.4× the
-    # shortest non-blocked route.  Route 1 is always kept regardless of length.
-    # Fully-blocked alternatives (risk ≥ EXTREME_RISK_THRESHOLD) are also kept
-    # so the UI can still warn the user why a center is unreachable.
+    # Alternative-route length cap — two-tier:
+    #   Tight (1.25×): default; no benefit from extra distance ← main filter
+    #   Loose (1.40×): only when the alternative cuts risk by ≥ 0.15 vs Route 1
+    # Route 1 (primary) is always kept.  Fully-blocked routes kept as warnings.
+    # Reference distance is the shortest non-blocked route (not necessarily Route 1).
     if len(routes) > 1:
+        primary = routes[0]
+        primary_risk = primary.get('total_risk') or 0.0
+        primary_keys = primary.get('path_keys') or []
+
         non_blocked = [r for r in routes if (r.get('total_risk') or 0.0) < EXTREME_RISK_THRESHOLD]
         if non_blocked:
             min_nb_dist = min(r.get('total_distance') or float('inf') for r in non_blocked)
+
             if 0 < min_nb_dist < float('inf'):
-                cap = 1.4 * min_nb_dist
-                primary = routes[0]
-                routes = [
-                    r for r in routes
-                    if r is primary  # always keep the primary route
-                    or (r.get('total_distance') or 0.0) <= cap
-                    or (r.get('total_risk') or 0.0) >= EXTREME_RISK_THRESHOLD
-                ]
+                TIGHT_CAP = 1.25
+                LOOSE_CAP = 1.40
+                RISK_BENEFIT_FOR_LOOSE = 0.15  # risk must drop by this much to earn loose cap
+
+                def _edge_overlap(alt_keys: list) -> float:
+                    """Return fraction of alt's edges that also appear in Route 1."""
+                    if len(primary_keys) < 2 or len(alt_keys) < 2:
+                        return 0.0
+                    p_edges: set = set()
+                    for i in range(len(primary_keys) - 1):
+                        u, v = primary_keys[i], primary_keys[i + 1]
+                        p_edges.add((u, v))
+                        p_edges.add((v, u))
+                    shared = sum(
+                        1 for i in range(len(alt_keys) - 1)
+                        if (alt_keys[i], alt_keys[i + 1]) in p_edges
+                    )
+                    denom = len(alt_keys) - 1
+                    return shared / denom if denom > 0 else 0.0
+
+                kept: list = []
+                for r in routes:
+                    r_risk = r.get('total_risk') or 0.0
+                    r_dist = r.get('total_distance') or 0.0
+                    if r is primary:
+                        kept.append(r)
+                        continue
+                    if r_risk >= EXTREME_RISK_THRESHOLD:
+                        kept.append(r)  # keep as unreachable-center warning
+                        continue
+                    risk_benefit = primary_risk - r_risk
+                    cap_mult = LOOSE_CAP if risk_benefit >= RISK_BENEFIT_FOR_LOOSE else TIGHT_CAP
+                    if r_dist <= cap_mult * min_nb_dist:
+                        kept.append(r)
+                routes = kept
+
+                # Diagnostic log — visible in Render.com logs for tuning
+                for i, r in enumerate(routes):
+                    keys = r.get('path_keys') or []
+                    overlap = _edge_overlap(keys) if i > 0 else 1.0
+                    print(
+                        f'[ROUTE_DEBUG] route={i + 1} '
+                        f'dist={r.get("total_distance", 0):.0f}m '
+                        f'risk={r.get("total_risk", 0):.3f} '
+                        f'overlap_r1={overlap:.0%}'
+                    )
 
     # —— Risk evaluation layer (after Dijkstra): no algorithm changes, only evaluation and metadata ——
     for r in routes:
