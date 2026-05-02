@@ -131,7 +131,7 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
 
   Future<void> _loadReports() async {
     setState(() => _isLoading = true);
-    
+
     try {
       List<HazardReport> reports = [];
       final status = _selectedStatus == 'all' ? null : _selectedStatus;
@@ -152,14 +152,11 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
         final bt = b.createdAt ?? DateTime(0);
         return bt.compareTo(at);
       });
-      
-      setState(() {
-        _reports = reports;
-        _isLoading = false;
-      });
+
+      if (mounted) {
+        setState(() => _reports = reports);
+      }
     } catch (e) {
-      setState(() => _isLoading = false);
-      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -167,6 +164,10 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }

@@ -183,14 +183,12 @@ class HazardReportSerializer(serializers.ModelSerializer):
         return obj.confirmation_count
 
     def get_photo_url(self, obj):
-        """Strip base64 blobs from list responses — return URL or empty string."""
-        url = obj.photo_url or ''
-        return '' if url.startswith('data:') else url
+        """Return full photo URL (including base64) for user's own reports."""
+        return obj.photo_url or ''
 
     def get_video_url(self, obj):
-        """Strip base64 blobs from list responses — return URL or empty string."""
-        url = obj.video_url or ''
-        return '' if url.startswith('data:') else url
+        """Return full video URL (including base64) for user's own reports."""
+        return obj.video_url or ''
 
     def get_location_address(self, obj):
         return _resolved_location_fields(obj)['location_address']

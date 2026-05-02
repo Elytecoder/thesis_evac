@@ -1044,8 +1044,10 @@ def restore_report(request):
         )
     
     report.restore(restoration_reason)
-    _sync_recompute_segment_risks()
-    return Response(PendingReportSerializer(report).data)
+    # Save immediately, then recompute risks in background so response isn't blocked
+    response_data = PendingReportSerializer(report).data
+    threading.Thread(target=_sync_recompute_segment_risks, daemon=True).start()
+    return Response(response_data)
 
 
 @api_view(['GET'])
@@ -1088,7 +1090,8 @@ def mdrrmo_delete_report(request, report_id: int):
     report.is_deleted = True
     report.deleted_at = tz.now()
     report.save(update_fields=['is_deleted', 'deleted_at'])
-    _sync_recompute_segment_risks()
+    # Recompute risks in background so response isn't blocked
+    threading.Thread(target=_sync_recompute_segment_risks, daemon=True).start()
     return Response({'message': 'Report deleted successfully'}, status=status.HTTP_200_OK)
 
 

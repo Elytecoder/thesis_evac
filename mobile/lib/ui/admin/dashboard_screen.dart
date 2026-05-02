@@ -32,16 +32,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadDashboardData() async {
     try {
       final stats = await _dashboardService.getDashboardStats();
-      setState(() {
-        _stats = stats;
-        _isLoading = false;
-        _isOnline = true;
-      });
+      if (mounted) {
+        setState(() {
+          _stats = stats;
+          _isOnline = true;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _isOnline = false;
-      });
+      if (mounted) {
+        setState(() => _isOnline = false);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
