@@ -752,9 +752,9 @@ class _MapScreenState extends State<MapScreen>
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.pop(context);
-                    Navigator.push(
+                    final submittedReport = await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (context) => ReportHazardScreen(
@@ -762,7 +762,51 @@ class _MapScreenState extends State<MapScreen>
                           userLocation: _userLocation,
                         ),
                       ),
-                    ).then((_) => _loadHazardReports()); // Reload after reporting
+                    );
+
+                    // Optimistic UI: immediately add the report to the map if submission succeeded
+                    if (submittedReport != null && mounted) {
+                      final wasAutoRejected = submittedReport.autoRejected as bool? ?? false;
+                      final wasQueued = submittedReport.userId == null &&
+                                       submittedReport.clientSubmissionId != null;
+
+                      // Only add to map if not auto-rejected (too far from hazard)
+                      if (!wasAutoRejected) {
+                        // Build optimistic report map entry
+                        final mediaList = <Map<String, dynamic>>[];
+                        if (submittedReport.photoUrl != null && submittedReport.photoUrl!.isNotEmpty) {
+                          mediaList.add({'type': 'image', 'url': submittedReport.photoUrl!});
+                        }
+                        if (submittedReport.videoUrl != null && submittedReport.videoUrl!.isNotEmpty) {
+                          mediaList.add({'type': 'video', 'url': submittedReport.videoUrl!});
+                        }
+
+                        final optimisticReport = {
+                          'id': submittedReport.id ?? 'temp_${DateTime.now().millisecondsSinceEpoch}',
+                          'lat': submittedReport.latitude,
+                          'lng': submittedReport.longitude,
+                          'type': submittedReport.hazardType,
+                          'status': 'pending',
+                          'reported_by': ResidentHazardReportsService.currentUserId,
+                          'description': submittedReport.description,
+                          'date_submitted': DateTime.now().toIso8601String(),
+                          'media': mediaList,
+                          'location_address': submittedReport.locationAddress ?? '',
+                          'location_barangay': submittedReport.locationBarangay ?? '',
+                          'location_municipality': submittedReport.locationMunicipality ?? '',
+                          'location_label': '',
+                          'is_offline': wasQueued,
+                          'is_optimistic': true,  // Flag for temporary report
+                        };
+
+                        setState(() {
+                          _hazardReports.add(optimisticReport);
+                        });
+                      }
+
+                      // Still reload in background to get accurate server state
+                      _loadHazardReports();
+                    }
                   },
                   icon: const Icon(Icons.report),
                   label: const Text('Report Hazard'),

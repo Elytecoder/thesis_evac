@@ -871,7 +871,8 @@ class _ReportHazardScreenState extends State<ReportHazardScreen> {
       );
 
       if (mounted) {
-        Navigator.pop(context);
+        // Pass the submitted report back to the map screen for optimistic UI
+        Navigator.pop(context, submittedReport);
 
         // Detect offline queue: userId is null but clientSubmissionId is set.
         final bool wasQueued = submittedReport.userId == null &&
