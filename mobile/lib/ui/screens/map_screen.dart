@@ -845,7 +845,9 @@ class _MapScreenState extends State<MapScreen>
     }
 
     // Own report — show full personal details
-    final hasMedia = report['media'] != null && (report['media'] as List).isNotEmpty;
+    final hasPhoto = report['has_photo'] == true;
+    final hasVideo = report['has_video'] == true;
+    final hasMedia = hasPhoto || hasVideo;
     
     showDialog(
       context: context,

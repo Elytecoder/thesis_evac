@@ -183,12 +183,14 @@ class HazardReportSerializer(serializers.ModelSerializer):
         return obj.confirmation_count
 
     def get_photo_url(self, obj):
-        """Return full photo URL (including base64) for user's own reports."""
-        return obj.photo_url or ''
+        """Strip base64 for list performance - use has_photo flag + detail endpoint."""
+        url = obj.photo_url or ''
+        return '' if url.startswith('data:') else url
 
     def get_video_url(self, obj):
-        """Return full video URL (including base64) for user's own reports."""
-        return obj.video_url or ''
+        """Strip base64 for list performance - use has_video flag + detail endpoint."""
+        url = obj.video_url or ''
+        return '' if url.startswith('data:') else url
 
     def get_location_address(self, obj):
         return _resolved_location_fields(obj)['location_address']
@@ -337,12 +339,14 @@ class PendingReportSerializer(serializers.ModelSerializer):
         return obj.confirmation_count
 
     def get_photo_url(self, obj):
-        """Return full photo URL (including base64) for MDRRMO and report owners."""
-        return obj.photo_url or ''
+        """Strip base64 for list performance - use has_photo flag + detail endpoint."""
+        url = obj.photo_url or ''
+        return '' if url.startswith('data:') else url
 
     def get_video_url(self, obj):
-        """Return full video URL (including base64) for MDRRMO and report owners."""
-        return obj.video_url or ''
+        """Strip base64 for list performance - use has_video flag + detail endpoint."""
+        url = obj.video_url or ''
+        return '' if url.startswith('data:') else url
 
     def get_location_address(self, obj):
         return _resolved_location_fields(obj)['location_address']
