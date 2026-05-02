@@ -1001,17 +1001,32 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
     #   Tight (1.25×): default; no benefit from extra distance ← main filter
     #   Loose (1.40×): only when the alternative cuts risk by ≥ 0.15 vs Route 1
     # Route 1 (primary) is always kept.  Fully-blocked routes kept as warnings.
-    # Reference distance is the shortest non-blocked route (not necessarily Route 1).
+    #
+    # Reference distance uses ALL routes (including high-risk ones) so that a
+    # short-but-risky path (e.g. dist_only through a hazard area) still pulls the
+    # cap baseline down and eliminates long safe-Dijkstra detours.
     if len(routes) > 1:
         primary = routes[0]
         primary_risk = primary.get('total_risk') or 0.0
         primary_keys = primary.get('path_keys') or []
 
         non_blocked = [r for r in routes if (r.get('total_risk') or 0.0) < EXTREME_RISK_THRESHOLD]
-        if non_blocked:
-            min_nb_dist = min(r.get('total_distance') or float('inf') for r in non_blocked)
+        # Use absolute shortest distance across ALL routes as the cap reference.
+        # Fall back to non-blocked minimum when only blocked routes are short.
+        _all_dists = [r.get('total_distance') or float('inf') for r in routes]
+        _nb_dists  = [r.get('total_distance') or float('inf') for r in non_blocked]
+        min_any_dist = min(_all_dists) if _all_dists else float('inf')
+        min_nb_dist  = min(_nb_dists)  if _nb_dists  else float('inf')
+        # If the shortest overall route is blocked and ≥ 50% of Route 1's distance,
+        # use Route 1's distance as reference (the short blocked path is not a useful baseline).
+        primary_dist = primary.get('total_distance') or 0.0
+        if min_any_dist < 0.50 * primary_dist:
+            ref_dist = min_any_dist  # a genuinely short path exists (blocked or not)
+        else:
+            ref_dist = min_nb_dist   # fall back to non-blocked shortest
 
-            if 0 < min_nb_dist < float('inf'):
+        if non_blocked:
+            if 0 < ref_dist < float('inf'):
                 TIGHT_CAP = 1.25
                 LOOSE_CAP = 1.40
                 RISK_BENEFIT_FOR_LOOSE = 0.15  # risk must drop by this much to earn loose cap
@@ -1044,7 +1059,7 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
                         continue
                     risk_benefit = primary_risk - r_risk
                     cap_mult = LOOSE_CAP if risk_benefit >= RISK_BENEFIT_FOR_LOOSE else TIGHT_CAP
-                    if r_dist <= cap_mult * min_nb_dist:
+                    if r_dist <= cap_mult * ref_dist:
                         kept.append(r)
                 routes = kept
 

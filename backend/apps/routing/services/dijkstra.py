@@ -151,11 +151,21 @@ class ModifiedDijkstraService:
         """
         Return up to k distinct routes by reusing Dijkstra: run once, penalize used edges, run again.
         Does not modify Dijkstra logic or the graph; only adjusts effective edge cost via penalty dict.
+
+        Penalty strategy — MIDDLE SECTION ONLY:
+          Only the middle 60 % of a completed route's edges are penalized for the next
+          run. The first 20 % and last 20 % (approach and departure segments) are left
+          unpenalized so alternatives can share those forced approach roads (e.g. the
+          necessary detour around road_blocked hazards near the start) while diverging
+          on the main road section between the start area and the destination.
+
+          Penalising ALL edges (old behaviour) forced the next Dijkstra to find a
+          completely city-wide different path, producing 9–15 km "alternatives" for a
+          7.7 km primary route on a small road network.
         """
         if start_key not in graph or end_key not in graph:
             return []
 
-        # 1) RUN DIJKSTRA (FIRST ROUTE)
         routes: List[Dict[str, Any]] = []
         edge_penalty: dict = {}  # (u, v) -> extra cost; temporary, not persisted
 
@@ -169,14 +179,21 @@ class ModifiedDijkstraService:
             path_keys = tuple(best.get('path_keys', []))
             if not path_keys:
                 break
-            # 6) ENSURE UNIQUE ROUTES: skip if identical to any previous route
             if any(tuple(r.get('path_keys', [])) == path_keys for r in routes):
                 break
             routes.append(best)
-            # 2) PENALIZE USED EDGES: for each edge in this path, add penalty so next run prefers alternatives
-            for e in self._path_edges(best['path_keys']):
+
+            # Penalise only the MIDDLE section (skip first 20 % and last 20 % of nodes).
+            # This keeps approach/departure edges free so next run can share them.
+            pk = list(path_keys)
+            n = len(pk)
+            skip = max(1, n // 5)          # 20 % of path length, minimum 1 node
+            mid_start = skip
+            mid_end = max(mid_start + 2, n - skip)  # at least 2 nodes in middle
+            middle = pk[mid_start:mid_end] if n > 2 * skip + 1 else pk
+            for e in self._path_edges(middle):
                 edge_penalty[e] = self.PENALTY_VALUE
-        # 5) No reset needed: graph was never mutated; edge_penalty is local to this call.
+
         return routes
 
     def _risk_level(self, total_risk: float) -> str:
