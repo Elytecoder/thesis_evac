@@ -135,17 +135,23 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
     try {
       List<HazardReport> reports = [];
       final status = _selectedStatus == 'all' ? null : _selectedStatus;
+
+      // Call endpoints SEQUENTIALLY to avoid overwhelming Render free tier with concurrent requests
       if (status == null || status == 'pending') {
         reports.addAll(await _hazardService.getPendingReports());
+        // Small delay between requests to space out load on free tier
+        if (status == null) await Future.delayed(const Duration(milliseconds: 300));
       }
       if (status == null || status == 'rejected') {
         reports.addAll(await _hazardService.getRejectedReports());
+        if (status == null) await Future.delayed(const Duration(milliseconds: 300));
       }
       if (status == null || status == 'approved') {
         // Use MDRRMO full-detail endpoint (not resident public verified endpoint)
         // so approved report information and AI analysis remain available.
         reports.addAll(await _hazardService.getApprovedReports());
       }
+
       // Sort by created_at descending
       reports.sort((a, b) {
         final at = a.createdAt ?? DateTime(0);
