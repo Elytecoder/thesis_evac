@@ -397,6 +397,8 @@ class _MapScreenState extends State<MapScreen>
             _userLocation = LatLng(lastKnown.latitude, lastKnown.longitude);
             _locationIsReal = true;
           });
+          final age = DateTime.now().difference(ts!);
+          print('📍 Using last-known position (${age.inSeconds}s old): ${lastKnown.latitude.toStringAsFixed(6)}, ${lastKnown.longitude.toStringAsFixed(6)} | Accuracy: ${lastKnown.accuracy.round()}m');
           // Move camera on the next frame (map may not be laid out yet).
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _mapController.move(_userLocation, 16.0);
@@ -444,6 +446,7 @@ class _MapScreenState extends State<MapScreen>
           _gpsFailed = false;
           _applyGpsQuality(position.accuracy);
         });
+        print('✅ GPS acquired: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)} | Accuracy: ${position.accuracy.round()}m');
         _mapController.move(_userLocation, 16.0);
       }
     } catch (_) {
@@ -504,6 +507,7 @@ class _MapScreenState extends State<MapScreen>
           _gpsFailed = false;
           _applyGpsQuality(position.accuracy);
         });
+        print('✅ GPS retry acquired: ${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)} | Accuracy: ${position.accuracy.round()}m');
         _mapController.move(_userLocation, 16.0);
       }
       _startLocationStream();
@@ -619,12 +623,45 @@ class _MapScreenState extends State<MapScreen>
     if (!_locationIsReal) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Waiting for current GPS fix. Please try again.'),
+          content: Text('📍 Acquiring GPS location... Please wait.'),
           duration: Duration(seconds: 3),
+          backgroundColor: Colors.orange,
         ),
       );
       _retryLocate();
       return;
+    }
+
+    // Warn if GPS accuracy is poor (> 50m)
+    if (_lowGpsPrecision && _lastGpsAccuracyMeters != null) {
+      final continueAnyway = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber, color: Colors.orange, size: 28),
+              SizedBox(width: 12),
+              Text('Low GPS Accuracy'),
+            ],
+          ),
+          content: Text(
+            'Your current GPS accuracy is ${_lastGpsAccuracyMeters!.round()}m. '
+            'Routes may not be optimal. Continue anyway?'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+              child: const Text('Continue Anyway'),
+            ),
+          ],
+        ),
+      );
+      if (continueAnyway != true) return;
     }
 
     if (_isOpeningRoutes) return;
