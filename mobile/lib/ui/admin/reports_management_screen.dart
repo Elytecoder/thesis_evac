@@ -20,27 +20,31 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
   final HazardService _hazardService = HazardService();
   List<HazardReport> _reports = [];
   bool _isLoading = true;
-  
+
   String _selectedStatus = 'all';
   String _searchQuery = '';
 
   final List<String> _statusOptions = ['all', 'pending', 'approved', 'rejected'];
 
-  
+  // Guard to prevent redundant didChangeDependencies calls
+  bool _didChangeDependenciesRan = false;
 
   @override
   void initState() {
     super.initState();
     _initializeScreen();
   }
-  
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check for dashboard filter and notification-driven report opening
-    // whenever the screen becomes visible (e.g. after tab switch).
-    _checkAndApplyDashboardFilter();
-    _checkAndOpenNotificationReport();
+    // Only run once to prevent loading loops on tab switches
+    if (!_didChangeDependenciesRan) {
+      _didChangeDependenciesRan = true;
+      // Check for dashboard filter and notification-driven report opening
+      _checkAndApplyDashboardFilter();
+      _checkAndOpenNotificationReport();
+    }
   }
   
   /// Initialize screen with filter check and data loading

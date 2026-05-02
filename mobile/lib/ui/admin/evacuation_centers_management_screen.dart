@@ -23,18 +23,25 @@ class _EvacuationCentersManagementScreenState extends State<EvacuationCentersMan
   String _searchQuery = '';
   bool _filterOnlyNonOperational = false;
 
+  // Guard to prevent redundant didChangeDependencies calls
+  bool _didChangeDependenciesRan = false;
+
   @override
   void initState() {
     super.initState();
     _checkDashboardFilter();
     _loadCenters();
   }
-  
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check for dashboard filter whenever screen becomes visible
-    _checkAndApplyDashboardFilter();
+    // Only run once to prevent loading loops on tab switches
+    if (!_didChangeDependenciesRan) {
+      _didChangeDependenciesRan = true;
+      // Check for dashboard filter whenever screen becomes visible
+      _checkAndApplyDashboardFilter();
+    }
   }
   
   /// Check and apply dashboard filter if present (called on every screen visibility)
