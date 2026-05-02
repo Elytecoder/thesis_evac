@@ -888,6 +888,7 @@ class _MapScreenState extends State<MapScreen>
   /// Own pending reports show full details.
   void _viewHazardReport(Map<String, dynamic> report) {
     final status = (report['status'] as String? ?? '').toLowerCase();
+    final isPending = status == 'pending';
     final isOffline = report['is_offline'] == true;
     final isCurrentUserReport = report['reported_by'] == ResidentHazardReportsService.currentUserId;
     final rawType = (report['type'] as String? ?? '').trim();
