@@ -243,15 +243,24 @@ class ResidentHazardReportsService {
       myReports = [];
     }
 
-    final verifiedIds = verified.map((r) => r.id).whereType<int>().toSet();
+    // Build set of "my report" IDs so we can show them with full details
+    final myReportIds = myReports
+        .where((r) => r.status != HazardStatus.rejected)  // Exclude rejected/deleted only
+        .map((r) => r.id)
+        .whereType<int>()
+        .toSet();
+
+    // Add verified hazards (but skip ones that are also in myReports — we'll add those with full details)
     for (final r in verified) {
+      if (r.id != null && myReportIds.contains(r.id)) continue;
       out.add(_reportToMap(r, isCurrentUser: false));
     }
+
+    // Add own reports (pending or approved) with full details
     for (final r in myReports) {
-      // Only show own reports that are still pending — rejected / deleted
-      // reports must not appear as map markers for the resident.
-      if (r.status != HazardStatus.pending) continue;
-      if (r.id != null && verifiedIds.contains(r.id)) continue;
+      // Skip rejected reports — they should not appear on the map
+      if (r.status == HazardStatus.rejected) continue;
+      // Add with full details (description, media, etc.) since this is the owner's view
       out.add(_reportToMap(r, isCurrentUser: true));
     }
 
