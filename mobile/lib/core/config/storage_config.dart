@@ -12,6 +12,9 @@ class StorageConfig {
   /// Cache of approved/verified hazards fetched from the server.
   static const String verifiedHazardsBox = 'verified_hazards';
 
+  /// Cache of current user's own reports (pending + approved) for instant map display.
+  static const String myReportsBox = 'my_reports';
+
   /// Completed navigation trip records (offline-first, for analytics/thesis).
   static const String tripHistoryBox = 'trip_history';
 

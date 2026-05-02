@@ -22,6 +22,7 @@ class StorageService {
     await Hive.openBox(StorageConfig.userBox);
     await Hive.openBox(StorageConfig.pendingReportsBox);
     await Hive.openBox(StorageConfig.verifiedHazardsBox);
+    await Hive.openBox(StorageConfig.myReportsBox);
     await Hive.openBox(StorageConfig.tripHistoryBox);
     await Hive.openBox(StorageConfig.activeRouteBox);
   }
@@ -155,6 +156,23 @@ class StorageService {
   /// Get cached verified hazard reports.
   Future<List<Map<String, dynamic>>?> getCachedVerifiedHazards() async {
     final box = Hive.box(StorageConfig.verifiedHazardsBox);
+    final data = box.get('all');
+    if (data == null) return null;
+    return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  // --- My Reports (Current User's Own Reports) ---
+
+  /// Cache current user's own reports (for instant display on map).
+  Future<void> cacheMyReports(List<Map<String, dynamic>> reports) async {
+    final box = Hive.box(StorageConfig.myReportsBox);
+    await box.put('all', reports);
+    await box.put('last_updated', DateTime.now().toIso8601String());
+  }
+
+  /// Get cached "my reports" (current user's own reports).
+  Future<List<Map<String, dynamic>>?> getCachedMyReports() async {
+    final box = Hive.box(StorageConfig.myReportsBox);
     final data = box.get('all');
     if (data == null) return null;
     return (data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();

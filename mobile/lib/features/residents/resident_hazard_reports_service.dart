@@ -176,7 +176,7 @@ class ResidentHazardReportsService {
   }
 
   /// Return cached hazards immediately with NO network calls.
-  /// Reads cached verified hazards from Hive + any offline-queued reports.
+  /// Reads cached verified hazards + cached my reports + offline-queued reports from Hive.
   /// Call this before [getMapReports] to show markers while the API loads.
   Future<List<Map<String, dynamic>>> getCachedMapReports() async {
     if (ApiConfig.useMockData) return [];
@@ -190,6 +190,14 @@ class ResidentHazardReportsService {
           final r = HazardReport.fromJson(Map<String, dynamic>.from(json as Map));
           out.add(_reportToMap(r, isCurrentUser: false));
         } catch (_) {}
+      }
+    } catch (_) {}
+
+    // Cached "my reports" (own pending + approved reports, Hive read, no network)
+    try {
+      final cachedMy = await _storageService.getCachedMyReports();
+      if (cachedMy != null) {
+        out.addAll(cachedMy);
       }
     } catch (_) {}
 
@@ -257,12 +265,20 @@ class ResidentHazardReportsService {
     }
 
     // Add own reports (pending or approved) with full details
+    final myReportsMaps = <Map<String, dynamic>>[];
     for (final r in myReports) {
       // Skip rejected reports — they should not appear on the map
       if (r.status == HazardStatus.rejected) continue;
       // Add with full details (description, media, etc.) since this is the owner's view
-      out.add(_reportToMap(r, isCurrentUser: true));
+      final mapped = _reportToMap(r, isCurrentUser: true);
+      out.add(mapped);
+      myReportsMaps.add(mapped);
     }
+
+    // Cache "my reports" for instant display on next app open
+    try {
+      await _storageService.cacheMyReports(myReportsMaps);
+    } catch (_) {}
 
     // Include locally-queued reports (saved offline, not yet uploaded).
     // These show on the map immediately so the user knows their report is saved.
