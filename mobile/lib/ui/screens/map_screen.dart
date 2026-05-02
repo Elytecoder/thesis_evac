@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -1093,13 +1097,18 @@ class _MapScreenState extends State<MapScreen>
                           reportId: report['id'],
                           onMediaFetched: (photo, video) {
                             setState(() {
-                              if (photo.isNotEmpty) {
-                                report['media'] ??= [];
-                                (report['media'] as List).add({'type': 'image', 'url': photo});
+                              // Initialize media array if it doesn't exist
+                              report['media'] ??= <Map<String, dynamic>>[];
+                              final media = report['media'] as List<dynamic>;
+
+                              // Add photo only if not already in array
+                              if (photo.isNotEmpty && !media.any((m) => m['type'] == 'image')) {
+                                media.add({'type': 'image', 'url': photo});
                               }
-                              if (video.isNotEmpty) {
-                                report['media'] ??= [];
-                                (report['media'] as List).add({'type': 'video', 'url': video});
+
+                              // Add video only if not already in array
+                              if (video.isNotEmpty && !media.any((m) => m['type'] == 'video')) {
+                                media.add({'type': 'video', 'url': video});
                               }
                             });
                           },
@@ -1321,13 +1330,7 @@ class _MapScreenState extends State<MapScreen>
                   if (isImage) {
                     _openFullscreenImage(url);
                   } else {
-                    // Video - show error message for now (video player not implemented)
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Video playback not yet supported in this view'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
+                    _openVideoPlayer(url);
                   }
                 }
               : null,
@@ -1439,6 +1442,15 @@ class _MapScreenState extends State<MapScreen>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _openVideoPlayer(String url) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _VideoPlayerScreen(videoUrl: url),
       ),
     );
   }
@@ -2429,5 +2441,207 @@ class _MapScreenState extends State<MapScreen>
       case app_route.RiskLevel.red:
         return Colors.red;
     }
+  }
+}
+
+/// Fullscreen video player for pending report videos
+class _VideoPlayerScreen extends StatefulWidget {
+  final String videoUrl;
+
+  const _VideoPlayerScreen({required this.videoUrl});
+
+  @override
+  State<_VideoPlayerScreen> createState() => _VideoPlayerScreenState();
+}
+
+class _VideoPlayerScreenState extends State<_VideoPlayerScreen> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text('Video'),
+      ),
+      body: Center(
+        child: _VideoPlayerWidget(url: widget.videoUrl),
+      ),
+    );
+  }
+}
+
+/// Video player widget that handles base64 and HTTP URLs
+class _VideoPlayerWidget extends StatefulWidget {
+  final String url;
+
+  const _VideoPlayerWidget({required this.url});
+
+  @override
+  State<_VideoPlayerWidget> createState() => _VideoPlayerWidgetState();
+}
+
+class _VideoPlayerWidgetState extends State<_VideoPlayerWidget> {
+  VideoPlayerController? _controller;
+  bool _initialized = false;
+  bool _error = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initPlayer();
+  }
+
+  Future<void> _initPlayer() async {
+    try {
+      VideoPlayerController ctrl;
+
+      if (widget.url.startsWith('data:video')) {
+        if (kIsWeb) {
+          // Web: pass data URL directly
+          ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+        } else {
+          // Mobile: decode base64 → temp file
+          final i = widget.url.indexOf(',');
+          if (i < 0) {
+            setState(() { _error = true; _loading = false; });
+            return;
+          }
+          final bytes = base64Decode(widget.url.substring(i + 1));
+          final dir = await getTemporaryDirectory();
+          final file = File('${dir.path}/video_${DateTime.now().millisecondsSinceEpoch}.mp4');
+          await file.writeAsBytes(bytes, flush: true);
+          ctrl = VideoPlayerController.file(file);
+        }
+      } else if (widget.url.startsWith('http://') || widget.url.startsWith('https://')) {
+        ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      } else {
+        setState(() { _error = true; _loading = false; });
+        return;
+      }
+
+      await ctrl.initialize();
+      if (!mounted) {
+        ctrl.dispose();
+        return;
+      }
+      setState(() {
+        _controller = ctrl;
+        _initialized = true;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('Video player error: $e');
+      if (mounted) setState(() { _error = true; _loading = false; });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _togglePlayPause() {
+    final c = _controller;
+    if (c == null) return;
+    setState(() {
+      c.value.isPlaying ? c.pause() : c.play();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: Colors.white),
+          SizedBox(height: 16),
+          Text('Loading video...', style: TextStyle(color: Colors.white70)),
+        ],
+      );
+    }
+
+    if (_error) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+          const SizedBox(height: 16),
+          Text(
+            'Failed to load video',
+            style: TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'The video format may not be supported',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ],
+      );
+    }
+
+    final ctrl = _controller!;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Video frame
+          AspectRatio(
+            aspectRatio: ctrl.value.aspectRatio,
+            child: VideoPlayer(ctrl),
+          ),
+          // Play/pause overlay
+          GestureDetector(
+            onTap: _togglePlayPause,
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: ctrl,
+              builder: (_, value, __) {
+                return AnimatedOpacity(
+                  opacity: value.isPlaying ? 0.0 : 1.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Container(
+                    width: 64,
+                    height: 64,
+                    decoration: const BoxDecoration(
+                      color: Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      value.isPlaying ? Icons.pause : Icons.play_arrow,
+                      color: Colors.white,
+                      size: 40,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // Progress bar
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: ctrl,
+              builder: (_, value, __) {
+                return VideoProgressIndicator(
+                  ctrl,
+                  allowScrubbing: true,
+                  colors: const VideoProgressColors(
+                    playedColor: Colors.blue,
+                    bufferedColor: Colors.white30,
+                    backgroundColor: Colors.black26,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
