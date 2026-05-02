@@ -822,9 +822,16 @@ def verified_hazards(request):
     Returns all approved hazard reports for map display.
     Only public, non-identifying fields are returned (PublicHazardSerializer).
     """
-    qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED, is_deleted=False).select_related('user')
-    serializer = PublicHazardSerializer(qs, many=True)
-    return Response(serializer.data)
+    try:
+        qs = HazardReport.objects.filter(status=HazardReport.Status.APPROVED, is_deleted=False).select_related('user')
+        serializer = PublicHazardSerializer(qs, many=True)
+        return Response(serializer.data)
+    except Exception as e:
+        logger.error(f'Error in verified_hazards endpoint: {e}', exc_info=True)
+        return Response(
+            {'error': 'Failed to fetch verified hazards', 'detail': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @api_view(['POST'])

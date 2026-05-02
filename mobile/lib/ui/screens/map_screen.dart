@@ -1299,11 +1299,18 @@ class _MapScreenState extends State<MapScreen>
     // The report object already contains a 'media' array from _reportToMap()
     // with entries like: {'type': 'image', 'url': '...'} or {'type': 'video', 'url': '...'}
     final mediaList = report['media'];
-    if (mediaList is List) {
-      return mediaList.cast<Map<String, dynamic>>();
+    if (mediaList is List && mediaList.isNotEmpty) {
+      // Filter out empty URLs
+      final validMedia = mediaList
+          .cast<Map<String, dynamic>>()
+          .where((m) => (m['url'] as String? ?? '').trim().isNotEmpty)
+          .toList();
+      if (validMedia.isNotEmpty) {
+        return validMedia;
+      }
     }
 
-    // Fallback: construct media list from photo_url/video_url if media array is missing
+    // Fallback: construct media list from photo_url/video_url if media array is missing or empty
     final List<Map<String, dynamic>> media = [];
     final photoUrl = (report['photo_url'] as String? ?? '').trim();
     if (photoUrl.isNotEmpty) {
@@ -1387,39 +1394,9 @@ class _MapScreenState extends State<MapScreen>
     required dynamic reportId,
     required Function(String photo, String video) onMediaFetched,
   }) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        final state = {'isLoading': false};
-
-        Future<void> fetchMedia() async {
-          if (!mounted) return;
-          setState(() => state['isLoading'] = true);
-          try {
-            final apiClient = ApiClient();
-            final endpoint = ApiConfig.reportMediaEndpoint(reportId);
-            final resp = await apiClient.get(endpoint);
-            if (resp.statusCode == 200) {
-              final photo = (resp.data['photo_url'] as String? ?? '').trim();
-              final video = (resp.data['video_url'] as String? ?? '').trim();
-              onMediaFetched(photo, video);
-              if (mounted) setState(() => state['isLoading'] = false);
-            }
-          } catch (e) {
-            debugPrint('Error fetching media: $e');
-            if (mounted) setState(() => state['isLoading'] = false);
-          }
-        }
-
-        final isLoading = state['isLoading'] as bool;
-        return OutlinedButton.icon(
-          onPressed: isLoading ? null : fetchMedia,
-          icon: isLoading
-              ? const SizedBox(width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.perm_media_outlined, size: 16),
-          label: Text(isLoading ? 'Loading media…' : 'Load Attached Media'),
-        );
-      },
+    return _MediaFetchButton(
+      reportId: reportId,
+      onMediaFetched: onMediaFetched,
     );
   }
 
@@ -2642,6 +2619,78 @@ class _VideoPlayerWidgetState extends State<_VideoPlayerWidget> {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+/// Stateful button to fetch media - prevents rebuild loops
+class _MediaFetchButton extends StatefulWidget {
+  final dynamic reportId;
+  final Function(String photo, String video) onMediaFetched;
+
+  const _MediaFetchButton({
+    required this.reportId,
+    required this.onMediaFetched,
+  });
+
+  @override
+  State<_MediaFetchButton> createState() => _MediaFetchButtonState();
+}
+
+class _MediaFetchButtonState extends State<_MediaFetchButton> {
+  bool _isLoading = false;
+  bool _fetched = false;
+
+  Future<void> _fetchMedia() async {
+    if (_isLoading || _fetched) return;  // Prevent duplicate requests
+
+    setState(() => _isLoading = true);
+
+    try {
+      final apiClient = ApiClient();
+      final endpoint = ApiConfig.reportMediaEndpoint(widget.reportId);
+      debugPrint('[MediaFetch] Fetching media for report ${widget.reportId}');
+      final resp = await apiClient.get(endpoint);
+
+      if (resp.statusCode == 200 && mounted) {
+        final photo = (resp.data['photo_url'] as String? ?? '').trim();
+        final video = (resp.data['video_url'] as String? ?? '').trim();
+        debugPrint('[MediaFetch] Got media - photo: ${photo.length} chars, video: ${video.length} chars');
+
+        widget.onMediaFetched(photo, video);
+
+        setState(() {
+          _isLoading = false;
+          _fetched = true;  // Mark as fetched to prevent re-fetch
+        });
+      } else {
+        debugPrint('[MediaFetch] Failed with status ${resp.statusCode}');
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint('[MediaFetch] Error: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_fetched) {
+      // Already fetched, don't show button anymore
+      return const SizedBox.shrink();
+    }
+
+    return OutlinedButton.icon(
+      onPressed: _isLoading ? null : _fetchMedia,
+      icon: _isLoading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.perm_media_outlined, size: 16),
+      label: Text(_isLoading ? 'Loading media…' : 'Load Attached Media'),
     );
   }
 }
