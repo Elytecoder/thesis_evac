@@ -51,6 +51,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   final GPSTrackingService _gpsService = GPSTrackingService();
   final RiskAwareRoutingService _routingService = RiskAwareRoutingService();
   final HazardService _hazardService = HazardService();
+  final StorageService _storageService = StorageService();
   final MapController _mapController = MapController();
 
   // ── Navigation state ─────────────────────────────────────────────────────
@@ -176,12 +177,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
   /// Initialize navigation system
   Future<void> _initializeNavigation() async {
     try {
-      // Load verified hazards and calculate route in parallel
-      await Future.wait([
-        _calculateRoute(),
-        _loadVerifiedHazards(),
-        _loadPendingHazards(),
-      ]);
+      // Calculate route first — hazard loading must not delay navigation start.
+      // Hazards are loaded in background; markers appear as they arrive.
+      await _calculateRoute();
+      _loadVerifiedHazards(); // background — no await
+      _loadPendingHazards();  // background — no await
 
       // Start GPS tracking
       final started = await _gpsService.startTracking();
@@ -246,8 +246,25 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Load approved/verified hazards to show on the map during navigation
+  /// Load verified hazards for the map — shows Hive cache instantly, then
+  /// refreshes from API in the background so markers appear without delay.
   Future<void> _loadVerifiedHazards() async {
+    try {
+      final cached = await _storageService.getCachedVerifiedHazards();
+      if (cached != null && cached.isNotEmpty && mounted) {
+        final reports = cached
+            .map((json) {
+              try {
+                return HazardReport.fromJson(Map<String, dynamic>.from(json as Map));
+              } catch (_) {
+                return null;
+              }
+            })
+            .whereType<HazardReport>()
+            .toList();
+        if (mounted) setState(() => _verifiedHazards = reports);
+      }
+    } catch (_) {}
     try {
       final list = await _hazardService.getVerifiedHazards();
       if (mounted) setState(() => _verifiedHazards = list);

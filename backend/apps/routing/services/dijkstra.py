@@ -137,7 +137,9 @@ class ModifiedDijkstraService:
 
     # Penalty added to each edge of a previously used path so next run prefers different edges.
     # Applied only at query time via edge_penalty dict; graph/segments are never mutated → no reset needed.
-    PENALTY_VALUE = 500.0
+    # 100 m: penalized edges cost ~2× a typical 100 m segment — enough to encourage a different path
+    # without routing kilometres out of the way (old value 500 created 15 km alternatives on a 9 km route).
+    PENALTY_VALUE = 100.0
 
     def dijkstra_k_routes(
         self,

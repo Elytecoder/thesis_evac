@@ -16,6 +16,7 @@ Effective segment risk = (base_RF × 0.6) + (dynamic × 0.4), clamped to [0, 1].
 road_blocked within its tight radius forces segment risk to 1.0 (impassable).
 """
 import math
+import time
 from decimal import Decimal
 
 from apps.evacuation.models import EvacuationCenter
@@ -863,6 +864,7 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
     # first request with a slow RF training cycle. Scores are pre-computed at deploy
     # time via `python manage.py update_segment_risks`. Segments with score=0 still
     # route correctly — effective_risk falls back to dynamic hazard signals only.
+    t0 = time.time()
     segments = list(RoadSegment.objects.all())
     segment_count = len(segments)
     if not segments:
@@ -876,9 +878,11 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
             'alternative_centers': [],
             'segment_count': 0,
         }
+    t1 = time.time()
     approved_hazards = _get_approved_hazards()
     for seg in segments:
         seg.effective_risk = calculate_segment_risk(seg, approved_hazards)
+    t2 = time.time()
     # 1–4) Up to k routes by reusing Dijkstra: run once → penalize used edges → run again.
     dijkstra_safe = ModifiedDijkstraService(risk_multiplier=150.0)
     safest_routes = dijkstra_safe.get_safest_routes(
@@ -895,6 +899,7 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         float(ec.latitude), float(ec.longitude),
         k=1,
     )
+    t3 = time.time()
     # 6–8) Unique routes only; do not duplicate; return only available routes.
     seen_path_keys = set()
     routes = []
@@ -979,7 +984,7 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
                     routes.remove(practical)
                     routes.insert(0, practical)
 
-    # Alternative-route length cap: drop Route 2/3 when they are > 1.5× the
+    # Alternative-route length cap: drop Route 2/3 when they are > 1.4× the
     # shortest non-blocked route.  Route 1 is always kept regardless of length.
     # Fully-blocked alternatives (risk ≥ EXTREME_RISK_THRESHOLD) are also kept
     # so the UI can still warn the user why a center is unreachable.
@@ -988,10 +993,11 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         if non_blocked:
             min_nb_dist = min(r.get('total_distance') or float('inf') for r in non_blocked)
             if 0 < min_nb_dist < float('inf'):
-                cap = 1.5 * min_nb_dist
+                cap = 1.4 * min_nb_dist
+                primary = routes[0]
                 routes = [
                     r for r in routes
-                    if r is routes[0]  # always keep the primary route
+                    if r is primary  # always keep the primary route
                     or (r.get('total_distance') or 0.0) <= cap
                     or (r.get('total_risk') or 0.0) >= EXTREME_RISK_THRESHOLD
                 ]
@@ -1024,6 +1030,14 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
         alternative_centers = _get_alternative_centers(
             start_lat_f, start_lng_f, ec.id, limit=5,
         )
+
+    t4 = time.time()
+    print(
+        f'[ROUTE_TIMING] ec={ec.id} segs={segment_count} hazards={len(approved_hazards)} '
+        f'routes={len(routes)} | '
+        f'db={t1-t0:.2f}s risks={t2-t1:.2f}s dijkstra={t3-t2:.2f}s post={t4-t3:.2f}s '
+        f'total={t4-t0:.2f}s'
+    )
 
     return {
         'evacuation_center_id': ec.id,
