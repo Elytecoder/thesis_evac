@@ -884,10 +884,10 @@ class _MapScreenState extends State<MapScreen>
   }
 
   /// View hazard report details — privacy-aware.
-  /// Own pending reports show full details; other residents' reports show
-  /// only public, non-identifying safety information.
+  /// Approved/verified hazards always show public format (even if owned by current user).
+  /// Own pending reports show full details.
   void _viewHazardReport(Map<String, dynamic> report) {
-    final isPending = report['status'] == 'pending';
+    final status = (report['status'] as String? ?? '').toLowerCase();
     final isOffline = report['is_offline'] == true;
     final isCurrentUserReport = report['reported_by'] == ResidentHazardReportsService.currentUserId;
     final rawType = (report['type'] as String? ?? '').trim();
@@ -955,16 +955,29 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    if (!isCurrentUserReport) {
-      // Other resident's report — show safe public view only
+    // Check status FIRST: approved/verified hazards always use public format
+    final isVerified = status == 'verified' || status == 'approved';
+    if (isVerified) {
+      // Approved/verified hazards show public view for ALL residents (including owner)
       final area = locationBarangay.isNotEmpty
           ? locationBarangay
           : (locationMunicipality.isNotEmpty ? locationMunicipality : locationLabel);
-      _showPublicHazardView(displayType, area, isPending);
+      _showPublicHazardView(displayType, area, false);  // isPending=false for verified
       return;
     }
 
-    // Own report — show full personal details
+    // Only pending reports can show full details (and only to owner)
+    if (!isCurrentUserReport) {
+      // Other resident's pending report — this should never happen (filtered server-side)
+      // but if it does, show public view as fallback
+      final area = locationBarangay.isNotEmpty
+          ? locationBarangay
+          : (locationMunicipality.isNotEmpty ? locationMunicipality : locationLabel);
+      _showPublicHazardView(displayType, area, true);
+      return;
+    }
+
+    // Own pending report — show full personal details
     // Check media array for attachments (modern format) or fall back to has_photo/has_video flags
     final mediaList = report['media'] as List?;
     final hasPhoto = (mediaList?.any((m) => m['type'] == 'image') ?? false) || (report['has_photo'] == true);
@@ -1302,8 +1315,20 @@ class _MapScreenState extends State<MapScreen>
         final rawUrl = (item['url'] ?? '').toString();
         final url = normalizeMediaUrl(rawUrl);
         return GestureDetector(
-          onTap: isImage && url.isNotEmpty
-              ? () => _openFullscreenImage(url)
+          onTap: url.isNotEmpty
+              ? () {
+                  if (isImage) {
+                    _openFullscreenImage(url);
+                  } else {
+                    // Video - show error message for now (video player not implemented)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Video playback not yet supported in this view'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                }
               : null,
           child: Container(
           width: 100,
@@ -1363,16 +1388,17 @@ class _MapScreenState extends State<MapScreen>
         final state = {'isLoading': false};
 
         Future<void> fetchMedia() async {
+          if (!mounted) return;
           setState(() => state['isLoading'] = true);
           try {
             final apiClient = ApiClient();
             final endpoint = ApiConfig.reportMediaEndpoint(reportId);
             final resp = await apiClient.get(endpoint);
-            if (resp.statusCode == 200 && mounted) {
+            if (resp.statusCode == 200) {
               final photo = (resp.data['photo_url'] as String? ?? '').trim();
               final video = (resp.data['video_url'] as String? ?? '').trim();
               onMediaFetched(photo, video);
-              setState(() => state['isLoading'] = false);
+              if (mounted) setState(() => state['isLoading'] = false);
             }
           } catch (e) {
             debugPrint('Error fetching media: $e');
