@@ -949,7 +949,7 @@ class _MapScreenState extends State<MapScreen>
                     ],
                   ),
                   const SizedBox(height: 8),
-                  _buildMediaGallery(report['media']),
+                  _buildMediaGallery(_buildMediaListFromReport(report)),
                 ],
                 
                 const SizedBox(height: 24),
@@ -1126,7 +1126,24 @@ class _MapScreenState extends State<MapScreen>
       ),
     );
   }
-  
+
+  /// Build media list from report's photo_url and video_url fields
+  List<Map<String, dynamic>> _buildMediaListFromReport(Map<String, dynamic> report) {
+    final List<Map<String, dynamic>> media = [];
+
+    final photoUrl = (report['photo_url'] as String? ?? '').trim();
+    if (photoUrl.isNotEmpty) {
+      media.add({'type': 'image', 'url': photoUrl});
+    }
+
+    final videoUrl = (report['video_url'] as String? ?? '').trim();
+    if (videoUrl.isNotEmpty) {
+      media.add({'type': 'video', 'url': videoUrl});
+    }
+
+    return media;
+  }
+
   Widget _buildMediaGallery(List media) {
     return Wrap(
       spacing: 8,

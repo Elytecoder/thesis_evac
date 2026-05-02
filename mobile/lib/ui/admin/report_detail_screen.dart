@@ -101,12 +101,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     // STEP 1: Show reminder modal BEFORE approval
     // Reminder modal ensures hazard impacts evacuation route before approval.
     final reminderConfirmed = await _showApprovalReminderModal();
-    
+
     if (reminderConfirmed != true) {
       // User cancelled from reminder modal
       return;
     }
-    
+
     // STEP 2: Show final confirmation dialog
     final confirm = await _showConfirmDialog(
       'Approve Report',
@@ -134,7 +134,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           );
         }
       } catch (e) {
-        setState(() => _isProcessing = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -142,6 +141,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
               backgroundColor: Colors.red,
             ),
           );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isProcessing = false);
         }
       }
     }
@@ -174,7 +177,6 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
           );
         }
       } catch (e) {
-        setState(() => _isProcessing = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -182,6 +184,10 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
               backgroundColor: Colors.red,
             ),
           );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isProcessing = false);
         }
       }
     }

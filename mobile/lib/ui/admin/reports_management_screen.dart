@@ -202,6 +202,12 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
       ),
     );
     if (confirmed != true || report.id == null) return;
+
+    // Show loading indicator during delete
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
+
     try {
       await _hazardService.deleteReportMdrrmo(report.id!);
       if (mounted) {
@@ -211,7 +217,8 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        _loadReports();
+        // Reload reports to reflect deletion
+        await _loadReports();
       }
     } catch (e) {
       if (mounted) {
@@ -221,6 +228,11 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    } finally {
+      // Ensure loading state is cleared even if refresh fails
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -260,6 +272,11 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
     );
 
     if (confirmed == true) {
+      // Show loading indicator during restore
+      if (mounted) {
+        setState(() => _isLoading = true);
+      }
+
       try {
         await _hazardService.restoreReport(
           reportId: report.id ?? 0,
@@ -274,7 +291,8 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
               duration: Duration(seconds: 3),
             ),
           );
-          _loadReports();
+          // Reload reports to reflect restoration
+          await _loadReports();
         }
       } catch (e) {
         if (mounted) {
@@ -285,6 +303,11 @@ class _ReportsManagementScreenState extends State<ReportsManagementScreen> {
               duration: const Duration(seconds: 3),
             ),
           );
+        }
+      } finally {
+        // Ensure loading state is cleared even if refresh fails
+        if (mounted) {
+          setState(() => _isLoading = false);
         }
       }
     }
