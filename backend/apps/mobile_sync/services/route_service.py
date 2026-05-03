@@ -96,19 +96,19 @@ PATH_DEFAULT_INFLUENCE_RADIUS = 60
 # Each type contributes a different increment to dynamic risk per nearby hazard.
 # road_blocked is highest because it physically blocks passage.
 HAZARD_TYPE_RISK_WEIGHT: dict = {
-    'flooded_road':              0.45,
-    'flood':                     0.45,
-    'fallen_tree':               0.55,
-    'road_damage':               0.45,
-    'fallen_electric_post':      0.70,
-    'fallen_electric_post_wires': 0.75,
+    'flooded_road':              0.30,
+    'flood':                     0.30,
+    'fallen_tree':               0.35,
+    'road_damage':               0.25,
+    'fallen_electric_post':      0.45,
+    'fallen_electric_post_wires': 0.50,
     'road_blocked':              1.00,   # also triggers full-block logic below
-    'bridge_damage':             0.80,
-    'storm_surge':               0.70,
-    'landslide':                 0.70,
-    'other':                     0.35,
+    'bridge_damage':             0.40,
+    'storm_surge':               0.45,
+    'landslide':                 0.50,
+    'other':                     0.20,
 }
-DEFAULT_HAZARD_RISK_WEIGHT = 0.35   # fallback for unknown types
+DEFAULT_HAZARD_RISK_WEIGHT = 0.20   # fallback for unknown types
 
 # ── Improvement 3: Road-block hazard types that force segment risk to 1.0 ──
 BLOCKING_HAZARD_TYPES = {'road_blocked', 'road_block'}
@@ -930,12 +930,19 @@ def calculate_safest_routes(start_lat, start_lng, evacuation_center_id: int, k: 
             total_dist = _path_length_meters(path)
         r['total_distance'] = total_dist
 
+        # Get segment-level risk sum from Dijkstra
+        segment_risk_sum = r.get('total_risk') or 0.0
+
+        # Convert sum to AVERAGE risk (prevents inflation on long routes)
+        num_segments = len(path) - 1 if len(path) > 1 else 1
+        avg_risk = segment_risk_sum / num_segments if num_segments > 0 else 0.0
+
+        # Normalize to [0, 1] - this is the actual route risk
+        # No need to add path_based_hazard_risk - that would double-count hazards!
+        r['total_risk'] = min(1.0, max(0.0, avg_risk))
+        r['risk_level'] = _risk_level_from_total(avg_risk)
+
         diagnostics = _route_hazard_diagnostics(path, approved_hazards)
-        path_risk = _path_based_hazard_risk(path, approved_hazards, diagnostics=diagnostics)
-        total = r.get('total_risk') or 0.0
-        total += path_risk
-        r['total_risk'] = min(1.0, max(0.0, total))  # always clamped to [0, 1]
-        r['risk_level'] = _risk_level_from_total(total)
         r['hazards_along_route'] = _hazards_along_path(path, approved_hazards, diagnostics=diagnostics)
 
         # Route-level diagnostics for auditing why hazards were included/excluded.
