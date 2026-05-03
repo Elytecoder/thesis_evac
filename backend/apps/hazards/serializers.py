@@ -214,7 +214,7 @@ class PublicHazardSerializer(serializers.ModelSerializer):
     """
     Minimal public view of an approved hazard for resident map display.
     Only exposes safe, non-identifying information — no description, no reporter
-    identity, no AI scores, no timestamps.
+    identity, no AI scores. Includes created_at for date display.
     """
     confirmation_count = serializers.SerializerMethodField()
     location_barangay = serializers.SerializerMethodField()
@@ -233,6 +233,7 @@ class PublicHazardSerializer(serializers.ModelSerializer):
             'location_barangay',
             'location_municipality',
             'location_label',
+            'created_at',
         )
 
     def get_confirmation_count(self, obj):

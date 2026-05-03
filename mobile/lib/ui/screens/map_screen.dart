@@ -18,6 +18,7 @@ import '../../core/map/cached_tile_provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/connectivity_service.dart';
 import '../../core/services/sync_service.dart';
+import '../../core/utils/date_time_utils.dart';
 import '../../models/evacuation_center.dart';
 import '../../models/route.dart' as app_route;
 import '../../data/mock_evacuation_centers.dart';
@@ -887,6 +888,18 @@ class _MapScreenState extends State<MapScreen>
         .join(' ');
   }
 
+  /// Format ISO-8601 date string to relative time or absolute date.
+  /// e.g. "2026-05-03T10:30:00Z" → "5m ago" or "05/03/2026 at 10:30"
+  static String _formatHazardDate(String isoString) {
+    if (isoString.trim().isEmpty) return '';
+    try {
+      final dateTime = DateTime.parse(isoString);
+      return formatRelativeManila(dateTime);
+    } catch (_) {
+      return '';
+    }
+  }
+
   /// View hazard report details — privacy-aware.
   /// Approved/verified hazards always show public format (even if owned by current user).
   /// Own pending reports show full details.
@@ -967,7 +980,8 @@ class _MapScreenState extends State<MapScreen>
       final area = locationBarangay.isNotEmpty
           ? locationBarangay
           : (locationMunicipality.isNotEmpty ? locationMunicipality : locationLabel);
-      _showPublicHazardView(displayType, area, false);  // isPending=false for verified
+      final createdAt = report['created_at'] as String? ?? '';
+      _showPublicHazardView(displayType, area, false, createdAt);  // isPending=false for verified
       return;
     }
 
@@ -978,7 +992,8 @@ class _MapScreenState extends State<MapScreen>
       final area = locationBarangay.isNotEmpty
           ? locationBarangay
           : (locationMunicipality.isNotEmpty ? locationMunicipality : locationLabel);
-      _showPublicHazardView(displayType, area, true);
+      final createdAt = report['created_at'] as String? ?? '';
+      _showPublicHazardView(displayType, area, true, createdAt);
       return;
     }
 
@@ -1148,8 +1163,8 @@ class _MapScreenState extends State<MapScreen>
   }
 
   /// Public-safe view for another resident's hazard report.
-  /// Shows only: formatted hazard type, general area, status badge, safety message.
-  void _showPublicHazardView(String displayType, String area, bool isPending) {
+  /// Shows only: formatted hazard type, general area, date, status badge, safety message.
+  void _showPublicHazardView(String displayType, String area, bool isPending, String createdAt) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -1232,6 +1247,14 @@ class _MapScreenState extends State<MapScreen>
               // General area from hazard coordinates (safe to show)
               if (area.isNotEmpty)
                 _buildDetailRow(Icons.location_city, 'Area', area),
+
+              // Date reported (if available)
+              if (createdAt.isNotEmpty)
+                _buildDetailRow(
+                  Icons.calendar_today,
+                  'Reported',
+                  _formatHazardDate(createdAt),
+                ),
 
               const SizedBox(height: 20),
 
