@@ -273,14 +273,66 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen>
     }
   }
 
-  /// Load pending hazards: uses the resident's own reports filtered by pending
-  /// status, because /mdrrmo/pending-reports/ is MDRRMO-only (403 for residents).
-  /// This ensures a just-submitted report appears on the map immediately.
+  /// Load pending hazards: uses cache-first strategy for instant display.
+  /// 1. Load cached "my reports" from Hive immediately (no network)
+  /// 2. Load offline-queued reports from Hive
+  /// 3. Refresh from API in background
+  /// This ensures pending markers appear instantly during navigation.
   Future<void> _loadPendingHazards() async {
+    // Step 1: Load from cache instantly (no network call)
+    try {
+      final cachedMy = await _storageService.getCachedMyReports();
+      if (cachedMy != null && cachedMy.isNotEmpty && mounted) {
+        final pending = cachedMy
+            .map((json) {
+              try {
+                return HazardReport.fromJson(json);
+              } catch (_) {
+                return null;
+              }
+            })
+            .whereType<HazardReport>()
+            .where((r) => r.status == HazardStatus.pending)
+            .toList();
+
+        // Load offline-queued reports
+        final queued = await _storageService.getPendingReports();
+        final offlineReports = queued.map((q) {
+          return HazardReport(
+            id: q['id'] as int? ?? 0,
+            hazardType: q['hazard_type'] as String? ?? 'other',
+            latitude: (q['latitude'] as num?)?.toDouble() ?? 0.0,
+            longitude: (q['longitude'] as num?)?.toDouble() ?? 0.0,
+            status: HazardStatus.pending,
+            description: q['description'] as String? ?? '',
+            userId: 0,
+          );
+        }).toList();
+
+        if (mounted) setState(() => _pendingHazards = [...pending, ...offlineReports]);
+      }
+    } catch (_) {}
+
+    // Step 2: Refresh from API in background
     try {
       final all = await _hazardService.getMyReports();
       final pending = all.where((r) => r.status == HazardStatus.pending).toList();
-      if (mounted) setState(() => _pendingHazards = pending);
+
+      // Merge with offline-queued reports
+      final queued = await _storageService.getPendingReports();
+      final offlineReports = queued.map((q) {
+        return HazardReport(
+          id: q['id'] as int? ?? 0,
+          hazardType: q['hazard_type'] as String? ?? 'other',
+          latitude: (q['latitude'] as num?)?.toDouble() ?? 0.0,
+          longitude: (q['longitude'] as num?)?.toDouble() ?? 0.0,
+          status: HazardStatus.pending,
+          description: q['description'] as String? ?? '',
+          userId: 0,
+        );
+      }).toList();
+
+      if (mounted) setState(() => _pendingHazards = [...pending, ...offlineReports]);
     } catch (e) {
       print('Could not load pending hazards: $e');
     }
